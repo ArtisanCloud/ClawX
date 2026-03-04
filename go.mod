@@ -1,0 +1,6 @@
+module synapsex
+
+go 1.24.0
+
+// Phase 1 only initializes the Go module. Third-party adapter dependencies
+// are added when their concrete implementations are introduced.
