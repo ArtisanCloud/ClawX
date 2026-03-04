@@ -36,18 +36,18 @@
 
 **⚠️ 关键说明**: 本阶段是所有用户故事的阻塞前置能力
 
-- [ ] T006 创建会话领域模型与状态规则于 internal/domain/session/session.go
-- [ ] T007 [P] 创建执行记录领域模型与结果状态规则于 internal/domain/execution/run.go
-- [ ] T008 [P] 创建对话标识生成规则于 internal/domain/conversation/id.go
-- [ ] T009 定义会话仓储接口与锁接口于 internal/domain/session/repository.go
-- [ ] T010 实现内存态会话仓储与会话锁于 internal/infrastructure/persistence/session_memory_repository.go
-- [ ] T011 [P] 实现配置加载与运行边界校验于 internal/infrastructure/config/config.go
-- [ ] T012 [P] 实现结构化日志基础设施于 internal/infrastructure/logging/logger.go
-- [ ] T013 定义后端适配器接口与运行结果接口于 internal/domain/execution/backend.go
-- [ ] T014 定义统一渠道消息结构与发送接口于 internal/interfaces/chat/message.go
-- [ ] T015 实现会话管理应用服务于 internal/application/service/session_manager.go
-- [ ] T016 实现路由应用服务骨架，并加入渠道上下文准入校验与拒绝路径于 internal/application/service/router.go
-- [ ] T017 实现健康探针基础能力于 internal/infrastructure/health/probe.go
+- [X] T006 创建会话领域模型与状态规则于 internal/domain/session/session.go
+- [X] T007 [P] 创建执行记录领域模型与结果状态规则于 internal/domain/execution/run.go
+- [X] T008 [P] 创建对话标识生成规则于 internal/domain/conversation/id.go
+- [X] T009 定义会话仓储接口与锁接口于 internal/domain/session/repository.go
+- [X] T010 实现内存态会话仓储与会话锁于 internal/infrastructure/persistence/session_memory_repository.go
+- [X] T011 [P] 实现配置加载与运行边界校验于 internal/infrastructure/config/config.go
+- [X] T012 [P] 实现结构化日志基础设施于 internal/infrastructure/logging/logger.go
+- [X] T013 定义后端适配器接口与运行结果接口于 internal/domain/execution/backend.go
+- [X] T014 定义统一渠道消息结构与发送接口于 internal/interfaces/chat/message.go
+- [X] T015 实现会话管理应用服务于 internal/application/service/session_manager.go
+- [X] T016 实现路由应用服务骨架，并加入渠道上下文准入校验与拒绝路径于 internal/application/service/router.go
+- [X] T017 实现健康探针基础能力于 internal/infrastructure/health/probe.go
 
 **检查点**: 基础能力完成后，用户故事实现可以开始
 
