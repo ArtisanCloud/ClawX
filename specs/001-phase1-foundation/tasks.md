@@ -101,14 +101,14 @@
 
 ### 用户故事 3 实现
 
-- [ ] T032 [P] [US3] 定义输出片段领域对象于 internal/domain/execution/output_segment.go
-- [ ] T033 [US3] 实现输出分段器与顺序控制于 internal/application/service/output_streamer.go
-- [ ] T034 [P] [US3] 实现 Markdown 与代码块保留策略于 internal/application/service/output_formatter.go
-- [ ] T035 [US3] 实现 Discord 渠道适配器 `send_text` / `send_error` 基础发送能力于 internal/interfaces/chat/discord/adapter.go
-- [ ] T036 [US3] 实现 Telegram 渠道适配器 `send_text` / `send_error` 基础发送能力于 internal/interfaces/chat/telegram/adapter.go
-- [ ] T037 [US3] 在渠道适配层实现统一入站消息归一化于 internal/interfaces/chat/normalize.go
-- [ ] T038 [US3] 在输出分段器中实现发送失败重试与部分失败提示于 internal/application/service/output_delivery.go
-- [ ] T039 [US3] 将渠道适配器与路由主链路接入程序启动入口于 cmd/synapsex/main.go
+- [X] T032 [P] [US3] 定义输出片段领域对象于 internal/domain/execution/output_segment.go
+- [X] T033 [US3] 实现输出分段器与顺序控制于 internal/application/service/output_streamer.go
+- [X] T034 [P] [US3] 实现 Markdown 与代码块保留策略于 internal/application/service/output_formatter.go
+- [X] T035 [US3] 实现 Discord 渠道适配器 `send_text` / `send_error` 基础发送能力于 internal/interfaces/chat/discord/adapter.go
+- [X] T036 [US3] 实现 Telegram 渠道适配器 `send_text` / `send_error` 基础发送能力于 internal/interfaces/chat/telegram/adapter.go
+- [X] T037 [US3] 在渠道适配层实现统一入站消息归一化于 internal/interfaces/chat/normalize.go
+- [X] T038 [US3] 在输出分段器中实现发送失败重试与部分失败提示于 internal/application/service/output_delivery.go
+- [X] T039 [US3] 将渠道适配器与路由主链路接入程序启动入口于 cmd/synapsex/main.go
 
 **检查点**: 此时三个用户故事都应具备独立可验证能力
 

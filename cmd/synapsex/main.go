@@ -8,6 +8,8 @@ import (
 	"synapsex/internal/infrastructure/backend"
 	"synapsex/internal/infrastructure/config"
 	"synapsex/internal/infrastructure/persistence"
+	discordchat "synapsex/internal/interfaces/chat/discord"
+	telegramchat "synapsex/internal/interfaces/chat/telegram"
 )
 
 func main() {
@@ -20,9 +22,17 @@ func main() {
 	sessionManager := service.NewSessionManager(repository, repository, nil)
 	runner := backend.NewDirectRunner("primary", cfg.Timeout, nil)
 	router := service.NewRouter(cfg, sessionManager, runner)
+	formatter := service.NewOutputFormatter()
+	streamer := service.NewOutputStreamer()
+	delivery := service.NewOutputDelivery(formatter, streamer)
+	discordAdapter := discordchat.NewAdapter()
+	telegramAdapter := telegramchat.NewAdapter()
 
-	// The channel adapters will be wired in later phases. Phase 3 only requires
-	// the direct execution chain to be constructed and ready for use.
+	// Phase 5 wires the output and channel adapter skeletons into the startup
+	// graph. Real inbound event loops are added as concrete integrations later.
 	_ = router
-	_, _ = os.Stdout.WriteString("synapsex phase 1 chain initialized\n")
+	_ = delivery
+	_ = discordAdapter
+	_ = telegramAdapter
+	_, _ = os.Stdout.WriteString("synapsex phase 1 chain and channel adapters initialized\n")
 }
