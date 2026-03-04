@@ -35,17 +35,6 @@ func (r *DirectRunner) clearCancel(sessionID string) {
 	delete(r.cancels, sessionID)
 }
 
-func (r *DirectRunner) Cancel(_ context.Context, sessionID string) error {
-	r.mu.Lock()
-	cancel, exists := r.cancels[sessionID]
-	r.mu.Unlock()
-	if !exists {
-		return nil
-	}
-	cancel()
-	return nil
-}
-
 func mapErrorToResultState(err error) execution.ResultState {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
@@ -56,4 +45,3 @@ func mapErrorToResultState(err error) execution.ResultState {
 		return execution.ResultFailed
 	}
 }
-

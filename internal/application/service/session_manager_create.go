@@ -10,9 +10,17 @@ import (
 )
 
 func (m *SessionManager) CreateSession(ctx context.Context, cmd command.SessionCommand) (session.Record, error) {
-	cmd, err := cmd.Normalize()
-	if err != nil {
-		return session.Record{}, err
+	cmd.ConversationID = strings.TrimSpace(cmd.ConversationID)
+	cmd.Backend = strings.TrimSpace(cmd.Backend)
+	cmd.CWD = strings.TrimSpace(cmd.CWD)
+	if cmd.ConversationID == "" {
+		return session.Record{}, command.ErrInvalidSessionCommand
+	}
+	if cmd.Backend == "" {
+		cmd.Backend = "primary"
+	}
+	if cmd.CWD == "" {
+		cmd.CWD = "."
 	}
 
 	record := session.Record{
@@ -41,4 +49,3 @@ func (m *SessionManager) nextSessionID() string {
 func trimSessionID(value string) string {
 	return strings.TrimSpace(value)
 }
-

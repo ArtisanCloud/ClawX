@@ -82,12 +82,12 @@
 
 ### 用户故事 2 实现
 
-- [ ] T026 [P] [US2] 定义控制命令解析结果与命令类型于 internal/application/command/control_command.go
-- [ ] T027 [US2] 在路由服务中实现 `/new`、`/resume`、`/list`、`/cancel` 控制命令分流于 internal/application/service/router_control_flow.go
-- [ ] T028 [US2] 在会话管理服务中实现会话列表查询于 internal/application/service/session_manager_list.go
-- [ ] T029 [US2] 在会话管理服务中实现取消执行与锁释放流程于 internal/application/service/session_manager_cancel.go
-- [ ] T030 [US2] 在后端适配器中实现取消执行的底层协作逻辑于 internal/infrastructure/backend/cancel.go
-- [ ] T031 [US2] 在接口层定义控制命令响应映射于 internal/interfaces/chat/control_response.go
+- [X] T026 [P] [US2] 定义控制命令解析结果与命令类型于 internal/application/command/control_command.go
+- [X] T027 [US2] 在路由服务中实现 `/new`、`/resume`、`/list`、`/cancel` 控制命令分流于 internal/application/service/router_control_flow.go
+- [X] T028 [US2] 在会话管理服务中实现会话列表查询于 internal/application/service/session_manager_list.go
+- [X] T029 [US2] 在会话管理服务中实现取消执行与锁释放流程于 internal/application/service/session_manager_cancel.go
+- [X] T030 [US2] 在后端适配器中实现取消执行的底层协作逻辑于 internal/infrastructure/backend/cancel.go
+- [X] T031 [US2] 在接口层定义控制命令响应映射于 internal/interfaces/chat/control_response.go
 
 **检查点**: 此时用户故事 1 和用户故事 2 都应可独立完成验证
 
