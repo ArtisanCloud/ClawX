@@ -61,14 +61,14 @@
 
 ### 用户故事 1 实现
 
-- [ ] T018 [P] [US1] 定义会话命令对象与输入 DTO 于 internal/application/command/session_command.go
-- [ ] T019 [US1] 实现后端适配器最小直连执行能力于 internal/infrastructure/backend/runner.go
-- [ ] T020 [US1] 在会话管理服务中实现新建会话逻辑于 internal/application/service/session_manager_create.go
-- [ ] T021 [US1] 在会话管理服务中实现恢复会话逻辑于 internal/application/service/session_manager_resume.go
-- [ ] T022 [US1] 在会话管理服务中实现当前会话继续执行逻辑于 internal/application/service/session_manager_continue.go
-- [ ] T023 [US1] 在路由服务中实现“新建 / 恢复 / 继续 / 会话繁忙拒绝”判定流程于 internal/application/service/router_session_flow.go
-- [ ] T024 [US1] 在后端适配器中实现超时与取消控制于 internal/infrastructure/backend/timeout.go
-- [ ] T025 [US1] 将会话主链路接入程序启动入口于 cmd/synapsex/main.go
+- [X] T018 [P] [US1] 定义会话命令对象与输入 DTO 于 internal/application/command/session_command.go
+- [X] T019 [US1] 实现后端适配器最小直连执行能力于 internal/infrastructure/backend/runner.go
+- [X] T020 [US1] 在会话管理服务中实现新建会话逻辑于 internal/application/service/session_manager_create.go
+- [X] T021 [US1] 在会话管理服务中实现恢复会话逻辑于 internal/application/service/session_manager_resume.go
+- [X] T022 [US1] 在会话管理服务中实现当前会话继续执行逻辑于 internal/application/service/session_manager_continue.go
+- [X] T023 [US1] 在路由服务中实现“新建 / 恢复 / 继续 / 会话繁忙拒绝”判定流程于 internal/application/service/router_session_flow.go
+- [X] T024 [US1] 在后端适配器中实现超时与取消控制于 internal/infrastructure/backend/timeout.go
+- [X] T025 [US1] 将会话主链路接入程序启动入口于 cmd/synapsex/main.go
 
 **检查点**: 此时用户故事 1 应可独立运行并完成 MVP 验证
 

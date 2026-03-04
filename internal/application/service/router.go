@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"synapsex/internal/domain/execution"
 	"synapsex/internal/infrastructure/config"
 	"synapsex/internal/interfaces/chat"
 )
@@ -31,12 +32,14 @@ type Decision struct {
 type Router struct {
 	cfg            config.Snapshot
 	sessionManager *SessionManager
+	backend        execution.Backend
 }
 
-func NewRouter(cfg config.Snapshot, sessionManager *SessionManager) *Router {
+func NewRouter(cfg config.Snapshot, sessionManager *SessionManager, backend execution.Backend) *Router {
 	return &Router{
 		cfg:            cfg,
 		sessionManager: sessionManager,
+		backend:        backend,
 	}
 }
 
@@ -77,4 +80,3 @@ func (r *Router) ValidateContext(message chat.Message) error {
 	}
 	return nil
 }
-
