@@ -118,13 +118,13 @@
 
 **目的**: 完成影响多个用户故事的收尾工作，确保第一阶段达到可交付状态
 
-- [ ] T040 [P] 完善统一错误映射与用户可见错误消息于 internal/interfaces/chat/error_response.go
-- [ ] T041 完善健康检查接口与后端探针协作于 internal/interfaces/admin/health_handler.go
-- [ ] T042 [P] 补充会话、执行、渠道、未授权上下文拒绝、并发互斥与时限反馈集成测试于 tests/integration/phase1_foundation_test.go
-- [ ] T043 [P] 补充核心领域单元测试于 tests/unit/session_domain_test.go
-- [ ] T044 [P] 补充渠道与健康契约测试于 tests/contract/channel_contract_test.go 和 tests/contract/health_contract_test.go
-- [ ] T045 校验 quickstart 文档并同步必要实现说明于 specs/001-phase1-foundation/quickstart.md
-- [ ] T046 整理 Phase 1 交付摘要并回写阶段文档于 docs/plans/phase_1_foundation.md
+- [X] T040 [P] 完善统一错误映射与用户可见错误消息于 internal/interfaces/chat/error_response.go
+- [X] T041 完善健康检查接口与后端探针协作于 internal/interfaces/admin/health_handler.go
+- [X] T042 [P] 补充会话、执行、渠道、未授权上下文拒绝、并发互斥与时限反馈集成测试于 tests/integration/phase1_foundation_test.go
+- [X] T043 [P] 补充核心领域单元测试于 tests/unit/session_domain_test.go
+- [X] T044 [P] 补充渠道与健康契约测试于 tests/contract/channel_contract_test.go 和 tests/contract/health_contract_test.go
+- [X] T045 校验 quickstart 文档并同步必要实现说明于 specs/001-phase1-foundation/quickstart.md
+- [X] T046 整理 Phase 1 交付摘要并回写阶段文档于 docs/plans/phase_1_foundation.md
 
 ---
 

@@ -3,11 +3,21 @@ package chat
 import (
 	"fmt"
 	"strings"
-
-	"synapsex/internal/application/service"
 )
 
-func FormatControlResponse(result service.ControlFlowResult) string {
+type ControlSessionSummary struct {
+	ID     string
+	Status string
+}
+
+type ControlResponse struct {
+	CreatedSessionID   string
+	ResumedSessionID   string
+	CancelledSessionID string
+	Sessions           []ControlSessionSummary
+}
+
+func FormatControlResponse(result ControlResponse) string {
 	switch {
 	case result.CreatedSessionID != "":
 		return fmt.Sprintf("已创建新会话: %s", result.CreatedSessionID)
@@ -26,4 +36,3 @@ func FormatControlResponse(result service.ControlFlowResult) string {
 		return "当前没有可返回的控制结果"
 	}
 }
-

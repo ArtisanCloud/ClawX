@@ -9,7 +9,7 @@
 
 ## 技术上下文
 
-**Language/Version**: Go 1.24  
+**Language/Version**: Go 1.23  
 **Primary Dependencies**: Go 标准库、`discordgo`、Telegram Bot SDK（Go）、`gopkg.in/yaml.v3`  
 **Storage**: 内存态会话存储 + 环境变量 / YAML 配置文件  
 **Testing**: Go 原生 `testing` + 集成测试 + 契约测试  
@@ -26,7 +26,7 @@
 - `Session` 优先：通过。所有状态化执行均围绕 `Session` 建模，不引入 `Agent` 作为前置概念。
 - `Agent` 作为模板：通过。第一阶段只预留兼容字段，不实现 `Agent Registry` 或路由规则。
 - 直连执行默认：通过。主链路固定为 `Router -> Session Manager -> Backend Adapter`。
-- Go 优先：通过。计划采用 Go 1.24 实现核心运行模块。
+- Go 优先：通过。计划采用 Go 1.23 实现核心运行模块。
 - DDD 默认：通过。代码按 `Domain / Application / Infrastructure / Interface` 分层。
 - 文档驱动范围：通过。范围来源于宪章、Phase 1 计划与功能规格；不依赖参考资料作为正式规范源。
 - 参考资料限制：通过。若需要研究外部模式，仅作为补充输入，不直接转化为实现规则。
