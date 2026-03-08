@@ -8,6 +8,11 @@
 - [multi_agent/overview.md](./multi_agent/overview.md)
 - [multi_agent/architecture.md](./multi_agent/architecture.md)
 - [multi_agent/implementation.md](./multi_agent/implementation.md)
+- [skill_registry_intent_router/overview.md](./skill_registry_intent_router/overview.md)
+- [skill_registry_intent_router/architecture.md](./skill_registry_intent_router/architecture.md)
+- [skill_registry_intent_router/implementation.md](./skill_registry_intent_router/implementation.md)
+- [skill_registry_intent_router/compatibility_claude_skills.md](./skill_registry_intent_router/compatibility_claude_skills.md)
+- [skill_registry_intent_router/testing.md](./skill_registry_intent_router/testing.md)
 
 ## 使用原则
 - `plans/` 只写阶段目标与交付范围。
