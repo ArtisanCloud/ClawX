@@ -10,7 +10,44 @@
 - 指标基线：执行次数、成功/失败/超时、平均时长、在途执行数；输出分段失败重试次数。
 - 日志：结构化 JSON，字段含 timestamp, level, session_id, channel, command, duration, exit_code。
 
+## 日志路径（当前实现）
+- 服务运行日志：默认输出到 stdout/stderr。
+- 会话持久化：
+  - `~/.synapsex/agents/<agent_id>/sessions/sessions.json`
+  - `~/.synapsex/agents/<agent_id>/sessions/<session_id>.jsonl`
+- Codex 执行追踪：
+  - 索引：`~/.synapsex/logs/index.jsonl`
+  - 会话日志：`~/.synapsex/logs/codex/<session_id>.jsonl`
+
+可选覆盖：
+- 设置 `SYNAPSEX_LOG_DIR` 可改为其他日志根目录。
+
+## Workspace 目录规范与迁移
+- 当前默认目录：`~/.synapsex/workspaces/<agent_id>`。
+- 历史版本可能使用过：`~/.synapsex/workworkspace/<agent_id>`。
+- 服务启动时会自动尝试把旧目录迁移到新目录，并改写 `config.json` 中对应的 workspace 路径。
+- 若新旧目录下存在同名冲突文件，系统会保留新目录版本，旧目录中冲突文件作为备份保留。
+
+迁移建议（以 `main` 为例）：
+```bash
+go run ./cmd/synapsex config agent add --id main --profile codex --workspace /home/ubuntu/.synapsex/workspaces/main --default
+```
+
+## 索引查询示例
+- 查看最近执行索引：
+```bash
+tail -n 20 ~/.synapsex/logs/index.jsonl
+```
+- 按会话检索：
+```bash
+rg "sess-1772800389746985494" ~/.synapsex/logs/index.jsonl
+```
+- 打开该会话的 Codex 追踪日志：
+```bash
+cat ~/.synapsex/logs/codex/sess-1772800389746985494.jsonl
+```
+
 ## 故障处理
 - Codex CLI 不可用：快速回显错误；自动降级为“请检查 CLI 环境”提示。
 - 会话锁未释放：超时强制释放；记录异常。
-- 渠道发送失败：重试 N 次；仍失败则写错误日志并提示“部分输出可能缺失”。\n*** End Patch
+- 渠道发送失败：重试 N 次；仍失败则写错误日志并提示“部分输出可能缺失”。

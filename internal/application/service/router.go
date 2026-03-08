@@ -63,9 +63,27 @@ func (r *Router) Route(_ context.Context, message chat.Message) (Decision, error
 		decision.Command = text
 		return decision, nil
 	}
+	if isBareControlCommand(text) {
+		decision.Kind = DecisionControl
+		decision.Command = text
+		return decision, nil
+	}
 
 	decision.Kind = DecisionExecute
 	return decision, nil
+}
+
+func isBareControlCommand(text string) bool {
+	fields := strings.Fields(strings.TrimSpace(text))
+	if len(fields) == 0 {
+		return false
+	}
+	switch strings.ToLower(fields[0]) {
+	case "new", "resume", "list", "cancel", "current":
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *Router) ValidateContext(message chat.Message) error {

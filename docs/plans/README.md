@@ -10,6 +10,7 @@
 - [phase_1_foundation.md](./phase_1_foundation.md)
 - [phase_2_multi_session.md](./phase_2_multi_session.md)
 - [phase_3_multi_agent.md](./phase_3_multi_agent.md)
+- [persistence_strategy.md](./persistence_strategy.md)
 
 ## 使用原则
 - 新阶段先在本目录定义目标、范围、验收标准。

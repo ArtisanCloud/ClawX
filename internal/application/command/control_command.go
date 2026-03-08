@@ -10,10 +10,11 @@ var ErrInvalidControlCommand = errors.New("invalid control command")
 type ControlKind string
 
 const (
-	ControlNew    ControlKind = "new"
-	ControlResume ControlKind = "resume"
-	ControlList   ControlKind = "list"
-	ControlCancel ControlKind = "cancel"
+	ControlNew     ControlKind = "new"
+	ControlResume  ControlKind = "resume"
+	ControlList    ControlKind = "list"
+	ControlCancel  ControlKind = "cancel"
+	ControlCurrent ControlKind = "current"
 )
 
 type ControlCommand struct {
@@ -32,15 +33,17 @@ func ParseControlCommand(raw, conversationID string) (ControlCommand, error) {
 		ConversationID: strings.TrimSpace(conversationID),
 	}
 
-	switch fields[0] {
-	case "/new":
+	switch normalizeControlName(fields[0]) {
+	case "new":
 		command.Kind = ControlNew
-	case "/resume":
+	case "resume":
 		command.Kind = ControlResume
-	case "/list":
+	case "list":
 		command.Kind = ControlList
-	case "/cancel":
+	case "cancel":
 		command.Kind = ControlCancel
+	case "current":
+		command.Kind = ControlCurrent
 	default:
 		return ControlCommand{}, ErrInvalidControlCommand
 	}
@@ -60,4 +63,10 @@ func ParseControlCommand(raw, conversationID string) (ControlCommand, error) {
 	}
 
 	return command, nil
+}
+
+func normalizeControlName(raw string) string {
+	name := strings.ToLower(strings.TrimSpace(raw))
+	name = strings.TrimPrefix(name, "/")
+	return name
 }

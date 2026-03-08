@@ -6,7 +6,7 @@
 - **Session Manager**：创建/查询/切换 session，维护锁、状态、最近上下文与工作目录。
 - **Codex CLI Adapter**：启动/恢复 Codex 进程，执行 `codex exec`，支持超时、取消、退出码与 stderr 回传。
 - **Output Streamer**：将 CLI stdout/stderr 拆分成分段（或透传流式），保证顺序与最大长度；追加代码块包装。
-- **Persistence (轻量)**：内存+本地文件/redis 协议层（可选）；用于 session 元数据与最近 N 条历史。
+- **Persistence (轻量)**：本地文件优先（`sessions.json + *.jsonl`）+ 内存缓存；数据库仅作为后续可选增强。
 - **Config & Logging**：加载环境/文件配置；结构化日志；错误分级回显。
 
 ## 时序（示例：Discord @bot 修复函数）
@@ -30,6 +30,6 @@
 - Channel Adapter 需提供统一接口：`send_text(session, chunk, is_final=false)`；错误场景 `send_error(session, message)`。
 
 ## 演进预留
-- Storage 可替换为持久化 KV/DB。
+- Storage 默认为本地文件，后续可增加 SQLite 索引或外部数据库适配层。
 - Output Streamer 可切换真实流式（若 CLI 支持）。
 - Channel Adapter 可扩展新的渠道（Slack/PowerX），保持标准接口。
