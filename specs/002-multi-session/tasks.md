@@ -23,9 +23,9 @@
 
 **目的**: 建立 Phase 2 的验证入口与文档占位，不改变既有业务路径
 
-- [ ] T001 创建第二阶段验证文档占位于 /home/ubuntu/workspace/SynapseX/docs/guides/phase_2/phase_2_validation.md
-- [ ] T002 [P] 创建多会话集成测试骨架文件于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_window_routing_test.go
-- [ ] T003 [P] 创建多会话契约测试骨架文件于 /home/ubuntu/workspace/SynapseX/tests/contract/multi_session_control_contract_test.go
+- [X] T001 创建第二阶段验证文档占位于 /home/ubuntu/workspace/SynapseX/docs/guides/phase_2/phase_2_validation.md
+- [X] T002 [P] 创建多会话集成测试骨架文件于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_window_routing_test.go
+- [X] T003 [P] 创建多会话契约测试骨架文件于 /home/ubuntu/workspace/SynapseX/tests/contract/multi_session_control_contract_test.go
 
 ---
 
