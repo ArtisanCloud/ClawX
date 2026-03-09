@@ -11,6 +11,7 @@ type NormalizeInput struct {
 	UserID          string
 	GuildID         string
 	ThreadID        string
+	WindowID        string
 	Text            string
 	ReplyTo         *string
 	Attachments     []Attachment
@@ -32,6 +33,7 @@ func NormalizeInboundMessage(input NormalizeInput) (Message, error) {
 
 	return Message{
 		ConversationID: conversationID,
+		WindowID:       normalizeWindowID(conversationID, input.WindowID),
 		UserID:         strings.TrimSpace(input.UserID),
 		Text:           strings.TrimSpace(input.Text),
 		ReplyTo:        input.ReplyTo,
@@ -45,3 +47,10 @@ func NormalizeInboundMessage(input NormalizeInput) (Message, error) {
 	}, nil
 }
 
+func normalizeWindowID(conversationID, rawWindowID string) string {
+	windowID := strings.TrimSpace(rawWindowID)
+	if windowID != "" {
+		return windowID
+	}
+	return "compat:" + strings.TrimSpace(conversationID)
+}

@@ -24,10 +24,10 @@ func (m *SessionManager) ResumeSession(ctx context.Context, cmd command.SessionC
 		return session.Record{}, ErrConversationMismatch
 	}
 
+	record.WindowID = cmd.WindowID
 	record.Touch(m.clock())
 	if err := m.repository.Save(ctx, record); err != nil {
 		return session.Record{}, err
 	}
 	return record, nil
 }
-

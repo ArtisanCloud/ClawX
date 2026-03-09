@@ -35,15 +35,15 @@
 
 **⚠️ 关键说明**: 本阶段完成前不得开始用户故事实现
 
-- [ ] T004 扩展统一消息模型增加 `WindowID` 字段于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/message.go
-- [ ] T005 [P] 扩展消息归一化输入支持显式 `window_id` 于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/normalize.go
-- [ ] T006 [P] 实现缺省窗口兼容值生成 `compat:<conversation_id>` 于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/normalize.go
-- [ ] T007 扩展会话命令对象支持 `WindowID` 于 /home/ubuntu/workspace/SynapseX/internal/application/command/session_command.go
-- [ ] T008 [P] 扩展控制命令对象支持 `WindowID` 于 /home/ubuntu/workspace/SynapseX/internal/application/command/control_command.go
-- [ ] T009 定义窗口绑定仓储接口（get/set/list）于 /home/ubuntu/workspace/SynapseX/internal/domain/session/repository.go
-- [ ] T010 [P] 在内存仓储实现窗口绑定读写与窗口级查询于 /home/ubuntu/workspace/SynapseX/internal/infrastructure/persistence/session_memory_repository.go
-- [ ] T011 调整 Session Manager 依赖注入并暴露窗口绑定方法于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager.go
-- [ ] T012 [P] 补充内存仓储窗口绑定单元测试于 /home/ubuntu/workspace/SynapseX/internal/infrastructure/persistence/session_memory_repository_test.go
+- [X] T004 扩展统一消息模型增加 `WindowID` 字段于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/message.go
+- [X] T005 [P] 扩展消息归一化输入支持显式 `window_id` 于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/normalize.go
+- [X] T006 [P] 实现缺省窗口兼容值生成 `compat:<conversation_id>` 于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/normalize.go
+- [X] T007 扩展会话命令对象支持 `WindowID` 于 /home/ubuntu/workspace/SynapseX/internal/application/command/session_command.go
+- [X] T008 [P] 扩展控制命令对象支持 `WindowID` 于 /home/ubuntu/workspace/SynapseX/internal/application/command/control_command.go
+- [X] T009 定义窗口绑定仓储接口（get/set/list）于 /home/ubuntu/workspace/SynapseX/internal/domain/session/repository.go
+- [X] T010 [P] 在内存仓储实现窗口绑定读写与窗口级查询于 /home/ubuntu/workspace/SynapseX/internal/infrastructure/persistence/session_memory_repository.go
+- [X] T011 调整 Session Manager 依赖注入并暴露窗口绑定方法于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager.go
+- [X] T012 [P] 补充内存仓储窗口绑定单元测试于 /home/ubuntu/workspace/SynapseX/internal/infrastructure/persistence/session_memory_repository_test.go
 
 **检查点**: 基础能力完成后，用户故事可进入实现
 

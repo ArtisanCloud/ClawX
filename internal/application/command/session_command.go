@@ -18,6 +18,7 @@ const (
 type SessionCommand struct {
 	Mode            SessionMode
 	ConversationID  string
+	WindowID        string
 	ResumeSessionID string
 	Input           string
 	Backend         string
@@ -27,6 +28,7 @@ type SessionCommand struct {
 func (c SessionCommand) Normalize() (SessionCommand, error) {
 	normalized := c
 	normalized.ConversationID = strings.TrimSpace(normalized.ConversationID)
+	normalized.WindowID = strings.TrimSpace(normalized.WindowID)
 	normalized.ResumeSessionID = strings.TrimSpace(normalized.ResumeSessionID)
 	normalized.Input = strings.TrimSpace(normalized.Input)
 	normalized.Backend = strings.TrimSpace(normalized.Backend)
@@ -44,6 +46,9 @@ func (c SessionCommand) Normalize() (SessionCommand, error) {
 	if normalized.ConversationID == "" {
 		return SessionCommand{}, ErrInvalidSessionCommand
 	}
+	if normalized.WindowID == "" {
+		normalized.WindowID = "compat:" + normalized.ConversationID
+	}
 
 	switch normalized.Mode {
 	case ModeNew, ModeResume, ModeContinue:
@@ -60,4 +65,3 @@ func (c SessionCommand) Normalize() (SessionCommand, error) {
 
 	return normalized, nil
 }
-

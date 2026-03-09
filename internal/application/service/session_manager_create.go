@@ -11,10 +11,14 @@ import (
 
 func (m *SessionManager) CreateSession(ctx context.Context, cmd command.SessionCommand) (session.Record, error) {
 	cmd.ConversationID = strings.TrimSpace(cmd.ConversationID)
+	cmd.WindowID = strings.TrimSpace(cmd.WindowID)
 	cmd.Backend = strings.TrimSpace(cmd.Backend)
 	cmd.CWD = strings.TrimSpace(cmd.CWD)
 	if cmd.ConversationID == "" {
 		return session.Record{}, command.ErrInvalidSessionCommand
+	}
+	if cmd.WindowID == "" {
+		cmd.WindowID = "compat:" + cmd.ConversationID
 	}
 	if cmd.Backend == "" {
 		cmd.Backend = "primary"
@@ -25,6 +29,7 @@ func (m *SessionManager) CreateSession(ctx context.Context, cmd command.SessionC
 
 	record := session.Record{
 		ID:             m.nextSessionID(),
+		WindowID:       cmd.WindowID,
 		Backend:        cmd.Backend,
 		ConversationID: cmd.ConversationID,
 		CWD:            cmd.CWD,

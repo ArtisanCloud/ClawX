@@ -18,8 +18,8 @@ type ControlFlowResult struct {
 	CurrentChecked     bool
 }
 
-func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversationID string) (ControlFlowResult, error) {
-	parsed, err := command.ParseControlCommand(rawCommand, conversationID)
+func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversationID string, windowID ...string) (ControlFlowResult, error) {
+	parsed, err := command.ParseControlCommand(rawCommand, conversationID, windowID...)
 	if err != nil {
 		return ControlFlowResult{}, err
 	}
@@ -29,6 +29,7 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 		record, err := r.sessionManager.CreateSession(ctx, command.SessionCommand{
 			Mode:           command.ModeNew,
 			ConversationID: parsed.ConversationID,
+			WindowID:       parsed.WindowID,
 			Backend:        r.backend.Name(),
 			CWD:            r.cfg.DefaultCWD,
 		})
@@ -40,6 +41,7 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 		record, err := r.sessionManager.ResumeSession(ctx, command.SessionCommand{
 			Mode:            command.ModeResume,
 			ConversationID:  parsed.ConversationID,
+			WindowID:        parsed.WindowID,
 			ResumeSessionID: parsed.TargetSessionID,
 			Backend:         r.backend.Name(),
 			CWD:             r.cfg.DefaultCWD,

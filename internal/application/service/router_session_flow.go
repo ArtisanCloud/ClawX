@@ -83,6 +83,7 @@ func (r *Router) resolveSession(ctx context.Context, cmd command.SessionCommand)
 			return r.sessionManager.CreateSession(ctx, command.SessionCommand{
 				Mode:           command.ModeNew,
 				ConversationID: cmd.ConversationID,
+				WindowID:       cmd.WindowID,
 				Input:          cmd.Input,
 				Backend:        cmd.Backend,
 				CWD:            cmd.CWD,

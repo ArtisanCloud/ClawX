@@ -18,10 +18,10 @@ func (m *SessionManager) ContinueSession(ctx context.Context, cmd command.Sessio
 		return session.Record{}, err
 	}
 
+	record.WindowID = cmd.WindowID
 	record.Touch(m.clock())
 	if err := m.repository.Save(ctx, record); err != nil {
 		return session.Record{}, err
 	}
 	return record, nil
 }
-
