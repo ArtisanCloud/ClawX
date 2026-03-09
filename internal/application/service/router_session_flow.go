@@ -61,6 +61,11 @@ func (r *Router) HandleSessionFlow(ctx context.Context, cmd command.SessionComma
 	if err != nil {
 		return SessionFlowResult{}, err
 	}
+	if result.State == execution.ResultSuccess {
+		if _, err := r.sessionManager.BindWindowToSession(ctx, cmd.WindowID, cmd.ConversationID, updatedSession.ID); err != nil {
+			return SessionFlowResult{}, err
+		}
+	}
 
 	return SessionFlowResult{
 		Session:   updatedSession,

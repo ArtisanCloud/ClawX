@@ -66,7 +66,7 @@ func (m *SessionManager) GetWindowBinding(ctx context.Context, windowID string) 
 
 func (m *SessionManager) SetWindowBinding(ctx context.Context, binding session.WindowBinding) error {
 	if m.windowBindings == nil {
-		return session.ErrWindowBindingNotFound
+		return nil
 	}
 	binding.WindowID = strings.TrimSpace(binding.WindowID)
 	binding.CurrentSessionID = strings.TrimSpace(binding.CurrentSessionID)
@@ -81,12 +81,13 @@ func (m *SessionManager) SetWindowBinding(ctx context.Context, binding session.W
 }
 
 func (m *SessionManager) BindWindowToSession(ctx context.Context, windowID, conversationID, sessionID string) (session.WindowBinding, error) {
+	now := m.clock()
 	binding := session.WindowBinding{
 		WindowID:         strings.TrimSpace(windowID),
 		CurrentSessionID: strings.TrimSpace(sessionID),
 		ConversationID:   strings.TrimSpace(conversationID),
-		LastUsedAt:       m.clock(),
-		UpdatedAt:        m.clock(),
+		LastUsedAt:       now,
+		UpdatedAt:        now,
 	}
 	if err := m.SetWindowBinding(ctx, binding); err != nil {
 		return session.WindowBinding{}, err

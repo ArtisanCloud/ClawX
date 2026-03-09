@@ -29,5 +29,8 @@ func (m *SessionManager) ResumeSession(ctx context.Context, cmd command.SessionC
 	if err := m.repository.Save(ctx, record); err != nil {
 		return session.Record{}, err
 	}
+	if _, err := m.BindWindowToSession(ctx, cmd.WindowID, cmd.ConversationID, record.ID); err != nil {
+		return session.Record{}, err
+	}
 	return record, nil
 }

@@ -29,6 +29,7 @@ type Decision struct {
 	Kind           DecisionKind
 	Command        string
 	ConversationID string
+	WindowID       string
 	Message        chat.Message
 	SkillName      string
 	SkillInput     string
@@ -78,6 +79,7 @@ func (r *Router) Route(ctx context.Context, message chat.Message) (Decision, err
 
 	decision := Decision{
 		ConversationID: message.ConversationID,
+		WindowID:       message.WindowID,
 		Message:        message,
 	}
 

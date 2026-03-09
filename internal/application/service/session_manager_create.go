@@ -43,6 +43,9 @@ func (m *SessionManager) CreateSession(ctx context.Context, cmd command.SessionC
 	if err := m.repository.Create(ctx, record); err != nil {
 		return session.Record{}, fmt.Errorf("create session: %w", err)
 	}
+	if _, err := m.BindWindowToSession(ctx, cmd.WindowID, cmd.ConversationID, record.ID); err != nil {
+		return session.Record{}, err
+	}
 	return record, nil
 }
 

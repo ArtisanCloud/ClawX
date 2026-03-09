@@ -57,18 +57,18 @@
 
 ### 测试任务（US1）
 
-- [ ] T013 [P] [US1] 增加窗口独立绑定单元测试于 /home/ubuntu/workspace/SynapseX/tests/unit/multi_session_domain_test.go
-- [ ] T014 [P] [US1] 增加窗口 A/B 并行继续集成测试于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_window_routing_test.go
+- [X] T013 [P] [US1] 增加窗口独立绑定单元测试于 /home/ubuntu/workspace/SynapseX/tests/unit/multi_session_domain_test.go
+- [X] T014 [P] [US1] 增加窗口 A/B 并行继续集成测试于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_window_routing_test.go
 
 ### 实现任务（US1）
 
-- [ ] T015 [US1] 在新建会话流程写入 `WindowID` 并刷新窗口绑定于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_create.go
-- [ ] T016 [US1] 在继续会话流程实现“窗口优先 -> conversation 回退 -> 新建”于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_continue.go
-- [ ] T017 [US1] 在恢复会话流程刷新窗口绑定并校验上下文归属于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_resume.go
-- [ ] T018 [US1] 在会话路由流程透传 `WindowID` 并按窗口决策于 /home/ubuntu/workspace/SynapseX/internal/application/service/router_session_flow.go
-- [ ] T019 [US1] 在路由决策对象中保留 `WindowID` 上下文于 /home/ubuntu/workspace/SynapseX/internal/application/service/router.go
-- [ ] T020 [US1] 在 new/resume/switch/执行成功后统一刷新 session 与 window 的 `last_used_at` 于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_create.go、/home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_resume.go、/home/ubuntu/workspace/SynapseX/internal/application/service/router_session_flow.go
-- [ ] T021 [P] [US1] 增加最近使用时间刷新单元测试（覆盖 new/resume/switch/execute_success）于 /home/ubuntu/workspace/SynapseX/tests/unit/multi_session_recency_test.go
+- [X] T015 [US1] 在新建会话流程写入 `WindowID` 并刷新窗口绑定于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_create.go
+- [X] T016 [US1] 在继续会话流程实现“窗口优先 -> conversation 回退 -> 新建”于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_continue.go
+- [X] T017 [US1] 在恢复会话流程刷新窗口绑定并校验上下文归属于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_resume.go
+- [X] T018 [US1] 在会话路由流程透传 `WindowID` 并按窗口决策于 /home/ubuntu/workspace/SynapseX/internal/application/service/router_session_flow.go
+- [X] T019 [US1] 在路由决策对象中保留 `WindowID` 上下文于 /home/ubuntu/workspace/SynapseX/internal/application/service/router.go
+- [X] T020 [US1] 在 new/resume/switch/执行成功后统一刷新 session 与 window 的 `last_used_at` 于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_create.go、/home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_resume.go、/home/ubuntu/workspace/SynapseX/internal/application/service/router_session_flow.go
+- [X] T021 [P] [US1] 增加最近使用时间刷新单元测试（覆盖 new/resume/switch/execute_success）于 /home/ubuntu/workspace/SynapseX/tests/unit/multi_session_recency_test.go
 
 **检查点**: US1 完成后，应可独立演示“多窗口不串线”
 

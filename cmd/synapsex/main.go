@@ -1248,7 +1248,7 @@ func handleTelegramInbound(
 
 	switch decision.Kind {
 	case service.DecisionControl:
-		result, err := runtime.router.HandleControlCommand(ctx, decision.Command, decision.ConversationID, decision.Message.WindowID)
+		result, err := runtime.router.HandleControlCommand(ctx, decision.Command, decision.ConversationID, decision.WindowID)
 		if err != nil {
 			sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
@@ -1272,7 +1272,7 @@ func handleTelegramInbound(
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
 			Mode:           command.ModeContinue,
 			ConversationID: decision.ConversationID,
-			WindowID:       decision.Message.WindowID,
+			WindowID:       decision.WindowID,
 			Input:          executeInput,
 			Backend:        runtime.backendName,
 			CWD:            runtime.cwd,
@@ -1336,7 +1336,7 @@ func handleDiscordInbound(
 
 	switch decision.Kind {
 	case service.DecisionControl:
-		result, err := runtime.router.HandleControlCommand(ctx, decision.Command, decision.ConversationID, decision.Message.WindowID)
+		result, err := runtime.router.HandleControlCommand(ctx, decision.Command, decision.ConversationID, decision.WindowID)
 		if err != nil {
 			sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
@@ -1362,7 +1362,7 @@ func handleDiscordInbound(
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
 			Mode:           command.ModeContinue,
 			ConversationID: decision.ConversationID,
-			WindowID:       decision.Message.WindowID,
+			WindowID:       decision.WindowID,
 			Input:          executeInput,
 			Backend:        runtime.backendName,
 			CWD:            runtime.cwd,
