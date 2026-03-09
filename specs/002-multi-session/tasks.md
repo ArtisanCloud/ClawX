@@ -105,17 +105,17 @@
 
 ### 测试任务（US3）
 
-- [ ] T029 [P] [US3] 增加缺省 `window_id` 兼容回退集成测试于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_compat_fallback_test.go
-- [ ] T030 [P] [US3] 增加命令优先级回归测试（控制命令优先）于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_command_priority_test.go
-- [ ] T031 [P] [US3] 增加“同一 session 并发请求必须串行/拒绝”集成回归测试于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_serial_execution_test.go
-- [ ] T032 [P] [US3] 增加窗口绑定字段持久化与查询测试（`window_id/current_session_id/conversation_id/updated_at/last_used_at`）于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_binding_fields_test.go
+- [X] T029 [P] [US3] 增加缺省 `window_id` 兼容回退集成测试于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_compat_fallback_test.go
+- [X] T030 [P] [US3] 增加命令优先级回归测试（控制命令优先）于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_command_priority_test.go
+- [X] T031 [P] [US3] 增加“同一 session 并发请求必须串行/拒绝”集成回归测试于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_serial_execution_test.go
+- [X] T032 [P] [US3] 增加窗口绑定字段持久化与查询测试（`window_id/current_session_id/conversation_id/updated_at/last_used_at`）于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_binding_fields_test.go
 
 ### 实现任务（US3）
 
-- [ ] T033 [US3] 固化缺省窗口兼容策略并统一错误返回于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/normalize.go
-- [ ] T034 [US3] 在 Router 固化内建控制命令优先分流于 /home/ubuntu/workspace/SynapseX/internal/application/service/router.go
-- [ ] T035 [US3] 扩展错误映射覆盖窗口绑定异常场景于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/error_response.go
-- [ ] T036 [US3] 同步“无 window_id 兼容路径”冒烟验证到 /home/ubuntu/workspace/SynapseX/tests/integration/phase1_foundation_test.go
+- [X] T033 [US3] 固化缺省窗口兼容策略并统一错误返回于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/normalize.go
+- [X] T034 [US3] 在 Router 固化内建控制命令优先分流于 /home/ubuntu/workspace/SynapseX/internal/application/service/router.go
+- [X] T035 [US3] 扩展错误映射覆盖窗口绑定异常场景于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/error_response.go
+- [X] T036 [US3] 同步“无 window_id 兼容路径”冒烟验证到 /home/ubuntu/workspace/SynapseX/tests/integration/phase1_foundation_test.go
 
 **检查点**: 三个用户故事均可独立通过各自验收场景
 

@@ -138,13 +138,58 @@ func TestPhase1FoundationScenarios(t *testing.T) {
 			t.Fatalf("expected created session id")
 		}
 	})
+
+	t.Run("compat_window_fallback_without_explicit_window_id", func(t *testing.T) {
+		stack := newTestRuntime(t)
+
+		message, err := chatiface.NormalizeInboundMessage(chatiface.NormalizeInput{
+			Channel:         "telegram",
+			UserID:          "user-compat-1",
+			Text:            "hello compat path",
+			IsDirectMessage: true,
+			IsAllowed:       true,
+		})
+		if err != nil {
+			t.Fatalf("normalize inbound message: %v", err)
+		}
+		if !strings.HasPrefix(message.WindowID, "compat:") {
+			t.Fatalf("expected compat window id, got %q", message.WindowID)
+		}
+
+		decision, err := stack.router.Route(context.Background(), message)
+		if err != nil {
+			t.Fatalf("route message: %v", err)
+		}
+
+		flowResult, err := stack.router.HandleSessionFlow(context.Background(), command.SessionCommand{
+			Mode:           command.ModeContinue,
+			ConversationID: decision.ConversationID,
+			WindowID:       decision.WindowID,
+			Input:          decision.Message.Text,
+			Backend:        "primary",
+			CWD:            stack.cfg.DefaultCWD,
+		})
+		if err != nil {
+			t.Fatalf("handle session flow: %v", err)
+		}
+
+		current, err := stack.router.HandleControlCommand(context.Background(), "/current", decision.ConversationID)
+		if err != nil {
+			t.Fatalf("handle current command: %v", err)
+		}
+		if current.CurrentSession == nil || current.CurrentSession.ID != flowResult.Session.ID {
+			t.Fatalf("compat path should expose current session: got=%v want=%s", current.CurrentSession, flowResult.Session.ID)
+		}
+	})
 }
 
 type testRuntime struct {
-	cfg      config.Snapshot
-	router   *service.Router
-	delivery *service.OutputDelivery
-	sender   *recordingSender
+	cfg            config.Snapshot
+	router         *service.Router
+	delivery       *service.OutputDelivery
+	sender         *recordingSender
+	repository     *persistence.SessionMemoryRepository
+	sessionManager *service.SessionManager
 }
 
 func newTestRuntime(t *testing.T) testRuntime {
@@ -166,10 +211,12 @@ func newTestRuntime(t *testing.T) testRuntime {
 	})
 
 	return testRuntime{
-		cfg:      cfg,
-		router:   service.NewRouter(cfg, sessionManager, runner),
-		delivery: service.NewOutputDelivery(service.NewOutputFormatter(), service.NewOutputStreamer()),
-		sender:   &recordingSender{},
+		cfg:            cfg,
+		router:         service.NewRouter(cfg, sessionManager, runner),
+		delivery:       service.NewOutputDelivery(service.NewOutputFormatter(), service.NewOutputStreamer()),
+		sender:         &recordingSender{},
+		repository:     repository,
+		sessionManager: sessionManager,
 	}
 }
 

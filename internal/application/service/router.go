@@ -83,6 +83,12 @@ func (r *Router) Route(ctx context.Context, message chat.Message) (Decision, err
 		Message:        message,
 	}
 
+	if isBuiltInControlCommand(text) {
+		decision.Kind = DecisionControl
+		decision.Command = text
+		return decision, nil
+	}
+
 	if r.intentPipeline != nil {
 		intentResult, err := r.intentPipeline.Decide(ctx, message)
 		if err != nil {
@@ -121,11 +127,19 @@ func (r *Router) Route(ctx context.Context, message chat.Message) (Decision, err
 }
 
 func isBareControlCommand(text string) bool {
+	if strings.HasPrefix(strings.TrimSpace(text), "/") {
+		return false
+	}
+	return isBuiltInControlCommand(text)
+}
+
+func isBuiltInControlCommand(text string) bool {
 	fields := strings.Fields(strings.TrimSpace(text))
 	if len(fields) == 0 {
 		return false
 	}
-	switch strings.ToLower(fields[0]) {
+	name := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fields[0])), "/")
+	switch name {
 	case "new", "resume", "switch", "list", "cancel", "current":
 		return true
 	default:

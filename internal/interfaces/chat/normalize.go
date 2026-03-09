@@ -1,9 +1,16 @@
 package chat
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 
 	"synapsex/internal/domain/conversation"
+)
+
+var (
+	ErrInvalidNormalizeInput = errors.New("invalid normalize input")
+	ErrInvalidWindowContext  = errors.New("invalid window context")
 )
 
 type NormalizeInput struct {
@@ -28,12 +35,17 @@ func NormalizeInboundMessage(input NormalizeInput) (Message, error) {
 		UserID:   input.UserID,
 	})
 	if err != nil {
-		return Message{}, err
+		return Message{}, fmt.Errorf("%w: %w", ErrInvalidNormalizeInput, err)
+	}
+
+	windowID, err := normalizeWindowID(conversationID, input.WindowID)
+	if err != nil {
+		return Message{}, fmt.Errorf("%w: %w", ErrInvalidNormalizeInput, err)
 	}
 
 	return Message{
 		ConversationID: conversationID,
-		WindowID:       normalizeWindowID(conversationID, input.WindowID),
+		WindowID:       windowID,
 		UserID:         strings.TrimSpace(input.UserID),
 		Text:           strings.TrimSpace(input.Text),
 		ReplyTo:        input.ReplyTo,
@@ -47,10 +59,14 @@ func NormalizeInboundMessage(input NormalizeInput) (Message, error) {
 	}, nil
 }
 
-func normalizeWindowID(conversationID, rawWindowID string) string {
+func normalizeWindowID(conversationID, rawWindowID string) (string, error) {
 	windowID := strings.TrimSpace(rawWindowID)
 	if windowID != "" {
-		return windowID
+		return windowID, nil
 	}
-	return "compat:" + strings.TrimSpace(conversationID)
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return "", ErrInvalidWindowContext
+	}
+	return "compat:" + conversationID, nil
 }
