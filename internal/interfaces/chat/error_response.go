@@ -26,7 +26,32 @@ func FormatError(err error) string {
 		return "控制命令格式无效，请检查命令参数"
 	case errors.Is(err, command.ErrInvalidSessionCommand):
 		return "会话命令参数无效，请检查输入"
+	case errorCategory(err) == "permission_denied":
+		return "当前用户或频道没有该 Skill 权限，请联系管理员授权"
+	case errorCategory(err) == "skill_not_found":
+		return "未找到对应 Skill，请检查 Skill 名称或先执行 skill list"
+	case errorCategory(err) == "skill_disabled":
+		return "该 Skill 当前已被禁用，请联系管理员启用"
+	case errorCategory(err) == "skill_invalid":
+		return "该 Skill 配置无效，暂不可用"
+	case errorCategory(err) == "pairing_expired":
+		return "DM 配对已失效，请重新完成配对后再试"
 	default:
 		return fmt.Sprintf("执行失败: %v", err)
 	}
+}
+
+type categorizedError interface {
+	Code() string
+}
+
+func errorCategory(err error) string {
+	if err == nil {
+		return ""
+	}
+	var coded categorizedError
+	if errors.As(err, &coded) {
+		return coded.Code()
+	}
+	return ""
 }

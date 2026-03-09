@@ -159,9 +159,12 @@ func (a *Adapter) listenOnce(ctx context.Context, handler InboundHandler) error 
 	}
 	defer socket.Close()
 
-	first, err := socket.ReadText(ctx)
+	helloCtx, cancelHello := context.WithTimeout(ctx, 15*time.Second)
+	defer cancelHello()
+
+	first, err := socket.ReadText(helloCtx)
 	if err != nil {
-		return err
+		return fmt.Errorf("discord gateway hello timeout/read failed: %w", err)
 	}
 
 	var hello gatewayEvent
@@ -446,12 +449,24 @@ func interactionToCommandText(data discordInteractionData) (string, bool, error)
 	switch command {
 	case "new", "list", "cancel", "current":
 		return "/" + command, true, nil
+	case "sx-skills":
+		return "/sx-skills", true, nil
 	case "resume":
 		sessionID := strings.TrimSpace(interactionOptionValue(data.Options, "session_id"))
 		if sessionID == "" {
 			return "", false, fmt.Errorf("discord interaction /resume missing session_id option")
 		}
 		return "/resume " + sessionID, true, nil
+	case "sx-skill":
+		name := strings.TrimSpace(interactionOptionValue(data.Options, "name"))
+		if name == "" {
+			return "", false, fmt.Errorf("discord interaction /sx-skill missing name option")
+		}
+		input := strings.TrimSpace(interactionOptionValue(data.Options, "input"))
+		if input == "" {
+			return "/sx-skill " + name, true, nil
+		}
+		return "/sx-skill " + name + " " + input, true, nil
 	default:
 		return "/" + command, true, nil
 	}
@@ -652,6 +667,30 @@ func (a *Adapter) syncSlashCommands(ctx context.Context) error {
 			Type:        discordApplicationCommandTypeChatInput,
 			Name:        "cancel",
 			Description: "取消当前会话执行",
+		},
+		{
+			Type:        discordApplicationCommandTypeChatInput,
+			Name:        "sx-skills",
+			Description: "列出 SynapseX 技能目录",
+		},
+		{
+			Type:        discordApplicationCommandTypeChatInput,
+			Name:        "sx-skill",
+			Description: "强制使用 SynapseX 技能",
+			Options: []discordApplicationCommandOption{
+				{
+					Type:        discordApplicationCommandOptionTypeString,
+					Name:        "name",
+					Description: "技能名称，例如 echo",
+					Required:    true,
+				},
+				{
+					Type:        discordApplicationCommandOptionTypeString,
+					Name:        "input",
+					Description: "传给技能的输入",
+					Required:    false,
+				},
+			},
 		},
 	}
 

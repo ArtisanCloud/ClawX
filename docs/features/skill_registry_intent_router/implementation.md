@@ -1,16 +1,23 @@
-# 实现方案
+# 实现状态（已落地）
 
-## 模块划分（DDD 对齐）
-- `internal/domain/skill`
-- Skill 元数据、校验规则、冲突规则。
-- `internal/application/skillregistry`
-- 扫描、索引、启停、缓存刷新。
-- `internal/application/intent`
-- 路由决策与优先级编排。
-- `internal/interfaces/channel`
-- 接入 Discord/Telegram 消息，调用 Router。
-- `internal/infrastructure/skills`
-- 文件系统读取与索引落盘。
+## 模块落地
+- `internal/domain/skill`:
+  - Skill 定义、状态、快照、意图决策模型。
+- `internal/application/skillregistry`:
+  - 发现/解析/冲突处理/刷新编排。
+  - `list/reload/enable/disable` 所需服务接口。
+- `internal/application/intent`:
+  - 固定优先级路由流水线。
+  - 显式 `/skill`、规则匹配、LLM 兜底、多候选自动单选。
+  - 权限评估与错误分类。
+- `internal/infrastructure/skills`:
+  - `SKILL.md` frontmatter 解析。
+  - 多来源扫描。
+  - 索引原子写入与 DM pairing 文件存储。
+- `cmd/synapsex`:
+  - 新增 `skill` CLI 子命令。
+  - 启动时注入 Skill Registry + Intent Router。
+  - Discord/Telegram 入站分支支持 `kind=skill`。
 
 ## 配置结构（config.json）
 ```json
@@ -18,21 +25,24 @@
   "skills": {
     "enabled": true,
     "sources": {
-      "user_dir": "~/.synapsex/skills",
-      "workspace_dir": ".synapsex/skills",
-      "builtin_enabled": true
+      "userDir": "~/.synapsex/skills",
+      "workspaceDir": ".synapsex/skills",
+      "builtinEnabled": true,
+      "builtinDir": "internal/skills/builtin"
     },
-    "disabled_names": [],
+    "disabledNames": [],
     "allowlist": {
       "users": [],
       "channels": []
-    }
+    },
+    "defaultMode": "channel_allowlist_dm_pairing",
+    "pairingTTLSeconds": 604800
   },
-  "intent_router": {
+  "intentRouter": {
     "mode": "rule_first_llm_fallback",
-    "llm_fallback": {
+    "llmFallback": {
       "enabled": true,
-      "confidence_threshold": 0.72
+      "confidenceThreshold": 0.72
     }
   }
 }
@@ -46,11 +56,9 @@
 
 ## 日志字段
 - `conversation_id`
-- `channel`
-- `agent_id`
 - `intent.kind`
-- `intent.skill_name`
 - `intent.reason`
+- `intent.skill`
 - `intent.confidence`
 - `session_id`
 - `duration_ms`

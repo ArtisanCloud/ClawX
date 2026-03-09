@@ -76,6 +76,37 @@ type TelegramInstance struct {
 	AgentBindings           map[string]string
 }
 
+type SkillSources struct {
+	UserDir        string
+	WorkspaceDir   string
+	BuiltinEnabled bool
+	BuiltinDir     string
+}
+
+type SkillAllowlist struct {
+	Users    []string
+	Channels []string
+}
+
+type SkillConfig struct {
+	Enabled       bool
+	Sources       SkillSources
+	DisabledNames []string
+	Allowlist     SkillAllowlist
+	DefaultMode   string
+	PairingTTL    time.Duration
+}
+
+type LLMFallbackConfig struct {
+	Enabled             bool
+	ConfidenceThreshold float64
+}
+
+type IntentRouterConfig struct {
+	Mode        string
+	LLMFallback LLMFallbackConfig
+}
+
 type Snapshot struct {
 	AllowedRoots                  []string
 	DefaultCWD                    string
@@ -113,16 +144,20 @@ type Snapshot struct {
 	DiscordAgentBindings   map[string]string
 	TelegramDefaultAgentID string
 	TelegramAgentBindings  map[string]string
+	Skills                 SkillConfig
+	IntentRouter           IntentRouterConfig
 }
 
 type jsonSnapshot struct {
-	Runtime   *jsonRuntime   `json:"runtime"`
-	Execution *jsonExecution `json:"execution"`
-	Providers *jsonProviders `json:"providers"`
-	Agents    *jsonAgents    `json:"agents"`
-	Channels  *jsonChannels  `json:"channels"`
-	Gateway   *jsonGateway   `json:"gateway"`
-	Database  *jsonDatabase  `json:"database"`
+	Runtime      *jsonRuntime      `json:"runtime"`
+	Execution    *jsonExecution    `json:"execution"`
+	Providers    *jsonProviders    `json:"providers"`
+	Agents       *jsonAgents       `json:"agents"`
+	Channels     *jsonChannels     `json:"channels"`
+	Gateway      *jsonGateway      `json:"gateway"`
+	Database     *jsonDatabase     `json:"database"`
+	Skills       *jsonSkills       `json:"skills"`
+	IntentRouter *jsonIntentRouter `json:"intentRouter"`
 
 	AllowedRoots                  []string                   `json:"allowed_roots"`
 	DefaultCWD                    string                     `json:"default_cwd"`
@@ -267,6 +302,37 @@ type jsonDatabase struct {
 	AutoCreate *bool  `json:"autoCreate"`
 }
 
+type jsonSkills struct {
+	Enabled           *bool               `json:"enabled"`
+	Sources           *jsonSkillSources   `json:"sources"`
+	DisabledNames     []string            `json:"disabledNames"`
+	Allowlist         *jsonSkillAllowlist `json:"allowlist"`
+	DefaultMode       string              `json:"defaultMode"`
+	PairingTTLSeconds int                 `json:"pairingTTLSeconds"`
+}
+
+type jsonSkillSources struct {
+	UserDir        string `json:"userDir"`
+	WorkspaceDir   string `json:"workspaceDir"`
+	BuiltinEnabled *bool  `json:"builtinEnabled"`
+	BuiltinDir     string `json:"builtinDir"`
+}
+
+type jsonSkillAllowlist struct {
+	Users    []string `json:"users"`
+	Channels []string `json:"channels"`
+}
+
+type jsonIntentRouter struct {
+	Mode        string                 `json:"mode"`
+	LLMFallback *jsonIntentLLMFallback `json:"llmFallback"`
+}
+
+type jsonIntentLLMFallback struct {
+	Enabled             *bool   `json:"enabled"`
+	ConfidenceThreshold float64 `json:"confidenceThreshold"`
+}
+
 type BootstrapOptions struct {
 	BaseProfileID         string
 	DefaultProfileID      string
@@ -297,13 +363,15 @@ type AgentUpsertOptions struct {
 }
 
 type fileSnapshot struct {
-	Runtime   fileRuntime   `json:"runtime"`
-	Providers fileProviders `json:"providers"`
-	Agents    fileAgents    `json:"agents"`
-	Execution fileExecution `json:"execution"`
-	Channels  fileChannels  `json:"channels"`
-	Gateway   fileGateway   `json:"gateway"`
-	Database  fileDatabase  `json:"database"`
+	Runtime      fileRuntime      `json:"runtime"`
+	Providers    fileProviders    `json:"providers"`
+	Agents       fileAgents       `json:"agents"`
+	Execution    fileExecution    `json:"execution"`
+	Channels     fileChannels     `json:"channels"`
+	Gateway      fileGateway      `json:"gateway"`
+	Database     fileDatabase     `json:"database"`
+	Skills       fileSkills       `json:"skills"`
+	IntentRouter fileIntentRouter `json:"intentRouter"`
 }
 
 type fileRuntime struct {
@@ -420,6 +488,37 @@ type fileDatabase struct {
 	AutoCreate bool   `json:"autoCreate"`
 }
 
+type fileSkills struct {
+	Enabled           bool               `json:"enabled"`
+	Sources           fileSkillSources   `json:"sources"`
+	DisabledNames     []string           `json:"disabledNames"`
+	Allowlist         fileSkillAllowlist `json:"allowlist"`
+	DefaultMode       string             `json:"defaultMode"`
+	PairingTTLSeconds int                `json:"pairingTTLSeconds"`
+}
+
+type fileSkillSources struct {
+	UserDir        string `json:"userDir"`
+	WorkspaceDir   string `json:"workspaceDir"`
+	BuiltinEnabled bool   `json:"builtinEnabled"`
+	BuiltinDir     string `json:"builtinDir"`
+}
+
+type fileSkillAllowlist struct {
+	Users    []string `json:"users"`
+	Channels []string `json:"channels"`
+}
+
+type fileIntentRouter struct {
+	Mode        string                `json:"mode"`
+	LLMFallback fileIntentLLMFallback `json:"llmFallback"`
+}
+
+type fileIntentLLMFallback struct {
+	Enabled             bool    `json:"enabled"`
+	ConfidenceThreshold float64 `json:"confidenceThreshold"`
+}
+
 func Load() (Snapshot, error) {
 	if err := EnsureStateLayout(); err != nil {
 		return Snapshot{}, err
@@ -447,6 +546,8 @@ func Load() (Snapshot, error) {
 	}
 	cfg.normalizeChannelInstances()
 	cfg.normalizeDatabase()
+	cfg.normalizeSkills()
+	cfg.normalizeIntentRouter()
 	if err := cfg.Validate(); err != nil {
 		return Snapshot{}, err
 	}
@@ -476,7 +577,38 @@ func EnsureStateLayout() error {
 	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
 		return fmt.Errorf("create workspace root %q: %w", workspaceRoot, err)
 	}
+	skillsRoot := defaultSkillsRoot()
+	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
+		return fmt.Errorf("create skills root %q: %w", skillsRoot, err)
+	}
+	if err := ensureStarterSkill(skillsRoot); err != nil {
+		return fmt.Errorf("create starter skill: %w", err)
+	}
+	if err := os.MkdirAll(SkillStateDir(), 0o755); err != nil {
+		return fmt.Errorf("create state cache root %q: %w", SkillStateDir(), err)
+	}
 	return nil
+}
+
+func ensureStarterSkill(skillsRoot string) error {
+	manifestPath := filepath.Join(skillsRoot, "echo", "SKILL.md")
+	if _, err := os.Stat(manifestPath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
+		return err
+	}
+	content := strings.TrimSpace(`---
+name: echo
+description: 回显输入内容
+aliases:
+  - repeat
+---
+请回显用户输入。`) + "\n"
+	return os.WriteFile(manifestPath, []byte(content), 0o644)
 }
 
 func migrateLegacyWorkspaceLayout() error {
@@ -714,6 +846,20 @@ func WorkspaceRoot() string {
 	return defaultWorkspaceRoot()
 }
 
+func SkillStateDir() string {
+	return filepath.Join(stateDir(), "state")
+}
+
+func SkillIndexPath(agentID string) string {
+	segment := normalizeWorkspaceSegment(agentID)
+	return filepath.Join(SkillStateDir(), "skills_index_"+segment+".json")
+}
+
+func PairingStorePath(agentID string) string {
+	segment := normalizeWorkspaceSegment(agentID)
+	return filepath.Join(SkillStateDir(), "pairing_"+segment+".json")
+}
+
 func SuggestedAgentWorkspace(agentID string) string {
 	return defaultAgentWorkspace(agentID)
 }
@@ -806,6 +952,33 @@ func SetDefaultAgent(agentID string) (string, error) {
 	file.Agents.Default = agentID
 	setDefaultFlag(&file.Agents, agentID)
 
+	if err := writeFileSnapshot(path, file); err != nil {
+		return "", fmt.Errorf("write config: %w", err)
+	}
+	return path, nil
+}
+
+func SetSkillDisabledNames(names []string) (string, error) {
+	path := configPath()
+	file, err := readOrDefaultFileSnapshot(path)
+	if err != nil {
+		return "", err
+	}
+
+	normalized := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		value := strings.ToLower(strings.TrimSpace(name))
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	file.Skills.DisabledNames = normalized
 	if err := writeFileSnapshot(path, file); err != nil {
 		return "", fmt.Errorf("write config: %w", err)
 	}
@@ -914,6 +1087,8 @@ func LoadFromEnv() (Snapshot, error) {
 	}
 	cfg.normalizeChannelInstances()
 	cfg.normalizeDatabase()
+	cfg.normalizeSkills()
+	cfg.normalizeIntentRouter()
 	if err := cfg.Validate(); err != nil {
 		return Snapshot{}, err
 	}
@@ -1015,6 +1190,29 @@ func defaultFileSnapshot() fileSnapshot {
 			SSLMode:    "disable",
 			AutoCreate: true,
 		},
+		Skills: fileSkills{
+			Enabled: true,
+			Sources: fileSkillSources{
+				UserDir:        defaultSkillsRoot(),
+				WorkspaceDir:   ".synapsex/skills",
+				BuiltinEnabled: true,
+				BuiltinDir:     "internal/skills/builtin",
+			},
+			DisabledNames: nil,
+			Allowlist: fileSkillAllowlist{
+				Users:    nil,
+				Channels: nil,
+			},
+			DefaultMode:       "channel_allowlist_dm_pairing",
+			PairingTTLSeconds: 604800,
+		},
+		IntentRouter: fileIntentRouter{
+			Mode: "rule_first_llm_fallback",
+			LLMFallback: fileIntentLLMFallback{
+				Enabled:             true,
+				ConfidenceThreshold: 0.72,
+			},
+		},
 	}
 }
 
@@ -1088,6 +1286,37 @@ func normalizeFileSnapshot(file *fileSnapshot) {
 	file.Database.SSLMode = strings.TrimSpace(file.Database.SSLMode)
 	if file.Database.SSLMode == "" {
 		file.Database.SSLMode = "disable"
+	}
+
+	file.Skills.Sources.UserDir = strings.TrimSpace(file.Skills.Sources.UserDir)
+	if file.Skills.Sources.UserDir == "" {
+		file.Skills.Sources.UserDir = defaultSkillsRoot()
+	}
+	file.Skills.Sources.WorkspaceDir = strings.TrimSpace(file.Skills.Sources.WorkspaceDir)
+	if file.Skills.Sources.WorkspaceDir == "" {
+		file.Skills.Sources.WorkspaceDir = ".synapsex/skills"
+	}
+	file.Skills.Sources.BuiltinDir = strings.TrimSpace(file.Skills.Sources.BuiltinDir)
+	if file.Skills.Sources.BuiltinDir == "" {
+		file.Skills.Sources.BuiltinDir = "internal/skills/builtin"
+	}
+	file.Skills.DisabledNames = filterEmpty(file.Skills.DisabledNames)
+	file.Skills.Allowlist.Users = filterEmpty(file.Skills.Allowlist.Users)
+	file.Skills.Allowlist.Channels = filterEmpty(file.Skills.Allowlist.Channels)
+	file.Skills.DefaultMode = strings.TrimSpace(file.Skills.DefaultMode)
+	if file.Skills.DefaultMode == "" {
+		file.Skills.DefaultMode = "channel_allowlist_dm_pairing"
+	}
+	if file.Skills.PairingTTLSeconds <= 0 {
+		file.Skills.PairingTTLSeconds = 604800
+	}
+
+	file.IntentRouter.Mode = strings.TrimSpace(file.IntentRouter.Mode)
+	if file.IntentRouter.Mode == "" {
+		file.IntentRouter.Mode = "rule_first_llm_fallback"
+	}
+	if file.IntentRouter.LLMFallback.ConfidenceThreshold <= 0 || file.IntentRouter.LLMFallback.ConfidenceThreshold > 1 {
+		file.IntentRouter.LLMFallback.ConfidenceThreshold = 0.72
 	}
 }
 
@@ -1163,6 +1392,29 @@ func defaultSnapshot() Snapshot {
 			Password:   "",
 			SSLMode:    "disable",
 			AutoCreate: true,
+		},
+		Skills: SkillConfig{
+			Enabled: true,
+			Sources: SkillSources{
+				UserDir:        defaultSkillsRoot(),
+				WorkspaceDir:   ".synapsex/skills",
+				BuiltinEnabled: true,
+				BuiltinDir:     "internal/skills/builtin",
+			},
+			DisabledNames: nil,
+			Allowlist: SkillAllowlist{
+				Users:    nil,
+				Channels: nil,
+			},
+			DefaultMode: "channel_allowlist_dm_pairing",
+			PairingTTL:  7 * 24 * time.Hour,
+		},
+		IntentRouter: IntentRouterConfig{
+			Mode: "rule_first_llm_fallback",
+			LLMFallback: LLMFallbackConfig{
+				Enabled:             true,
+				ConfidenceThreshold: 0.72,
+			},
 		},
 		ProviderProfiles: make(map[string]ProviderProfile),
 		Agents:           make(map[string]Agent),
@@ -1481,6 +1733,57 @@ func applyStructuredJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 			cfg.Database.AutoCreate = *db.AutoCreate
 		}
 	}
+
+	if raw.Skills != nil {
+		if raw.Skills.Enabled != nil {
+			cfg.Skills.Enabled = *raw.Skills.Enabled
+		}
+		if raw.Skills.Sources != nil {
+			if strings.TrimSpace(raw.Skills.Sources.UserDir) != "" {
+				cfg.Skills.Sources.UserDir = strings.TrimSpace(raw.Skills.Sources.UserDir)
+			}
+			if strings.TrimSpace(raw.Skills.Sources.WorkspaceDir) != "" {
+				cfg.Skills.Sources.WorkspaceDir = strings.TrimSpace(raw.Skills.Sources.WorkspaceDir)
+			}
+			if raw.Skills.Sources.BuiltinEnabled != nil {
+				cfg.Skills.Sources.BuiltinEnabled = *raw.Skills.Sources.BuiltinEnabled
+			}
+			if strings.TrimSpace(raw.Skills.Sources.BuiltinDir) != "" {
+				cfg.Skills.Sources.BuiltinDir = strings.TrimSpace(raw.Skills.Sources.BuiltinDir)
+			}
+		}
+		if raw.Skills.DisabledNames != nil {
+			cfg.Skills.DisabledNames = filterEmpty(raw.Skills.DisabledNames)
+		}
+		if raw.Skills.Allowlist != nil {
+			if raw.Skills.Allowlist.Users != nil {
+				cfg.Skills.Allowlist.Users = filterEmpty(raw.Skills.Allowlist.Users)
+			}
+			if raw.Skills.Allowlist.Channels != nil {
+				cfg.Skills.Allowlist.Channels = filterEmpty(raw.Skills.Allowlist.Channels)
+			}
+		}
+		if strings.TrimSpace(raw.Skills.DefaultMode) != "" {
+			cfg.Skills.DefaultMode = strings.TrimSpace(raw.Skills.DefaultMode)
+		}
+		if raw.Skills.PairingTTLSeconds > 0 {
+			cfg.Skills.PairingTTL = time.Duration(raw.Skills.PairingTTLSeconds) * time.Second
+		}
+	}
+
+	if raw.IntentRouter != nil {
+		if strings.TrimSpace(raw.IntentRouter.Mode) != "" {
+			cfg.IntentRouter.Mode = strings.TrimSpace(raw.IntentRouter.Mode)
+		}
+		if raw.IntentRouter.LLMFallback != nil {
+			if raw.IntentRouter.LLMFallback.Enabled != nil {
+				cfg.IntentRouter.LLMFallback.Enabled = *raw.IntentRouter.LLMFallback.Enabled
+			}
+			if raw.IntentRouter.LLMFallback.ConfidenceThreshold > 0 {
+				cfg.IntentRouter.LLMFallback.ConfidenceThreshold = raw.IntentRouter.LLMFallback.ConfidenceThreshold
+			}
+		}
+	}
 }
 
 func applyProfileSet(cfg *Snapshot, section interface{}) {
@@ -1779,6 +2082,41 @@ func (s *Snapshot) normalizeDatabase() {
 	}
 }
 
+func (s *Snapshot) normalizeSkills() {
+	s.Skills.Sources.UserDir = strings.TrimSpace(s.Skills.Sources.UserDir)
+	if s.Skills.Sources.UserDir == "" {
+		s.Skills.Sources.UserDir = defaultSkillsRoot()
+	}
+	s.Skills.Sources.WorkspaceDir = strings.TrimSpace(s.Skills.Sources.WorkspaceDir)
+	if s.Skills.Sources.WorkspaceDir == "" {
+		s.Skills.Sources.WorkspaceDir = ".synapsex/skills"
+	}
+	s.Skills.Sources.BuiltinDir = strings.TrimSpace(s.Skills.Sources.BuiltinDir)
+	if s.Skills.Sources.BuiltinDir == "" {
+		s.Skills.Sources.BuiltinDir = "internal/skills/builtin"
+	}
+	s.Skills.DisabledNames = filterEmpty(s.Skills.DisabledNames)
+	s.Skills.Allowlist.Users = filterEmpty(s.Skills.Allowlist.Users)
+	s.Skills.Allowlist.Channels = filterEmpty(s.Skills.Allowlist.Channels)
+	s.Skills.DefaultMode = strings.TrimSpace(strings.ToLower(s.Skills.DefaultMode))
+	if s.Skills.DefaultMode == "" {
+		s.Skills.DefaultMode = "channel_allowlist_dm_pairing"
+	}
+	if s.Skills.PairingTTL <= 0 {
+		s.Skills.PairingTTL = 7 * 24 * time.Hour
+	}
+}
+
+func (s *Snapshot) normalizeIntentRouter() {
+	s.IntentRouter.Mode = strings.TrimSpace(strings.ToLower(s.IntentRouter.Mode))
+	if s.IntentRouter.Mode == "" {
+		s.IntentRouter.Mode = "rule_first_llm_fallback"
+	}
+	if s.IntentRouter.LLMFallback.ConfidenceThreshold <= 0 || s.IntentRouter.LLMFallback.ConfidenceThreshold > 1 {
+		s.IntentRouter.LLMFallback.ConfidenceThreshold = 0.72
+	}
+}
+
 func normalizeDiscordInstances(values []DiscordInstance, fallbackAgent string) []DiscordInstance {
 	if len(values) == 0 {
 		return nil
@@ -2055,6 +2393,21 @@ func (s Snapshot) Validate() error {
 			return ErrInvalidConfig
 		}
 	}
+	if strings.TrimSpace(s.Skills.Sources.UserDir) == "" {
+		return ErrInvalidConfig
+	}
+	if strings.TrimSpace(s.Skills.Sources.WorkspaceDir) == "" {
+		return ErrInvalidConfig
+	}
+	if s.Skills.PairingTTL <= 0 {
+		return ErrInvalidConfig
+	}
+	if strings.TrimSpace(s.IntentRouter.Mode) == "" {
+		return ErrInvalidConfig
+	}
+	if s.IntentRouter.LLMFallback.ConfidenceThreshold <= 0 || s.IntentRouter.LLMFallback.ConfidenceThreshold > 1 {
+		return ErrInvalidConfig
+	}
 	return nil
 }
 
@@ -2103,6 +2456,25 @@ func (s Snapshot) IsChannelEnabled(channel string) bool {
 	default:
 		return false
 	}
+}
+
+func (s Snapshot) SkillUserDir() string {
+	return strings.TrimSpace(s.Skills.Sources.UserDir)
+}
+
+func (s Snapshot) WorkspaceSkillDir(workspace string) string {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		return ""
+	}
+	relative := strings.TrimSpace(s.Skills.Sources.WorkspaceDir)
+	if relative == "" {
+		relative = ".synapsex/skills"
+	}
+	if filepath.IsAbs(relative) {
+		return filepath.Clean(relative)
+	}
+	return filepath.Join(workspace, relative)
 }
 
 func splitList(raw string) []string {
@@ -2176,6 +2548,10 @@ func parseBoolOrDefault(raw string, fallback bool) bool {
 
 func defaultWorkspaceRoot() string {
 	return filepath.Join(stateDir(), "workspaces")
+}
+
+func defaultSkillsRoot() string {
+	return filepath.Join(stateDir(), "skills")
 }
 
 func defaultAgentWorkspace(agentID string) string {

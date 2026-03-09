@@ -194,6 +194,24 @@ func TestInteractionToCommandText(t *testing.T) {
 	if err != nil || !ok || got != "/resume sess-1" {
 		t.Fatalf("unexpected /resume mapping: got=%q ok=%v err=%v", got, ok, err)
 	}
+
+	got, ok, err = interactionToCommandText(discordInteractionData{Name: "sx-skills"})
+	if err != nil || !ok || got != "/sx-skills" {
+		t.Fatalf("unexpected /sx-skills mapping: got=%q ok=%v err=%v", got, ok, err)
+	}
+
+	nameRaw, _ := json.Marshal("echo")
+	inputRaw, _ := json.Marshal("hello")
+	got, ok, err = interactionToCommandText(discordInteractionData{
+		Name: "sx-skill",
+		Options: []discordInteractionOption{
+			{Name: "name", Type: discordApplicationCommandOptionTypeString, Value: nameRaw},
+			{Name: "input", Type: discordApplicationCommandOptionTypeString, Value: inputRaw},
+		},
+	})
+	if err != nil || !ok || got != "/sx-skill echo hello" {
+		t.Fatalf("unexpected /sx-skill mapping: got=%q ok=%v err=%v", got, ok, err)
+	}
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

@@ -19,6 +19,7 @@ import (
 
 	"synapsex/internal/application/command"
 	"synapsex/internal/application/service"
+	"synapsex/internal/application/skillregistry"
 	sessiondomain "synapsex/internal/domain/session"
 	"synapsex/internal/infrastructure/backend"
 	"synapsex/internal/infrastructure/config"
@@ -62,6 +63,7 @@ type agentRuntime struct {
 	profileCmd  string
 	router      *service.Router
 	runner      *backend.DirectRunner
+	skills      *skillregistry.Service
 }
 
 func main() {
@@ -76,6 +78,8 @@ func run(args []string) error {
 		return runServe()
 	case "config":
 		return runConfigEntry(args[1:])
+	case "skill":
+		return runSkillCommand(args[1:])
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -570,9 +574,10 @@ func runConfigCommand() error {
 }
 
 func printUsage() {
-	fmt.Fprintf(os.Stdout, "Usage: synapsex [serve|config|help]\n")
+	fmt.Fprintf(os.Stdout, "Usage: synapsex [serve|config|skill|help]\n")
 	fmt.Fprintf(os.Stdout, "  serve  Start the service. If config.json is missing, bootstrap it first.\n")
 	fmt.Fprintf(os.Stdout, "  config Launch the interactive config wizard, or run `config agent ...` for agent management.\n")
+	fmt.Fprintf(os.Stdout, "  skill  Manage skill registry (list|reload|enable|disable).\n")
 }
 
 func firstArg(args []string) string {
@@ -976,7 +981,11 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			runtimeCfg := cfg
 			runtimeCfg.DefaultCWD = workspace
 			runtimeCfg.Timeout = timeout
-			router := service.NewRouter(runtimeCfg, sessionManager, runner)
+			registry, pipeline, err := buildSkillRuntimeComponents(runtimeCfg, agent.ID, workspace)
+			if err != nil {
+				return nil, "", fmt.Errorf("init skill runtime for agent %q: %w", agent.ID, err)
+			}
+			router := service.NewRouter(runtimeCfg, sessionManager, runner, service.WithIntentPipeline(pipeline))
 			profileCommand := strings.TrimSpace(profile.Command)
 			if profileCommand == "" {
 				switch strings.ToLower(strings.TrimSpace(profile.Kind)) {
@@ -995,6 +1004,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 				profileCmd:  profileCommand,
 				router:      router,
 				runner:      runner,
+				skills:      registry,
 			}
 		}
 	}
@@ -1029,14 +1039,25 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			profileCmd = cfg.ActiveProfile.Command
 		}
 	}
+	var primaryRegistry *skillregistry.Service
+	primaryRouter := func() *service.Router {
+		registry, pipeline, err := buildSkillRuntimeComponents(cfg, primaryID, cfg.DefaultCWD)
+		if err != nil {
+			return service.NewRouter(cfg, sessionManager, runner)
+		}
+		primaryRegistry = registry
+		return service.NewRouter(cfg, sessionManager, runner, service.WithIntentPipeline(pipeline))
+	}()
+
 	runtimes[primaryID] = agentRuntime{
 		agentID:     primaryID,
 		backendName: runner.Name(),
 		cwd:         cfg.DefaultCWD,
 		profileKind: profileKind,
 		profileCmd:  profileCmd,
-		router:      service.NewRouter(cfg, sessionManager, runner),
+		router:      primaryRouter,
 		runner:      runner,
+		skills:      primaryRegistry,
 	}
 	return runtimes, primaryID, nil
 }
@@ -1214,6 +1235,10 @@ func handleTelegramInbound(
 		sendTelegramDirect(ctx, adapter, envelope.Target, response)
 		return
 	}
+	if handled, response := handleSynapseXSkillMetaCommand(runtime, message.Text); handled {
+		sendTelegramDirect(ctx, adapter, envelope.Target, response)
+		return
+	}
 
 	decision, err := runtime.router.Route(ctx, message)
 	if err != nil {
@@ -1240,22 +1265,23 @@ func handleTelegramInbound(
 		}
 
 		sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatControlResponse(toControlResponse(result)))
-	case service.DecisionExecute:
+	case service.DecisionSkill, service.DecisionExecute:
 		started := time.Now()
-		log.Printf("telegram execute begin: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, runtime.cwd, decision.ConversationID)
+		executeInput := buildExecutionInput(decision)
+		log.Printf("telegram execute begin: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, runtime.cwd, decision.ConversationID, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
 			Mode:           command.ModeContinue,
 			ConversationID: decision.ConversationID,
-			Input:          decision.Message.Text,
+			Input:          executeInput,
 			Backend:        runtime.backendName,
 			CWD:            runtime.cwd,
 		})
 		if err != nil {
-			log.Printf("telegram execute failed: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s duration_ms=%d err=%v", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, time.Since(started).Milliseconds(), err)
+			log.Printf("telegram execute failed: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
 			sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
 		}
-		log.Printf("telegram execute done: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s session_id=%s backend_session_id=%s state=%s duration_ms=%d output_chars=%d", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
+		log.Printf("telegram execute done: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s session_id=%s backend_session_id=%s state=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
@@ -1263,6 +1289,7 @@ func handleTelegramInbound(
 		if output == "" {
 			output = "执行完成，无可见输出"
 		}
+		output = applyExecutionSourceLabel(decision, output)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, telegramchat.MaxMessageLength, 1)
 	}
 }
@@ -1289,6 +1316,10 @@ func handleDiscordInbound(
 			sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
 		}
+		sendDiscordDirect(ctx, adapter, envelope.Target, response)
+		return
+	}
+	if handled, response := handleSynapseXSkillMetaCommand(runtime, message.Text); handled {
 		sendDiscordDirect(ctx, adapter, envelope.Target, response)
 		return
 	}
@@ -1321,24 +1352,25 @@ func handleDiscordInbound(
 		}
 
 		sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatControlResponse(toControlResponse(result)))
-	case service.DecisionExecute:
+	case service.DecisionSkill, service.DecisionExecute:
 		started := time.Now()
-		log.Printf("discord execute begin: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, runtime.cwd, decision.ConversationID)
+		executeInput := buildExecutionInput(decision)
+		log.Printf("discord execute begin: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, runtime.cwd, decision.ConversationID, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		stopTyping := startDiscordTypingLoop(ctx, adapter, envelope.Target)
 		defer stopTyping()
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
 			Mode:           command.ModeContinue,
 			ConversationID: decision.ConversationID,
-			Input:          decision.Message.Text,
+			Input:          executeInput,
 			Backend:        runtime.backendName,
 			CWD:            runtime.cwd,
 		})
 		if err != nil {
-			log.Printf("discord execute failed: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s duration_ms=%d err=%v", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, time.Since(started).Milliseconds(), err)
+			log.Printf("discord execute failed: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
 			sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
 		}
-		log.Printf("discord execute done: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s session_id=%s backend_session_id=%s state=%s duration_ms=%d output_chars=%d", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
+		log.Printf("discord execute done: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s session_id=%s backend_session_id=%s state=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
@@ -1346,6 +1378,7 @@ func handleDiscordInbound(
 		if output == "" {
 			output = "执行完成，无可见输出"
 		}
+		output = applyExecutionSourceLabel(decision, output)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, discordchat.MaxMessageLength, 1)
 	}
 }
@@ -1354,6 +1387,66 @@ func sendDiscordDirect(ctx context.Context, adapter *discordchat.Adapter, target
 	if err := adapter.SendDirect(ctx, target, message); err != nil {
 		log.Printf("send discord message: %v", err)
 	}
+}
+
+func handleSynapseXSkillMetaCommand(runtime agentRuntime, rawText string) (bool, string) {
+	text := strings.TrimSpace(rawText)
+	if text == "" {
+		return false, ""
+	}
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return false, ""
+	}
+	command := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fields[0])), "/")
+	if command != "sx-skills" {
+		return false, ""
+	}
+	if runtime.skills == nil {
+		return true, "[SynapseX Skill Registry]\n当前运行时未加载技能注册中心"
+	}
+	body := skillregistry.FormatList(runtime.skills.List())
+	return true, "[SynapseX Skill Registry]\n" + body
+}
+
+func applyExecutionSourceLabel(decision service.Decision, output string) string {
+	text := strings.TrimSpace(output)
+	if text == "" {
+		return text
+	}
+	if decision.Kind == service.DecisionSkill {
+		prefix := "[SynapseX Skill]"
+		if strings.HasPrefix(text, prefix) {
+			return text
+		}
+		return prefix + "\n" + text
+	}
+	prefix := "[Agent Direct]"
+	if strings.HasPrefix(text, prefix) {
+		return text
+	}
+	return prefix + "\n" + text
+}
+
+func buildExecutionInput(decision service.Decision) string {
+	if decision.Kind != service.DecisionSkill || decision.Skill == nil {
+		return decision.Message.Text
+	}
+
+	userInput := strings.TrimSpace(decision.SkillInput)
+	if userInput == "" {
+		userInput = strings.TrimSpace(decision.Message.Text)
+	}
+
+	var builder strings.Builder
+	builder.WriteString("你正在执行一个已选中的 Skill。\n")
+	builder.WriteString("Skill: ")
+	builder.WriteString(decision.Skill.Name)
+	builder.WriteString("\n\n[Skill Instructions]\n")
+	builder.WriteString(strings.TrimSpace(decision.Skill.InstructionBody))
+	builder.WriteString("\n\n[User Request]\n")
+	builder.WriteString(userInput)
+	return builder.String()
 }
 
 func startDiscordTypingLoop(ctx context.Context, adapter *discordchat.Adapter, target discordchat.Target) func() {

@@ -64,6 +64,11 @@ func dialGateway(ctx context.Context, rawURL string) (*gatewaySocket, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	defer conn.SetDeadline(time.Time{})
 
 	reader := bufio.NewReader(conn)
 	keyBytes := make([]byte, 16)

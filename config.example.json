@@ -117,6 +117,29 @@
       ]
     }
   },
+  "skills": {
+    "enabled": true,
+    "sources": {
+      "userDir": "/path/to/home/.synapsex/skills",
+      "workspaceDir": ".synapsex/skills",
+      "builtinEnabled": true,
+      "builtinDir": "internal/skills/builtin"
+    },
+    "disabledNames": [],
+    "allowlist": {
+      "users": [],
+      "channels": []
+    },
+    "defaultMode": "channel_allowlist_dm_pairing",
+    "pairingTTLSeconds": 604800
+  },
+  "intentRouter": {
+    "mode": "rule_first_llm_fallback",
+    "llmFallback": {
+      "enabled": true,
+      "confidenceThreshold": 0.72
+    }
+  },
   "gateway": {
     "listenAddr": ":8080",
     "health": {

@@ -13,11 +13,12 @@
 - Streaming or chunked output return with ordering guarantees.
 - Discord Bot and Telegram Bot as the primary channels.
 - Linux deployment, configuration, logging, and basic health checks.
+- Scoped Skill Registry + Intent Router for Claude Code compatible skills, with explicit governance and bounded routing behavior.
 
 ### Current Out-of-Scope
 - Multi-model orchestration.
 - Additional model families beyond the currently supported primary backend.
-- Plugin systems, RAG, generic tool skill frameworks.
+- Generic plugin marketplaces, arbitrary tool-runtime frameworks, and RAG platforms.
 - Multi-tenant access control or full audit systems.
 - Web control panel.
 - Unplanned external platform integrations.

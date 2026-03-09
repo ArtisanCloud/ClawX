@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -573,6 +574,54 @@ func TestEnsureStateLayoutMigratesLegacyWorkspaceRootAndConfigPaths(t *testing.T
 	}
 	if cfg.DefaultCWD != wantMain {
 		t.Fatalf("expected default cwd to be rewritten: got %q want %q", cfg.DefaultCWD, wantMain)
+	}
+}
+
+func TestEnsureStateLayoutCreatesStarterSkill(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	if err := EnsureStateLayout(); err != nil {
+		t.Fatalf("ensure state layout: %v", err)
+	}
+
+	manifestPath := filepath.Join(os.Getenv("HOME"), ".synapsex", "skills", "echo", "SKILL.md")
+	body, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read starter skill manifest: %v", err)
+	}
+	content := string(body)
+	if !strings.Contains(content, "name: echo") {
+		t.Fatalf("expected starter skill to contain name: echo")
+	}
+	if !strings.Contains(content, "description: ") {
+		t.Fatalf("expected starter skill to contain description")
+	}
+}
+
+func TestEnsureStateLayoutDoesNotOverwriteStarterSkill(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	manifestPath := filepath.Join(os.Getenv("HOME"), ".synapsex", "skills", "echo", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
+		t.Fatalf("mkdir starter skill dir: %v", err)
+	}
+	custom := "---\nname: echo\ndescription: custom\n---\ncustom-body\n"
+	if err := os.WriteFile(manifestPath, []byte(custom), 0o644); err != nil {
+		t.Fatalf("write custom starter skill manifest: %v", err)
+	}
+
+	if err := EnsureStateLayout(); err != nil {
+		t.Fatalf("ensure state layout: %v", err)
+	}
+
+	body, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read starter skill manifest: %v", err)
+	}
+	if string(body) != custom {
+		t.Fatalf("starter skill manifest should not be overwritten")
 	}
 }
 
