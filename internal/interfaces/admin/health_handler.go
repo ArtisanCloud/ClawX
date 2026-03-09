@@ -16,6 +16,16 @@ func NewHealthHandler(probe *health.Probe) *HealthHandler {
 	return &HealthHandler{probe: probe}
 }
 
+func (h *HealthHandler) Register(mux *http.ServeMux, path string) {
+	if mux == nil {
+		return
+	}
+	if path == "" {
+		path = "/healthz"
+	}
+	mux.Handle(path, h)
+}
+
 func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	report := h.probe.Check(r.Context())
 	statusCode := mapStatus(report.Status)
@@ -45,4 +55,3 @@ func mapStatus(status health.Status) int {
 		return http.StatusInternalServerError
 	}
 }
-

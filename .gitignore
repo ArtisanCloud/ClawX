@@ -10,5 +10,8 @@ Thumbs.db
 .vscode/
 .idea/
 .tools/
+config.json
+.env
+.env.local
 .gocache/
 .gomodcache/

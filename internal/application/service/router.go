@@ -5,7 +5,9 @@ import (
 	"errors"
 	"strings"
 
+	"synapsex/internal/application/intent"
 	"synapsex/internal/domain/execution"
+	skilldomain "synapsex/internal/domain/skill"
 	"synapsex/internal/infrastructure/config"
 	"synapsex/internal/interfaces/chat"
 )
@@ -20,6 +22,7 @@ type DecisionKind string
 const (
 	DecisionExecute DecisionKind = "execute"
 	DecisionControl DecisionKind = "control"
+	DecisionSkill   DecisionKind = "skill"
 )
 
 type Decision struct {
@@ -27,23 +30,43 @@ type Decision struct {
 	Command        string
 	ConversationID string
 	Message        chat.Message
+	SkillName      string
+	SkillInput     string
+	IntentReason   string
+	Confidence     float64
+	Skill          *skilldomain.Definition
 }
 
 type Router struct {
 	cfg            config.Snapshot
 	sessionManager *SessionManager
 	backend        execution.Backend
+	intentPipeline *intent.Pipeline
 }
 
-func NewRouter(cfg config.Snapshot, sessionManager *SessionManager, backend execution.Backend) *Router {
-	return &Router{
+type RouterOption func(*Router)
+
+func WithIntentPipeline(pipeline *intent.Pipeline) RouterOption {
+	return func(r *Router) {
+		r.intentPipeline = pipeline
+	}
+}
+
+func NewRouter(cfg config.Snapshot, sessionManager *SessionManager, backend execution.Backend, options ...RouterOption) *Router {
+	router := &Router{
 		cfg:            cfg,
 		sessionManager: sessionManager,
 		backend:        backend,
 	}
+	for _, option := range options {
+		if option != nil {
+			option(router)
+		}
+	}
+	return router
 }
 
-func (r *Router) Route(_ context.Context, message chat.Message) (Decision, error) {
+func (r *Router) Route(ctx context.Context, message chat.Message) (Decision, error) {
 	if err := r.ValidateContext(message); err != nil {
 		return Decision{}, err
 	}
@@ -58,7 +81,34 @@ func (r *Router) Route(_ context.Context, message chat.Message) (Decision, error
 		Message:        message,
 	}
 
+	if r.intentPipeline != nil {
+		intentResult, err := r.intentPipeline.Decide(ctx, message)
+		if err != nil {
+			return Decision{}, err
+		}
+		decision.IntentReason = intentResult.Decision.Reason
+		decision.Confidence = intentResult.Decision.Confidence
+		decision.Skill = intentResult.Skill
+		switch intentResult.Decision.Kind {
+		case skilldomain.IntentControl:
+			decision.Kind = DecisionControl
+			decision.Command = text
+		case skilldomain.IntentSkill:
+			decision.Kind = DecisionSkill
+			decision.SkillName = skilldomain.NormalizeName(intentResult.Decision.SkillName)
+			decision.SkillInput = strings.TrimSpace(intentResult.SkillInput)
+		default:
+			decision.Kind = DecisionExecute
+		}
+		return decision, nil
+	}
+
 	if strings.HasPrefix(text, "/") {
+		decision.Kind = DecisionControl
+		decision.Command = text
+		return decision, nil
+	}
+	if isBareControlCommand(text) {
 		decision.Kind = DecisionControl
 		decision.Command = text
 		return decision, nil
@@ -66,6 +116,19 @@ func (r *Router) Route(_ context.Context, message chat.Message) (Decision, error
 
 	decision.Kind = DecisionExecute
 	return decision, nil
+}
+
+func isBareControlCommand(text string) bool {
+	fields := strings.Fields(strings.TrimSpace(text))
+	if len(fields) == 0 {
+		return false
+	}
+	switch strings.ToLower(fields[0]) {
+	case "new", "resume", "list", "cancel", "current":
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *Router) ValidateContext(message chat.Message) error {

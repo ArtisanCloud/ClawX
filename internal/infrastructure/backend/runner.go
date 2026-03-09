@@ -1,8 +1,12 @@
 package backend
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,29 +15,53 @@ import (
 
 type ExecutorFunc func(ctx context.Context, request execution.Request) (execution.Result, error)
 
+type ValidateCWDFunc func(cwd string) error
+
+type Options struct {
+	Command     string
+	Args        []string
+	HealthArgs  []string
+	ExecuteFunc ExecutorFunc
+	ValidateCWD ValidateCWDFunc
+}
+
+var ErrMissingCommand = errors.New("backend command is not configured")
+
 type DirectRunner struct {
 	name        string
 	timeout     time.Duration
+	command     string
+	args        []string
+	healthArgs  []string
 	executeFunc ExecutorFunc
+	validateCWD ValidateCWDFunc
 
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc
 }
 
-func NewDirectRunner(name string, timeout time.Duration, executeFunc ExecutorFunc) *DirectRunner {
+func NewDirectRunner(name string, timeout time.Duration, options Options) *DirectRunner {
 	if name == "" {
 		name = "primary"
 	}
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
 	}
-	if executeFunc == nil {
-		executeFunc = defaultExecute
+	if strings.TrimSpace(options.Command) == "" && options.ExecuteFunc == nil {
+		options.Command = "cat"
 	}
+	if options.ExecuteFunc == nil {
+		options.ExecuteFunc = buildCLIExecutor(strings.TrimSpace(options.Command), options.Args)
+	}
+
 	return &DirectRunner{
 		name:        name,
 		timeout:     timeout,
-		executeFunc: executeFunc,
+		command:     strings.TrimSpace(options.Command),
+		args:        append([]string(nil), options.Args...),
+		healthArgs:  append([]string(nil), options.HealthArgs...),
+		executeFunc: options.ExecuteFunc,
+		validateCWD: options.ValidateCWD,
 		cancels:     make(map[string]context.CancelFunc),
 	}
 }
@@ -49,6 +77,18 @@ func (r *DirectRunner) Execute(ctx context.Context, request execution.Request) (
 		r.clearCancel(request.SessionID)
 		cancel()
 	}()
+
+	if r.validateCWD != nil {
+		if err := r.validateCWD(request.CWD); err != nil {
+			return execution.Result{
+				BackendSessionID: request.BackendSessionID,
+				State:            execution.ResultFailed,
+				StartedAt:        time.Now().UTC(),
+				CompletedAt:      time.Now().UTC(),
+				FailureReason:    err.Error(),
+			}, err
+		}
+	}
 
 	result, err := r.executeFunc(runCtx, request)
 	if err != nil {
@@ -80,29 +120,77 @@ func (r *DirectRunner) Execute(ctx context.Context, request execution.Request) (
 }
 
 func (r *DirectRunner) HealthCheck(ctx context.Context) error {
-	_, err := r.executeFunc(ctx, execution.Request{
-		SessionID: "health",
-		Input:     "health",
-		Timeout:   100 * time.Millisecond,
-	})
-	return err
-}
-
-func defaultExecute(ctx context.Context, request execution.Request) (execution.Result, error) {
-	startedAt := time.Now().UTC()
-	select {
-	case <-ctx.Done():
-		return execution.Result{}, ctx.Err()
-	default:
+	commandName := strings.TrimSpace(r.command)
+	if commandName == "" {
+		return ErrMissingCommand
 	}
 
-	return execution.Result{
-		BackendSessionID: defaultBackendSessionID(request),
-		Output:           fmt.Sprintf("accepted: %s", request.Input),
-		State:            execution.ResultSuccess,
-		StartedAt:        startedAt,
-		CompletedAt:      time.Now().UTC(),
-	}, nil
+	healthCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(healthCtx, commandName, r.healthArgs...)
+	if len(r.healthArgs) == 0 {
+		cmd.Stdin = strings.NewReader("health")
+	}
+
+	var stderr bytes.Buffer
+	cmd.Stdout = &bytes.Buffer{}
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		message := strings.TrimSpace(stderr.String())
+		if message == "" {
+			message = err.Error()
+		}
+		return fmt.Errorf("backend health check failed: %s", message)
+	}
+	return nil
+}
+
+func buildCLIExecutor(commandName string, args []string) ExecutorFunc {
+	return func(ctx context.Context, request execution.Request) (execution.Result, error) {
+		if strings.TrimSpace(commandName) == "" {
+			return execution.Result{}, ErrMissingCommand
+		}
+
+		startedAt := time.Now().UTC()
+		cmd := exec.CommandContext(ctx, commandName, args...)
+		cmd.Dir = request.CWD
+		cmd.Stdin = strings.NewReader(request.Input)
+
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			failure := strings.TrimSpace(stderr.String())
+			if failure == "" {
+				failure = err.Error()
+			}
+			return execution.Result{
+				BackendSessionID: defaultBackendSessionID(request),
+				Output:           strings.TrimSpace(stdout.String()),
+				State:            mapErrorToResultState(err),
+				StartedAt:        startedAt,
+				CompletedAt:      time.Now().UTC(),
+				FailureReason:    failure,
+			}, fmt.Errorf("run backend command: %s", failure)
+		}
+
+		output := strings.TrimSpace(stdout.String())
+		if output == "" {
+			output = strings.TrimSpace(stderr.String())
+		}
+
+		return execution.Result{
+			BackendSessionID: defaultBackendSessionID(request),
+			Output:           output,
+			State:            execution.ResultSuccess,
+			StartedAt:        startedAt,
+			CompletedAt:      time.Now().UTC(),
+		}, nil
+	}
 }
 
 func defaultBackendSessionID(request execution.Request) string {
@@ -111,4 +199,3 @@ func defaultBackendSessionID(request execution.Request) string {
 	}
 	return fmt.Sprintf("backend-%s", request.SessionID)
 }
-

@@ -1,0 +1,161 @@
+{
+  "runtime": {
+    "allowedRoots": [
+      "/path/to/home/.synapsex/workspaces"
+    ],
+    "defaultCwd": "/path/to/home/.synapsex/workspaces/main",
+    "timeoutSeconds": 600
+  },
+  "providers": {
+    "profiles": {
+      "codex": {
+        "kind": "codex-cli",
+        "command": "codex",
+        "args": [],
+        "healthArgs": [
+          "--version"
+        ],
+        "model": ""
+      },
+      "claude": {
+        "kind": "claude-cli",
+        "command": "claude",
+        "args": [],
+        "healthArgs": [
+          "--version"
+        ],
+        "model": ""
+      },
+      "local-smoke": {
+        "kind": "generic-cli",
+        "command": "cat",
+        "args": [],
+        "healthArgs": []
+      }
+    }
+  },
+  "agents": {
+    "default": "main",
+    "list": [
+      {
+        "id": "main",
+        "profile": "codex",
+        "workspace": "/path/to/home/.synapsex/workspaces/main",
+        "timeoutSeconds": 600,
+        "default": true
+      },
+      {
+        "id": "docs-agent",
+        "profile": "claude",
+        "workspace": "/path/to/home/.synapsex/workspaces/docs-agent",
+        "timeoutSeconds": 600
+      },
+      {
+        "id": "local-smoke",
+        "profile": "local-smoke",
+        "workspace": "/path/to/home/.synapsex/workspaces/local-smoke",
+        "timeoutSeconds": 600
+      }
+    ]
+  },
+  "execution": {
+    "command": "cat",
+    "args": [],
+    "healthArgs": []
+  },
+  "channels": {
+    "discord": {
+      "enabled": false,
+      "botToken": "",
+      "apiBaseUrl": "https://discord.com/api/v10",
+      "gatewayUrl": "wss://gateway.discord.gg/?v=10&encoding=json",
+      "allowedChannelIds": [],
+      "requireMention": true,
+      "defaultAgent": "main",
+      "agentBindings": {
+        "channel:123456789012345678": "docs-agent"
+      },
+      "instances": [
+        {
+          "id": "discord-main",
+          "enabled": false,
+          "botToken": "",
+          "apiBaseUrl": "https://discord.com/api/v10",
+          "gatewayUrl": "wss://gateway.discord.gg/?v=10&encoding=json",
+          "allowedChannelIds": [],
+          "requireMention": true,
+          "defaultAgent": "main",
+          "agentBindings": {}
+        }
+      ]
+    },
+    "telegram": {
+      "enabled": false,
+      "mode": "polling",
+      "token": "",
+      "botUsername": "",
+      "allowedChatIds": [],
+      "requireCommandOrMention": true,
+      "pollingSeconds": 30,
+      "defaultAgent": "main",
+      "agentBindings": {
+        "chat:-1001234567890": "docs-agent"
+      },
+      "instances": [
+        {
+          "id": "telegram-main",
+          "enabled": false,
+          "mode": "polling",
+          "token": "",
+          "botUsername": "",
+          "allowedChatIds": [],
+          "requireCommandOrMention": true,
+          "pollingSeconds": 30,
+          "defaultAgent": "main",
+          "agentBindings": {}
+        }
+      ]
+    }
+  },
+  "skills": {
+    "enabled": true,
+    "sources": {
+      "userDir": "/path/to/home/.synapsex/skills",
+      "workspaceDir": ".synapsex/skills",
+      "builtinEnabled": true,
+      "builtinDir": "internal/skills/builtin"
+    },
+    "disabledNames": [],
+    "allowlist": {
+      "users": [],
+      "channels": []
+    },
+    "defaultMode": "channel_allowlist_dm_pairing",
+    "pairingTTLSeconds": 604800
+  },
+  "intentRouter": {
+    "mode": "rule_first_llm_fallback",
+    "llmFallback": {
+      "enabled": true,
+      "confidenceThreshold": 0.72
+    }
+  },
+  "gateway": {
+    "listenAddr": ":8080",
+    "health": {
+      "enabled": true,
+      "path": "/healthz"
+    }
+  },
+  "database": {
+    "enabled": false,
+    "driver": "postgres",
+    "host": "127.0.0.1",
+    "port": 5432,
+    "name": "synapse_x",
+    "user": "postgres",
+    "password": "",
+    "sslMode": "disable",
+    "autoCreate": true
+  }
+}
