@@ -160,7 +160,7 @@ func isControlCommand(text string) bool {
 		return false
 	}
 	switch normalizeCommand(fields[0]) {
-	case "new", "resume", "list", "cancel", "current":
+	case "new", "resume", "switch", "list", "cancel", "current":
 		return true
 	default:
 		return false

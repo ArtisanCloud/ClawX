@@ -11,6 +11,7 @@ import (
 type ControlFlowResult struct {
 	CreatedSessionID   string
 	ResumedSessionID   string
+	SwitchedSessionID  string
 	CancelledSessionID string
 	CancelNoop         bool
 	Sessions           []SessionSummary
@@ -50,19 +51,31 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 			return ControlFlowResult{}, err
 		}
 		return ControlFlowResult{ResumedSessionID: record.ID}, nil
+	case command.ControlSwitch:
+		record, err := r.sessionManager.SwitchSession(ctx, parsed.ConversationID, parsed.WindowID, parsed.TargetSessionID)
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{
+			SwitchedSessionID: record.ID,
+			CurrentChecked:    true,
+			CurrentSession: &SessionSummary{
+				ID:               record.ID,
+				Status:           record.Status,
+				Backend:          record.Backend,
+				BackendSessionID: record.BackendSessionID,
+			},
+		}, nil
 	case command.ControlList:
-		summaries, err := r.sessionManager.ListSessionSummaries(ctx, parsed.ConversationID)
+		summaries, current, err := r.sessionManager.ListSessionSummariesByWindow(ctx, parsed.ConversationID, parsed.WindowID)
 		if err != nil {
 			return ControlFlowResult{}, err
 		}
 		result := ControlFlowResult{Sessions: summaries, CurrentChecked: true}
-		if len(summaries) > 0 {
-			current := summaries[0]
-			result.CurrentSession = &current
-		}
+		result.CurrentSession = current
 		return result, nil
 	case command.ControlCancel:
-		record, err := r.sessionManager.GetLatestByConversation(ctx, parsed.ConversationID)
+		record, err := r.sessionManager.GetCurrentSessionByWindow(ctx, parsed.ConversationID, parsed.WindowID)
 		if err != nil {
 			return ControlFlowResult{}, err
 		}
@@ -78,9 +91,9 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 		}
 		return ControlFlowResult{CancelledSessionID: cancelled.ID}, nil
 	case command.ControlCurrent:
-		record, err := r.sessionManager.GetLatestByConversation(ctx, parsed.ConversationID)
+		record, err := r.sessionManager.GetCurrentSessionByWindow(ctx, parsed.ConversationID, parsed.WindowID)
 		if err != nil {
-			if errors.Is(err, session.ErrSessionNotFound) {
+			if errors.Is(err, session.ErrSessionNotFound) || errors.Is(err, session.ErrWindowBindingNotFound) {
 				return ControlFlowResult{CurrentChecked: true}, nil
 			}
 			return ControlFlowResult{}, err

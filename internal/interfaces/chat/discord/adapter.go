@@ -457,6 +457,12 @@ func interactionToCommandText(data discordInteractionData) (string, bool, error)
 			return "", false, fmt.Errorf("discord interaction /resume missing session_id option")
 		}
 		return "/resume " + sessionID, true, nil
+	case "switch":
+		sessionID := strings.TrimSpace(interactionOptionValue(data.Options, "session_id"))
+		if sessionID == "" {
+			return "", false, fmt.Errorf("discord interaction /switch missing session_id option")
+		}
+		return "/switch " + sessionID, true, nil
 	case "sx-skill":
 		name := strings.TrimSpace(interactionOptionValue(data.Options, "name"))
 		if name == "" {
@@ -654,6 +660,19 @@ func (a *Adapter) syncSlashCommands(ctx context.Context) error {
 			Type:        discordApplicationCommandTypeChatInput,
 			Name:        "resume",
 			Description: "恢复指定会话",
+			Options: []discordApplicationCommandOption{
+				{
+					Type:        discordApplicationCommandOptionTypeString,
+					Name:        "session_id",
+					Description: "会话ID，例如 sess-xxxx",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Type:        discordApplicationCommandTypeChatInput,
+			Name:        "switch",
+			Description: "切换当前会话",
 			Options: []discordApplicationCommandOption{
 				{
 					Type:        discordApplicationCommandOptionTypeString,

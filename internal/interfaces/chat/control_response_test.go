@@ -12,3 +12,13 @@ func TestFormatControlResponseCancelNoop(t *testing.T) {
 		t.Fatalf("unexpected cancel noop message: got=%q want=%q", got, want)
 	}
 }
+
+func TestFormatControlResponseSwitch(t *testing.T) {
+	got := FormatControlResponse(ControlResponse{
+		SwitchedSessionID: "sess-2",
+	})
+	want := "已切换当前会话: sess-2"
+	if got != want {
+		t.Fatalf("unexpected switch message: got=%q want=%q", got, want)
+	}
+}

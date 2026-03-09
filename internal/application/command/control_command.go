@@ -12,6 +12,7 @@ type ControlKind string
 const (
 	ControlNew     ControlKind = "new"
 	ControlResume  ControlKind = "resume"
+	ControlSwitch  ControlKind = "switch"
 	ControlList    ControlKind = "list"
 	ControlCancel  ControlKind = "cancel"
 	ControlCurrent ControlKind = "current"
@@ -49,6 +50,8 @@ func ParseControlCommand(raw, conversationID string, windowID ...string) (Contro
 		command.Kind = ControlNew
 	case "resume":
 		command.Kind = ControlResume
+	case "switch":
+		command.Kind = ControlSwitch
 	case "list":
 		command.Kind = ControlList
 	case "cancel":
@@ -63,7 +66,7 @@ func ParseControlCommand(raw, conversationID string, windowID ...string) (Contro
 		return ControlCommand{}, ErrInvalidControlCommand
 	}
 
-	if command.Kind == ControlResume {
+	if command.Kind == ControlResume || command.Kind == ControlSwitch {
 		if len(fields) < 2 {
 			return ControlCommand{}, ErrInvalidControlCommand
 		}

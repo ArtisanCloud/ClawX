@@ -126,7 +126,7 @@ func isBareControlCommand(text string) bool {
 		return false
 	}
 	switch strings.ToLower(fields[0]) {
-	case "new", "resume", "list", "cancel", "current":
+	case "new", "resume", "switch", "list", "cancel", "current":
 		return true
 	default:
 		return false

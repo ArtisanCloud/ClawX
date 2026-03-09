@@ -82,16 +82,16 @@
 
 ### 测试任务（US2）
 
-- [ ] T022 [P] [US2] 增加窗口语义控制流集成测试（list/current/switch）于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_control_switch_test.go
-- [ ] T023 [P] [US2] 增加控制命令窗口契约测试于 /home/ubuntu/workspace/SynapseX/tests/contract/multi_session_control_contract_test.go
+- [X] T022 [P] [US2] 增加窗口语义控制流集成测试（list/current/switch）于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_control_switch_test.go
+- [X] T023 [P] [US2] 增加控制命令窗口契约测试于 /home/ubuntu/workspace/SynapseX/tests/contract/multi_session_control_contract_test.go
 
 ### 实现任务（US2）
 
-- [ ] T024 [US2] 扩展控制命令解析新增 `/switch <session_id>` 于 /home/ubuntu/workspace/SynapseX/internal/application/command/control_command.go
-- [ ] T025 [US2] 在控制流实现 `/switch` 仅更新窗口绑定不执行于 /home/ubuntu/workspace/SynapseX/internal/application/service/router_control_flow.go
-- [ ] T026 [US2] 将 `/new`、`/resume`、`/list`、`/cancel`、`/current` 全量切换到窗口语义于 /home/ubuntu/workspace/SynapseX/internal/application/service/router_control_flow.go
-- [ ] T027 [US2] 扩展会话列表服务支持窗口级列表与当前会话标记于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_list.go
-- [ ] T028 [US2] 更新控制命令响应映射支持窗口当前会话反馈于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/control_response.go
+- [X] T024 [US2] 扩展控制命令解析新增 `/switch <session_id>` 于 /home/ubuntu/workspace/SynapseX/internal/application/command/control_command.go
+- [X] T025 [US2] 在控制流实现 `/switch` 仅更新窗口绑定不执行于 /home/ubuntu/workspace/SynapseX/internal/application/service/router_control_flow.go
+- [X] T026 [US2] 将 `/new`、`/resume`、`/list`、`/cancel`、`/current` 全量切换到窗口语义于 /home/ubuntu/workspace/SynapseX/internal/application/service/router_control_flow.go
+- [X] T027 [US2] 扩展会话列表服务支持窗口级列表与当前会话标记于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_list.go
+- [X] T028 [US2] 更新控制命令响应映射支持窗口当前会话反馈于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/control_response.go
 
 **检查点**: US1 与 US2 均应可独立验证
 

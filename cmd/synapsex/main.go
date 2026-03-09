@@ -1484,6 +1484,7 @@ func toControlResponse(result service.ControlFlowResult) chatiface.ControlRespon
 	response := chatiface.ControlResponse{
 		CreatedSessionID:   result.CreatedSessionID,
 		ResumedSessionID:   result.ResumedSessionID,
+		SwitchedSessionID:  result.SwitchedSessionID,
 		CancelledSessionID: result.CancelledSessionID,
 		CancelNoop:         result.CancelNoop,
 		Sessions:           make([]chatiface.ControlSessionSummary, 0, len(result.Sessions)),
