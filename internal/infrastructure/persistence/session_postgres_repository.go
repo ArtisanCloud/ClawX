@@ -75,6 +75,15 @@ func (r *PostgresSessionRepository) Migrate(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_synapsex_sessions_conversation_last_used
 			ON synapsex_sessions (conversation_id, last_used_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS synapsex_window_bindings (
+			window_id TEXT PRIMARY KEY,
+			current_session_id TEXT NOT NULL,
+			conversation_id TEXT NOT NULL,
+			updated_at TIMESTAMPTZ NOT NULL,
+			last_used_at TIMESTAMPTZ NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_synapsex_window_bindings_conversation
+			ON synapsex_window_bindings (conversation_id, last_used_at DESC)`,
 	}
 	for _, stmt := range statements {
 		if _, err := r.db.ExecContext(ctx, stmt); err != nil {
@@ -223,6 +232,95 @@ func (r *PostgresSessionRepository) ListByConversation(ctx context.Context, conv
 		return nil, err
 	}
 	return records, nil
+}
+
+func (r *PostgresSessionRepository) GetWindowBinding(ctx context.Context, windowID string) (session.WindowBinding, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT window_id, current_session_id, conversation_id, updated_at, last_used_at
+		FROM synapsex_window_bindings
+		WHERE window_id = $1
+	`, strings.TrimSpace(windowID))
+
+	var binding session.WindowBinding
+	if err := row.Scan(
+		&binding.WindowID,
+		&binding.CurrentSessionID,
+		&binding.ConversationID,
+		&binding.UpdatedAt,
+		&binding.LastUsedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return session.WindowBinding{}, session.ErrWindowBindingNotFound
+		}
+		return session.WindowBinding{}, err
+	}
+	return binding, nil
+}
+
+func (r *PostgresSessionRepository) SetWindowBinding(ctx context.Context, binding session.WindowBinding) error {
+	binding.WindowID = strings.TrimSpace(binding.WindowID)
+	binding.CurrentSessionID = strings.TrimSpace(binding.CurrentSessionID)
+	binding.ConversationID = strings.TrimSpace(binding.ConversationID)
+	if err := binding.Validate(); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	if binding.UpdatedAt.IsZero() {
+		binding.UpdatedAt = now
+	}
+	if binding.LastUsedAt.IsZero() {
+		binding.LastUsedAt = binding.UpdatedAt
+	}
+
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO synapsex_window_bindings (
+			window_id, current_session_id, conversation_id, updated_at, last_used_at
+		) VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (window_id) DO UPDATE SET
+			current_session_id = EXCLUDED.current_session_id,
+			conversation_id = EXCLUDED.conversation_id,
+			updated_at = EXCLUDED.updated_at,
+			last_used_at = EXCLUDED.last_used_at
+	`,
+		binding.WindowID,
+		binding.CurrentSessionID,
+		binding.ConversationID,
+		binding.UpdatedAt.UTC(),
+		binding.LastUsedAt.UTC(),
+	)
+	return err
+}
+
+func (r *PostgresSessionRepository) ListWindowBindingsByConversation(ctx context.Context, conversationID string) ([]session.WindowBinding, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT window_id, current_session_id, conversation_id, updated_at, last_used_at
+		FROM synapsex_window_bindings
+		WHERE conversation_id = $1
+		ORDER BY last_used_at DESC
+	`, strings.TrimSpace(conversationID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	bindings := make([]session.WindowBinding, 0)
+	for rows.Next() {
+		var binding session.WindowBinding
+		if err := rows.Scan(
+			&binding.WindowID,
+			&binding.CurrentSessionID,
+			&binding.ConversationID,
+			&binding.UpdatedAt,
+			&binding.LastUsedAt,
+		); err != nil {
+			return nil, err
+		}
+		bindings = append(bindings, binding)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return bindings, nil
 }
 
 func (r *PostgresSessionRepository) Acquire(ctx context.Context, sessionID string) (string, error) {

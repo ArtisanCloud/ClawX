@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -109,6 +110,16 @@ func runServe() error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	if updatedCfg, changed, err := autoBootstrapDefaultAgentWorkspace(cfg); err != nil {
+		return fmt.Errorf("workspace bootstrap failed: %w", err)
+	} else if changed {
+		cfg = updatedCfg
+		if cfg.ActiveAgent != nil {
+			log.Printf("auto workspace bootstrap completed: agent=%s workspace=%s", cfg.ActiveAgent.ID, cfg.ActiveAgent.Workspace)
+		} else {
+			log.Printf("auto workspace bootstrap completed")
+		}
+	}
 	if err := ensureWorkspacesReady(cfg); err != nil {
 		return fmt.Errorf("workspace preflight failed: %w", err)
 	}
@@ -139,24 +150,17 @@ func runServe() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	errCh := make(chan error, 1+len(cfg.TelegramInstances)+len(cfg.DiscordInstances))
+	fatalErrCh := make(chan error, 1)
 	started := false
+	httpRuntimeNeeded := false
 
 	if cfg.HealthProbeEnabled {
 		healthHandler.Register(httpMux, cfg.HealthProbePath)
 		started = true
+		httpRuntimeNeeded = true
 	}
 
-	var httpServer *http.Server
-	if cfg.HealthProbeEnabled {
-		httpServer = startHTTPServer(ctx, cfg, httpMux, errCh)
-		defer func() {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = httpServer.Shutdown(shutdownCtx)
-		}()
-	}
-
+	webhookPaths := make(map[string]struct{})
 	for _, instance := range cfg.TelegramInstances {
 		if !instance.Enabled {
 			continue
@@ -167,6 +171,7 @@ func runServe() error {
 			Token:                 instance.Token,
 			BotUsername:           instance.BotUsername,
 			PollTimeout:           instance.PollingTimeout,
+			WebhookSecretToken:    instance.WebhookSecret,
 			AllowedChatIDs:        instance.AllowedChatIDs,
 			RequireCommandMention: instance.RequireCommandOrMention,
 		})
@@ -175,30 +180,97 @@ func runServe() error {
 		}
 
 		instanceCopy := instance
-		go func() {
-			log.Printf("telegram adapter started: instance=%s mode=%s", instanceCopy.ID, instanceCopy.Mode)
-			if err := telegramAdapter.Listen(ctx, func(messageCtx context.Context, envelope telegramchat.InboundEnvelope) error {
-				scopeKey := routingScopeKey("telegram", instanceCopy.ID, envelope.Message.ConversationID)
-				if handled, response, err := handleAgentChatCommand(envelope.Message, scopeKey, agentOverrides, runtimes, defaultRuntimeID); handled {
-					if err != nil {
-						sendTelegramDirect(messageCtx, telegramAdapter, envelope.Target, chatiface.FormatError(err))
-					} else {
-						sendTelegramDirect(messageCtx, telegramAdapter, envelope.Target, response)
+		telegramInboundHandler := func(messageCtx context.Context, envelope telegramchat.InboundEnvelope) error {
+			scopeKey := routingScopeKey("telegram", instanceCopy.ID, envelope.Message.ConversationID)
+			if handled, response, err := handleAgentChatCommand(envelope.Message, scopeKey, agentOverrides, runtimes, defaultRuntimeID); handled {
+				if err != nil {
+					sendTelegramDirect(messageCtx, telegramAdapter, envelope.Target, chatiface.FormatError(err))
+				} else {
+					sendTelegramDirect(messageCtx, telegramAdapter, envelope.Target, response)
+				}
+				return nil
+			}
+
+			requestedAgentID := resolveTelegramAgentID(cfg, instanceCopy, envelope)
+			if forcedAgentID, ok := agentOverrides.Get(scopeKey); ok {
+				requestedAgentID = forcedAgentID
+			}
+			runtime := selectRuntime(runtimes, defaultRuntimeID, requestedAgentID)
+			scopedConversationID := scopeConversationID(envelope.Message.ConversationID, "telegram", instanceCopy.ID, runtime.agentID)
+			handleTelegramInbound(messageCtx, runtime, delivery, telegramAdapter, envelope, scopedConversationID, instanceCopy.ID)
+			return nil
+		}
+
+		mode := strings.ToLower(strings.TrimSpace(instanceCopy.Mode))
+		if mode == "" {
+			mode = "polling"
+		}
+		if mode == "webhook" {
+			httpRuntimeNeeded = true
+			path := normalizeWebhookRoutePath(instanceCopy.WebhookPath, instanceCopy.ID)
+			if _, exists := webhookPaths[path]; exists {
+				return fmt.Errorf("duplicate telegram webhook path %q", path)
+			}
+			webhookPaths[path] = struct{}{}
+
+			httpMux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				envelope, ok, err := telegramAdapter.ParseWebhookRequest(r)
+				if err != nil {
+					status := http.StatusBadRequest
+					if errors.Is(err, telegramchat.ErrWebhookUnauthorized) {
+						status = http.StatusForbidden
 					}
-					return nil
+					http.Error(w, http.StatusText(status), status)
+					log.Printf("telegram webhook rejected: instance=%s path=%s err=%v", instanceCopy.ID, path, err)
+					return
 				}
 
-				requestedAgentID := resolveTelegramAgentID(cfg, instanceCopy, envelope)
-				if forcedAgentID, ok := agentOverrides.Get(scopeKey); ok {
-					requestedAgentID = forcedAgentID
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, `{"ok":true}`)
+				if !ok {
+					return
 				}
-				runtime := selectRuntime(runtimes, defaultRuntimeID, requestedAgentID)
-				scopedConversationID := scopeConversationID(envelope.Message.ConversationID, "telegram", instanceCopy.ID, runtime.agentID)
-				handleTelegramInbound(messageCtx, runtime, delivery, telegramAdapter, envelope, scopedConversationID, instanceCopy.ID)
-				return nil
-			}); err != nil && !errors.Is(err, context.Canceled) {
-				errCh <- err
-			}
+				go func() {
+					if err := telegramInboundHandler(ctx, envelope); err != nil {
+						log.Printf("telegram webhook handler error: instance=%s path=%s err=%v", instanceCopy.ID, path, err)
+					}
+				}()
+			})
+			log.Printf("telegram webhook route registered: instance=%s path=%s", instanceCopy.ID, path)
+
+			go func() {
+				runAdapterWithRetry(ctx, fmt.Sprintf("telegram webhook registrar[%s]", instanceCopy.ID), func(listenCtx context.Context) error {
+					if err := telegramAdapter.SetWebhook(listenCtx, instanceCopy.WebhookURL); err != nil {
+						return err
+					}
+					log.Printf("telegram webhook configured: instance=%s url=%s path=%s", instanceCopy.ID, instanceCopy.WebhookURL, path)
+					<-listenCtx.Done()
+					return listenCtx.Err()
+				})
+			}()
+			continue
+		}
+
+		go func() {
+			runAdapterWithRetry(ctx, fmt.Sprintf("telegram adapter[%s]", instanceCopy.ID), func(listenCtx context.Context) error {
+				log.Printf("telegram adapter started: instance=%s mode=%s", instanceCopy.ID, instanceCopy.Mode)
+				return telegramAdapter.Listen(listenCtx, telegramInboundHandler)
+			})
+		}()
+	}
+
+	var httpServer *http.Server
+	if httpRuntimeNeeded {
+		httpServer = startHTTPServer(ctx, cfg, httpMux, fatalErrCh)
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = httpServer.Shutdown(shutdownCtx)
 		}()
 	}
 
@@ -221,29 +293,29 @@ func runServe() error {
 
 		instanceCopy := instance
 		go func() {
-			log.Printf("discord gateway adapter started: instance=%s", instanceCopy.ID)
-			if err := discordAdapter.Listen(ctx, func(messageCtx context.Context, envelope discordchat.InboundEnvelope) error {
-				scopeKey := routingScopeKey("discord", instanceCopy.ID, envelope.Message.ConversationID)
-				if handled, response, err := handleAgentChatCommand(envelope.Message, scopeKey, agentOverrides, runtimes, defaultRuntimeID); handled {
-					if err != nil {
-						sendDiscordDirect(messageCtx, discordAdapter, envelope.Target, chatiface.FormatError(err))
-					} else {
-						sendDiscordDirect(messageCtx, discordAdapter, envelope.Target, response)
+			runAdapterWithRetry(ctx, fmt.Sprintf("discord adapter[%s]", instanceCopy.ID), func(listenCtx context.Context) error {
+				log.Printf("discord gateway adapter started: instance=%s", instanceCopy.ID)
+				return discordAdapter.Listen(listenCtx, func(messageCtx context.Context, envelope discordchat.InboundEnvelope) error {
+					scopeKey := routingScopeKey("discord", instanceCopy.ID, envelope.Message.ConversationID)
+					if handled, response, err := handleAgentChatCommand(envelope.Message, scopeKey, agentOverrides, runtimes, defaultRuntimeID); handled {
+						if err != nil {
+							sendDiscordDirect(messageCtx, discordAdapter, envelope.Target, chatiface.FormatError(err))
+						} else {
+							sendDiscordDirect(messageCtx, discordAdapter, envelope.Target, response)
+						}
+						return nil
 					}
-					return nil
-				}
 
-				requestedAgentID := resolveDiscordAgentID(cfg, instanceCopy, envelope)
-				if forcedAgentID, ok := agentOverrides.Get(scopeKey); ok {
-					requestedAgentID = forcedAgentID
-				}
-				runtime := selectRuntime(runtimes, defaultRuntimeID, requestedAgentID)
-				scopedConversationID := scopeConversationID(envelope.Message.ConversationID, "discord", instanceCopy.ID, runtime.agentID)
-				handleDiscordInbound(messageCtx, runtime, delivery, discordAdapter, envelope, scopedConversationID, instanceCopy.ID)
-				return nil
-			}); err != nil && !errors.Is(err, context.Canceled) {
-				errCh <- err
-			}
+					requestedAgentID := resolveDiscordAgentID(cfg, instanceCopy, envelope)
+					if forcedAgentID, ok := agentOverrides.Get(scopeKey); ok {
+						requestedAgentID = forcedAgentID
+					}
+					runtime := selectRuntime(runtimes, defaultRuntimeID, requestedAgentID)
+					scopedConversationID := scopeConversationID(envelope.Message.ConversationID, "discord", instanceCopy.ID, runtime.agentID)
+					handleDiscordInbound(messageCtx, runtime, delivery, discordAdapter, envelope, scopedConversationID, instanceCopy.ID)
+					return nil
+				})
+			})
 		}()
 	}
 
@@ -255,12 +327,53 @@ func runServe() error {
 	log.Printf("synapsex service started with %d runtime(s); default agent %q", len(runtimes), defaultRuntime.agentID)
 
 	select {
-	case err := <-errCh:
+	case err := <-fatalErrCh:
 		return fmt.Errorf("runtime error: %w", err)
 	case <-ctx.Done():
 		log.Println("shutdown signal received")
 		return nil
 	}
+}
+
+func runAdapterWithRetry(ctx context.Context, component string, listen func(context.Context) error) {
+	backoff := 2 * time.Second
+	const maxBackoff = 30 * time.Second
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		err := listen(ctx)
+		if err == nil || errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			return
+		}
+
+		log.Printf("%s stopped: %v; retrying in %s", component, err, backoff)
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
+func normalizeWebhookRoutePath(raw, instanceID string) string {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		path = "/webhooks/telegram/" + sanitizeConversationSegment(instanceID, "default")
+	}
+	if strings.HasPrefix(path, "/") {
+		return path
+	}
+	return "/" + path
 }
 
 type sessionStore interface {
@@ -311,8 +424,20 @@ func runConfigEntry(args []string) error {
 		return runConfigCommand()
 	}
 	switch strings.ToLower(strings.TrimSpace(args[0])) {
+	case "help", "-h", "--help":
+		printConfigUsage()
+		return nil
 	case "agent":
 		return runConfigAgentCommand(args[1:])
+	case "channel":
+		return runConfigChannelCommand(args[1:])
+	case "path":
+		fmt.Fprintln(os.Stdout, config.Path())
+		return nil
+	case "get":
+		return runConfigGet(args[1:])
+	case "set":
+		return runConfigSet(args[1:])
 	case "show":
 		path := config.Path()
 		return reportExistingConfig(path)
@@ -425,6 +550,319 @@ func printConfigAgentUsage() {
 	fmt.Fprintln(os.Stdout, "  synapsex config agent list")
 	fmt.Fprintln(os.Stdout, "  synapsex config agent add --id <agent-id> [--profile codex|claude|local-smoke] [--workspace <path>] [--timeout <seconds>] [--default]")
 	fmt.Fprintln(os.Stdout, "  synapsex config agent default <agent-id>")
+}
+
+func printConfigUsage() {
+	fmt.Fprintln(os.Stdout, "Usage:")
+	fmt.Fprintln(os.Stdout, "  synapsex config")
+	fmt.Fprintln(os.Stdout, "  synapsex config show")
+	fmt.Fprintln(os.Stdout, "  synapsex config path")
+	fmt.Fprintln(os.Stdout, "  synapsex config get [dot-key]")
+	fmt.Fprintln(os.Stdout, "  synapsex config set <dot-key> <value>")
+	fmt.Fprintln(os.Stdout, "  synapsex config channel [telegram|discord]")
+	fmt.Fprintln(os.Stdout, "  synapsex config agent list")
+	fmt.Fprintln(os.Stdout, "  synapsex config agent add --id <agent-id> [--profile codex|claude|local-smoke] [--workspace <path>] [--timeout <seconds>] [--default]")
+	fmt.Fprintln(os.Stdout, "  synapsex config agent default <agent-id>")
+}
+
+func runConfigGet(args []string) error {
+	key := ""
+	if len(args) > 0 {
+		key = strings.TrimSpace(args[0])
+	}
+
+	value, err := config.GetValueByDotKey(key)
+	if err != nil {
+		if errors.Is(err, config.ErrConfigKeyNotFound) {
+			return fmt.Errorf("config key %q not found", key)
+		}
+		return err
+	}
+
+	switch typed := value.(type) {
+	case map[string]any, []any:
+		body, err := json.MarshalIndent(typed, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stdout, string(body))
+	default:
+		fmt.Fprintln(os.Stdout, typed)
+	}
+	return nil
+}
+
+func runConfigSet(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: synapsex config set <dot-key> <value>")
+	}
+
+	key := strings.TrimSpace(args[0])
+	value := strings.Join(args[1:], " ")
+	path, err := config.SetValueByDotKey(key, value)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stdout, "config updated: %s\n", path)
+	return nil
+}
+
+func runConfigChannelCommand(args []string) error {
+	if _, _, err := config.EnsureDefaultFile(); err != nil {
+		return fmt.Errorf("prepare config: %w", err)
+	}
+
+	channel := ""
+	if len(args) > 0 {
+		channel = strings.ToLower(strings.TrimSpace(args[0]))
+	}
+	if channel == "" {
+		if !interactiveInputAvailable() {
+			return fmt.Errorf("channel is required in non-interactive mode; use `synapsex config channel telegram` or `synapsex config channel discord`")
+		}
+		selected, err := promptMenu(
+			"选择要增量配置的 Channel:",
+			[]menuOption{
+				{key: "telegram", label: "Telegram", aliases: []string{"1", "telegram", "tg"}, selected: true},
+				{key: "discord", label: "Discord", aliases: []string{"2", "discord", "dc"}},
+			},
+		)
+		if err != nil {
+			return err
+		}
+		channel = selected
+	}
+
+	switch channel {
+	case "telegram", "tg":
+		return runConfigChannelTelegram()
+	case "discord", "dc":
+		return runConfigChannelDiscord()
+	case "help", "-h", "--help":
+		fmt.Fprintln(os.Stdout, "Usage: synapsex config channel [telegram|discord]")
+		return nil
+	default:
+		return fmt.Errorf("unknown channel %q; expected telegram or discord", channel)
+	}
+}
+
+func runConfigChannelTelegram() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	fmt.Fprintln(os.Stdout, "")
+	fmt.Fprintln(os.Stdout, "Telegram 增量配置（回车保持原值）")
+
+	enabled, err := promptBool("启用 Telegram?", cfg.TelegramEnabled)
+	if err != nil {
+		return err
+	}
+
+	token, err := promptString("Telegram Bot Token (留空保持): ")
+	if err != nil {
+		return err
+	}
+	botUsername, err := promptString("Telegram Bot Username (留空保持): ")
+	if err != nil {
+		return err
+	}
+	defaultAgent, err := promptString(fmt.Sprintf("Telegram defaultAgent (留空保持，当前 %s): ", firstNonEmpty(cfg.TelegramDefaultAgentID, cfg.DefaultAgentID, "main")))
+	if err != nil {
+		return err
+	}
+	requireMention, err := promptBool("群聊要求命令或@提及?", cfg.TelegramRequireCommandMention)
+	if err != nil {
+		return err
+	}
+	currentMode := strings.ToLower(strings.TrimSpace(cfg.TelegramMode))
+	if currentMode == "" {
+		currentMode = "polling"
+	}
+	mode, err := promptMenu(
+		fmt.Sprintf("Telegram mode (当前 %s):", currentMode),
+		[]menuOption{
+			{key: "polling", label: "Polling (默认)", aliases: []string{"1", "polling"}, selected: currentMode == "polling"},
+			{key: "webhook", label: "Webhook", aliases: []string{"2", "webhook"}, selected: currentMode == "webhook"},
+		},
+	)
+	if err != nil {
+		return err
+	}
+	if mode == "" {
+		mode = currentMode
+	}
+
+	pollingSeconds := int(defaultDurationSeconds(cfg.TelegramPollingTimeout, 30*time.Second))
+	webhookURL := ""
+	webhookPath := ""
+	webhookSecret := ""
+	if mode == "polling" {
+		pollingSeconds, err = promptIntDefault("pollingSeconds", pollingSeconds)
+		if err != nil {
+			return err
+		}
+	} else {
+		webhookURL, err = promptString(fmt.Sprintf("webhookUrl (当前 %s): ", firstNonEmpty(cfg.TelegramWebhookURL, "空")))
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(webhookURL) == "" {
+			webhookURL = strings.TrimSpace(cfg.TelegramWebhookURL)
+		}
+		if strings.TrimSpace(webhookURL) == "" {
+			return fmt.Errorf("webhook mode requires webhookUrl")
+		}
+		webhookPath, err = promptString(fmt.Sprintf("webhookPath (当前 %s): ", firstNonEmpty(cfg.TelegramWebhookPath, "/webhooks/telegram")))
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(webhookPath) == "" {
+			webhookPath = firstNonEmpty(cfg.TelegramWebhookPath, "/webhooks/telegram")
+		}
+		webhookSecret, err = promptString("webhookSecret (留空保持): ")
+		if err != nil {
+			return err
+		}
+	}
+
+	chatIDsRaw, err := promptString(fmt.Sprintf("allowedChatIds 逗号分隔 (留空保持，当前 %s): ", summarizeList(cfg.TelegramAllowedChatIDs)))
+	if err != nil {
+		return err
+	}
+
+	updates := map[string]string{
+		"channels.telegram.enabled":                 strconv.FormatBool(enabled),
+		"channels.telegram.mode":                    mode,
+		"channels.telegram.requireCommandOrMention": strconv.FormatBool(requireMention),
+	}
+	if mode == "polling" {
+		updates["channels.telegram.pollingSeconds"] = strconv.Itoa(pollingSeconds)
+	} else {
+		updates["channels.telegram.webhookUrl"] = strings.TrimSpace(webhookURL)
+		updates["channels.telegram.webhookPath"] = strings.TrimSpace(webhookPath)
+		if strings.TrimSpace(webhookSecret) != "" {
+			updates["channels.telegram.webhookSecret"] = strings.TrimSpace(webhookSecret)
+		}
+	}
+	if strings.TrimSpace(token) != "" {
+		updates["channels.telegram.token"] = strings.TrimSpace(token)
+	}
+	if strings.TrimSpace(botUsername) != "" {
+		updates["channels.telegram.botUsername"] = strings.TrimSpace(botUsername)
+	}
+	if strings.TrimSpace(defaultAgent) != "" {
+		updates["channels.telegram.defaultAgent"] = strings.TrimSpace(defaultAgent)
+	}
+	if strings.TrimSpace(chatIDsRaw) != "" {
+		values := splitCSV(strings.TrimSpace(chatIDsRaw))
+		payload, err := json.Marshal(values)
+		if err != nil {
+			return err
+		}
+		updates["channels.telegram.allowedChatIds"] = string(payload)
+	}
+
+	for key, value := range updates {
+		if _, err := config.SetValueByDotKey(key, value); err != nil {
+			return err
+		}
+	}
+
+	fmt.Fprintln(os.Stdout, "Telegram channel config updated.")
+	return nil
+}
+
+func runConfigChannelDiscord() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	fmt.Fprintln(os.Stdout, "")
+	fmt.Fprintln(os.Stdout, "Discord 增量配置（回车保持原值）")
+
+	enabled, err := promptBool("启用 Discord?", cfg.DiscordEnabled)
+	if err != nil {
+		return err
+	}
+	token, err := promptString("Discord Bot Token (留空保持): ")
+	if err != nil {
+		return err
+	}
+	defaultAgent, err := promptString(fmt.Sprintf("Discord defaultAgent (留空保持，当前 %s): ", firstNonEmpty(cfg.DiscordDefaultAgentID, cfg.DefaultAgentID, "main")))
+	if err != nil {
+		return err
+	}
+	requireMention, err := promptBool("群聊要求 @bot 触发?", cfg.DiscordRequireMention)
+	if err != nil {
+		return err
+	}
+	channelIDsRaw, err := promptString(fmt.Sprintf("allowedChannelIds 逗号分隔 (留空保持，当前 %s): ", summarizeList(cfg.DiscordAllowedChannelIDs)))
+	if err != nil {
+		return err
+	}
+
+	updates := map[string]string{
+		"channels.discord.enabled":        strconv.FormatBool(enabled),
+		"channels.discord.requireMention": strconv.FormatBool(requireMention),
+	}
+	if strings.TrimSpace(token) != "" {
+		updates["channels.discord.botToken"] = strings.TrimSpace(token)
+	}
+	if strings.TrimSpace(defaultAgent) != "" {
+		updates["channels.discord.defaultAgent"] = strings.TrimSpace(defaultAgent)
+	}
+	if strings.TrimSpace(channelIDsRaw) != "" {
+		values := splitCSV(strings.TrimSpace(channelIDsRaw))
+		payload, err := json.Marshal(values)
+		if err != nil {
+			return err
+		}
+		updates["channels.discord.allowedChannelIds"] = string(payload)
+	}
+
+	for key, value := range updates {
+		if _, err := config.SetValueByDotKey(key, value); err != nil {
+			return err
+		}
+	}
+
+	fmt.Fprintln(os.Stdout, "Discord channel config updated.")
+	return nil
+}
+
+func splitCSV(raw string) []string {
+	items := strings.Split(raw, ",")
+	result := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		value := strings.TrimSpace(item)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func summarizeList(values []string) string {
+	if len(values) == 0 {
+		return "空"
+	}
+	return strings.Join(values, ",")
+}
+
+func defaultDurationSeconds(value time.Duration, fallback time.Duration) int64 {
+	if value <= 0 {
+		return int64(fallback / time.Second)
+	}
+	return int64(value / time.Second)
 }
 
 func runConfigCommand() error {
@@ -1245,6 +1683,7 @@ func handleTelegramInbound(
 		sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 		return
 	}
+	sendTelegramDirect(ctx, adapter, envelope.Target, "正在思考...")
 
 	switch decision.Kind {
 	case service.DecisionControl:

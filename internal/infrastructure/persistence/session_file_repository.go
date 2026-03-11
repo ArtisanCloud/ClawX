@@ -23,6 +23,11 @@ type sessionFileSnapshot struct {
 	Records []session.Record `json:"records"`
 }
 
+type windowBindingFileSnapshot struct {
+	Version  int                     `json:"version"`
+	Bindings []session.WindowBinding `json:"bindings"`
+}
+
 type sessionTranscriptEvent struct {
 	Timestamp time.Time      `json:"timestamp"`
 	Event     string         `json:"event"`
@@ -33,6 +38,8 @@ type SessionFileRepository struct {
 	mu             sync.RWMutex
 	byID           map[string]session.Record
 	byConversation map[string][]string
+	byWindow       map[string]session.WindowBinding
+	bindingByConv  map[string][]string
 	lockCounter    uint64
 	stateDir       string
 	knownAgents    map[string]struct{}
@@ -47,6 +54,8 @@ func NewSessionFileRepository(stateDir string) (*SessionFileRepository, error) {
 	repo := &SessionFileRepository{
 		byID:           make(map[string]session.Record),
 		byConversation: make(map[string][]string),
+		byWindow:       make(map[string]session.WindowBinding),
+		bindingByConv:  make(map[string][]string),
 		stateDir:       stateDir,
 		knownAgents:    make(map[string]struct{}),
 	}
@@ -165,6 +174,73 @@ func (r *SessionFileRepository) ListByConversation(_ context.Context, conversati
 	return records, nil
 }
 
+func (r *SessionFileRepository) GetWindowBinding(_ context.Context, windowID string) (session.WindowBinding, error) {
+	windowID = strings.TrimSpace(windowID)
+	if windowID == "" {
+		return session.WindowBinding{}, session.ErrWindowBindingNotFound
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	binding, exists := r.byWindow[windowID]
+	if !exists {
+		return session.WindowBinding{}, session.ErrWindowBindingNotFound
+	}
+	return cloneWindowBinding(binding), nil
+}
+
+func (r *SessionFileRepository) SetWindowBinding(_ context.Context, binding session.WindowBinding) error {
+	binding.WindowID = strings.TrimSpace(binding.WindowID)
+	binding.CurrentSessionID = strings.TrimSpace(binding.CurrentSessionID)
+	binding.ConversationID = strings.TrimSpace(binding.ConversationID)
+	if err := binding.Validate(); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	if binding.UpdatedAt.IsZero() {
+		binding.UpdatedAt = now
+	}
+	if binding.LastUsedAt.IsZero() {
+		binding.LastUsedAt = binding.UpdatedAt
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.byWindow[binding.WindowID] = cloneWindowBinding(binding)
+	r.rebuildWindowBindingIndexLocked()
+	if err := r.persistWindowBindingsLocked(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *SessionFileRepository) ListWindowBindingsByConversation(_ context.Context, conversationID string) ([]session.WindowBinding, error) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil, nil
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	windowIDs := r.bindingByConv[conversationID]
+	if len(windowIDs) == 0 {
+		return nil, nil
+	}
+
+	bindings := make([]session.WindowBinding, 0, len(windowIDs))
+	for _, windowID := range windowIDs {
+		binding, exists := r.byWindow[windowID]
+		if !exists {
+			continue
+		}
+		bindings = append(bindings, cloneWindowBinding(binding))
+	}
+	return bindings, nil
+}
+
 func (r *SessionFileRepository) Acquire(_ context.Context, sessionID string) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -207,10 +283,10 @@ func (r *SessionFileRepository) loadFromDisk() error {
 	agentsDir := filepath.Join(r.stateDir, "agents")
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("read agents dir: %w", err)
 		}
-		return fmt.Errorf("read agents dir: %w", err)
+		entries = nil
 	}
 
 	for _, entry := range entries {
@@ -257,6 +333,10 @@ func (r *SessionFileRepository) loadFromDisk() error {
 	}
 
 	r.rebuildConversationIndexLocked()
+	if err := r.loadWindowBindingsFromDisk(); err != nil {
+		return err
+	}
+	r.rebuildWindowBindingIndexLocked()
 	return nil
 }
 
@@ -273,6 +353,26 @@ func readSessionFileSnapshot(path string) (sessionFileSnapshot, error) {
 	var snapshot sessionFileSnapshot
 	if err := json.Unmarshal(raw, &snapshot); err != nil {
 		return sessionFileSnapshot{}, fmt.Errorf("parse session store %q: %w", path, err)
+	}
+	if snapshot.Version == 0 {
+		snapshot.Version = 1
+	}
+	return snapshot, nil
+}
+
+func readWindowBindingFileSnapshot(path string) (windowBindingFileSnapshot, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return windowBindingFileSnapshot{}, err
+	}
+	raw = bytesTrimSpace(raw)
+	if len(raw) == 0 {
+		return windowBindingFileSnapshot{}, nil
+	}
+
+	var snapshot windowBindingFileSnapshot
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		return windowBindingFileSnapshot{}, fmt.Errorf("parse window binding store %q: %w", path, err)
 	}
 	if snapshot.Version == 0 {
 		snapshot.Version = 1
@@ -409,6 +509,22 @@ func (r *SessionFileRepository) persistIndexLocked() error {
 	return nil
 }
 
+func (r *SessionFileRepository) persistWindowBindingsLocked() error {
+	bindings := make([]session.WindowBinding, 0, len(r.byWindow))
+	for _, binding := range r.byWindow {
+		bindings = append(bindings, cloneWindowBinding(binding))
+	}
+	sort.Slice(bindings, func(i, j int) bool {
+		return bindings[i].WindowID < bindings[j].WindowID
+	})
+
+	snapshot := windowBindingFileSnapshot{
+		Version:  1,
+		Bindings: bindings,
+	}
+	return writeJSONAtomic(r.windowBindingStorePath(), snapshot)
+}
+
 func (r *SessionFileRepository) appendTranscriptLocked(event string, record session.Record) error {
 	if strings.TrimSpace(record.ID) == "" {
 		return nil
@@ -453,8 +569,45 @@ func (r *SessionFileRepository) rebuildConversationIndexLocked() {
 	r.byConversation = index
 }
 
+func (r *SessionFileRepository) rebuildWindowBindingIndexLocked() {
+	index := make(map[string][]string)
+	for windowID, binding := range r.byWindow {
+		conversationID := strings.TrimSpace(binding.ConversationID)
+		if conversationID == "" {
+			continue
+		}
+		index[conversationID] = append(index[conversationID], windowID)
+	}
+	r.bindingByConv = index
+}
+
 func (r *SessionFileRepository) agentSessionsDir(agentID string) string {
 	return filepath.Join(r.stateDir, "agents", normalizeAgentID(agentID), "sessions")
+}
+
+func (r *SessionFileRepository) windowBindingStorePath() string {
+	return filepath.Join(r.stateDir, "window_bindings.json")
+}
+
+func (r *SessionFileRepository) loadWindowBindingsFromDisk() error {
+	snapshot, err := readWindowBindingFileSnapshot(r.windowBindingStorePath())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	for _, raw := range snapshot.Bindings {
+		binding := cloneWindowBinding(raw)
+		binding.WindowID = strings.TrimSpace(binding.WindowID)
+		binding.CurrentSessionID = strings.TrimSpace(binding.CurrentSessionID)
+		binding.ConversationID = strings.TrimSpace(binding.ConversationID)
+		if err := binding.Validate(); err != nil {
+			continue
+		}
+		r.byWindow[binding.WindowID] = binding
+	}
+	return nil
 }
 
 func writeJSONAtomic(path string, value any) error {

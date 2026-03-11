@@ -20,6 +20,7 @@ var (
 	ErrForbiddenCWD        = errors.New("cwd is outside allowed roots")
 	ErrUnknownAgent        = errors.New("default agent is not defined")
 	ErrUnknownAgentProfile = errors.New("agent references an unknown provider profile")
+	ErrConfigKeyNotFound   = errors.New("config key not found")
 )
 
 type ProviderProfile struct {
@@ -72,6 +73,9 @@ type TelegramInstance struct {
 	AllowedChatIDs          []string
 	RequireCommandOrMention bool
 	PollingTimeout          time.Duration
+	WebhookURL              string
+	WebhookPath             string
+	WebhookSecret           string
 	DefaultAgentID          string
 	AgentBindings           map[string]string
 }
@@ -127,6 +131,9 @@ type Snapshot struct {
 	TelegramAllowedChatIDs        []string
 	TelegramRequireCommandMention bool
 	TelegramPollingTimeout        time.Duration
+	TelegramWebhookURL            string
+	TelegramWebhookPath           string
+	TelegramWebhookSecret         string
 	HealthProbeEnabled            bool
 	HTTPListenAddr                string
 	HealthProbePath               string
@@ -178,6 +185,9 @@ type jsonSnapshot struct {
 	TelegramAllowedChatIDs        []string                   `json:"telegram_allowed_chat_ids"`
 	TelegramRequireCommandMention *bool                      `json:"telegram_require_command_or_mention"`
 	TelegramPollingSeconds        int                        `json:"telegram_polling_seconds"`
+	TelegramWebhookURL            string                     `json:"telegram_webhook_url"`
+	TelegramWebhookPath           string                     `json:"telegram_webhook_path"`
+	TelegramWebhookSecret         string                     `json:"telegram_webhook_secret"`
 	HealthProbeEnabled            *bool                      `json:"health_probe_enabled"`
 	HTTPListenAddr                string                     `json:"http_listen_addr"`
 	HealthProbePath               string                     `json:"health_path"`
@@ -262,6 +272,9 @@ type jsonTelegramChannel struct {
 	AllowedChatIDs          []string               `json:"allowedChatIds"`
 	RequireCommandOrMention *bool                  `json:"requireCommandOrMention"`
 	PollingSeconds          int                    `json:"pollingSeconds"`
+	WebhookURL              string                 `json:"webhookUrl"`
+	WebhookPath             string                 `json:"webhookPath"`
+	WebhookSecret           string                 `json:"webhookSecret"`
 	DefaultAgent            string                 `json:"defaultAgent"`
 	AgentBindings           map[string]string      `json:"agentBindings"`
 	Instances               []jsonTelegramInstance `json:"instances"`
@@ -276,6 +289,9 @@ type jsonTelegramInstance struct {
 	AllowedChatIDs          []string          `json:"allowedChatIds"`
 	RequireCommandOrMention *bool             `json:"requireCommandOrMention"`
 	PollingSeconds          int               `json:"pollingSeconds"`
+	WebhookURL              string            `json:"webhookUrl"`
+	WebhookPath             string            `json:"webhookPath"`
+	WebhookSecret           string            `json:"webhookSecret"`
 	DefaultAgent            string            `json:"defaultAgent"`
 	AgentBindings           map[string]string `json:"agentBindings"`
 }
@@ -448,6 +464,9 @@ type fileTelegramChannel struct {
 	AllowedChatIDs          []string               `json:"allowedChatIds"`
 	RequireCommandOrMention bool                   `json:"requireCommandOrMention"`
 	PollingSeconds          int                    `json:"pollingSeconds"`
+	WebhookURL              string                 `json:"webhookUrl,omitempty"`
+	WebhookPath             string                 `json:"webhookPath,omitempty"`
+	WebhookSecret           string                 `json:"webhookSecret,omitempty"`
 	DefaultAgent            string                 `json:"defaultAgent,omitempty"`
 	AgentBindings           map[string]string      `json:"agentBindings,omitempty"`
 	Instances               []fileTelegramInstance `json:"instances,omitempty"`
@@ -462,6 +481,9 @@ type fileTelegramInstance struct {
 	AllowedChatIDs          []string          `json:"allowedChatIds,omitempty"`
 	RequireCommandOrMention bool              `json:"requireCommandOrMention"`
 	PollingSeconds          int               `json:"pollingSeconds"`
+	WebhookURL              string            `json:"webhookUrl,omitempty"`
+	WebhookPath             string            `json:"webhookPath,omitempty"`
+	WebhookSecret           string            `json:"webhookSecret,omitempty"`
 	DefaultAgent            string            `json:"defaultAgent,omitempty"`
 	AgentBindings           map[string]string `json:"agentBindings,omitempty"`
 }
@@ -958,6 +980,183 @@ func SetDefaultAgent(agentID string) (string, error) {
 	return path, nil
 }
 
+func GetValueByDotKey(key string) (any, error) {
+	path := configPath()
+	file, err := readOrDefaultFileSnapshot(path)
+	if err != nil {
+		return nil, err
+	}
+
+	root, err := fileSnapshotToMap(file)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(key) == "" {
+		return root, nil
+	}
+
+	value, ok, err := getNestedMapValue(root, key)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrConfigKeyNotFound
+	}
+	return value, nil
+}
+
+func SetValueByDotKey(key, rawValue string) (string, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", fmt.Errorf("config key is required")
+	}
+
+	path := configPath()
+	file, err := readOrDefaultFileSnapshot(path)
+	if err != nil {
+		return "", err
+	}
+
+	root, err := fileSnapshotToMap(file)
+	if err != nil {
+		return "", err
+	}
+
+	if err := setNestedMapValue(root, key, coerceDotKeyValue(rawValue)); err != nil {
+		return "", err
+	}
+
+	updated, err := mapToFileSnapshot(root)
+	if err != nil {
+		return "", err
+	}
+	if err := writeFileSnapshot(path, updated); err != nil {
+		return "", fmt.Errorf("write config: %w", err)
+	}
+	return path, nil
+}
+
+func fileSnapshotToMap(file fileSnapshot) (map[string]any, error) {
+	data, err := json.Marshal(file)
+	if err != nil {
+		return nil, fmt.Errorf("marshal config snapshot: %w", err)
+	}
+
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil, fmt.Errorf("decode config snapshot map: %w", err)
+	}
+	return root, nil
+}
+
+func mapToFileSnapshot(root map[string]any) (fileSnapshot, error) {
+	data, err := json.Marshal(root)
+	if err != nil {
+		return fileSnapshot{}, fmt.Errorf("marshal config map: %w", err)
+	}
+
+	var file fileSnapshot
+	if err := json.Unmarshal(data, &file); err != nil {
+		return fileSnapshot{}, fmt.Errorf("invalid config mutation: %w", err)
+	}
+	return file, nil
+}
+
+func splitDotKeyPath(key string) ([]string, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, fmt.Errorf("config key is required")
+	}
+
+	parts := strings.Split(key, ".")
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			return nil, fmt.Errorf("invalid config key %q", key)
+		}
+	}
+	return parts, nil
+}
+
+func getNestedMapValue(root map[string]any, key string) (any, bool, error) {
+	parts, err := splitDotKeyPath(key)
+	if err != nil {
+		return nil, false, err
+	}
+
+	current := any(root)
+	for _, part := range parts {
+		node, ok := current.(map[string]any)
+		if !ok {
+			return nil, false, nil
+		}
+		next, ok := node[part]
+		if !ok {
+			return nil, false, nil
+		}
+		current = next
+	}
+	return current, true, nil
+}
+
+func setNestedMapValue(root map[string]any, key string, value any) error {
+	parts, err := splitDotKeyPath(key)
+	if err != nil {
+		return err
+	}
+
+	current := root
+	for _, part := range parts[:len(parts)-1] {
+		existing, ok := current[part]
+		if !ok {
+			child := map[string]any{}
+			current[part] = child
+			current = child
+			continue
+		}
+
+		child, ok := existing.(map[string]any)
+		if !ok {
+			return fmt.Errorf("config key %q has non-object parent at %q", key, part)
+		}
+		current = child
+	}
+
+	current[parts[len(parts)-1]] = value
+	return nil
+}
+
+func coerceDotKeyValue(rawValue string) any {
+	trimmed := strings.TrimSpace(rawValue)
+	if trimmed == "" {
+		return ""
+	}
+
+	// Accept JSON literals for objects/arrays/quoted strings.
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "\"") {
+		var decoded any
+		if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
+			return decoded
+		}
+	}
+
+	switch strings.ToLower(trimmed) {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+
+	if value, err := strconv.Atoi(trimmed); err == nil {
+		return value
+	}
+	if strings.ContainsAny(trimmed, ".eE") {
+		if value, err := strconv.ParseFloat(trimmed, 64); err == nil {
+			return value
+		}
+	}
+	return rawValue
+}
+
 func SetSkillDisabledNames(names []string) (string, error) {
 	path := configPath()
 	file, err := readOrDefaultFileSnapshot(path)
@@ -1169,6 +1368,9 @@ func defaultFileSnapshot() fileSnapshot {
 				AllowedChatIDs:          []string{},
 				RequireCommandOrMention: true,
 				PollingSeconds:          30,
+				WebhookURL:              "",
+				WebhookPath:             "/webhooks/telegram",
+				WebhookSecret:           "",
 				DefaultAgent:            "main",
 			},
 		},
@@ -1379,6 +1581,7 @@ func defaultSnapshot() Snapshot {
 		TelegramMode:                  "polling",
 		TelegramRequireCommandMention: true,
 		TelegramPollingTimeout:        30 * time.Second,
+		TelegramWebhookPath:           "/webhooks/telegram",
 		HealthProbeEnabled:            true,
 		HTTPListenAddr:                ":8080",
 		HealthProbePath:               "/healthz",
@@ -1535,6 +1738,15 @@ func applyLegacyJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 	if raw.TelegramPollingSeconds > 0 {
 		cfg.TelegramPollingTimeout = time.Duration(raw.TelegramPollingSeconds) * time.Second
 	}
+	if strings.TrimSpace(raw.TelegramWebhookURL) != "" {
+		cfg.TelegramWebhookURL = strings.TrimSpace(raw.TelegramWebhookURL)
+	}
+	if strings.TrimSpace(raw.TelegramWebhookPath) != "" {
+		cfg.TelegramWebhookPath = normalizeWebhookPath(raw.TelegramWebhookPath)
+	}
+	if strings.TrimSpace(raw.TelegramWebhookSecret) != "" {
+		cfg.TelegramWebhookSecret = strings.TrimSpace(raw.TelegramWebhookSecret)
+	}
 	if raw.HealthProbeEnabled != nil {
 		cfg.HealthProbeEnabled = *raw.HealthProbeEnabled
 	}
@@ -1652,6 +1864,15 @@ func applyStructuredJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 			if telegram.PollingSeconds > 0 {
 				cfg.TelegramPollingTimeout = time.Duration(telegram.PollingSeconds) * time.Second
 			}
+			if strings.TrimSpace(telegram.WebhookURL) != "" {
+				cfg.TelegramWebhookURL = strings.TrimSpace(telegram.WebhookURL)
+			}
+			if strings.TrimSpace(telegram.WebhookPath) != "" {
+				cfg.TelegramWebhookPath = normalizeWebhookPath(telegram.WebhookPath)
+			}
+			if strings.TrimSpace(telegram.WebhookSecret) != "" {
+				cfg.TelegramWebhookSecret = strings.TrimSpace(telegram.WebhookSecret)
+			}
 			if strings.TrimSpace(telegram.DefaultAgent) != "" {
 				cfg.TelegramDefaultAgentID = strings.TrimSpace(telegram.DefaultAgent)
 			}
@@ -1674,6 +1895,9 @@ func applyStructuredJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 						AllowedChatIDs:          filterEmpty(item.AllowedChatIDs),
 						RequireCommandOrMention: valueOrDefaultBool(item.RequireCommandOrMention, true),
 						PollingTimeout:          timeout,
+						WebhookURL:              strings.TrimSpace(item.WebhookURL),
+						WebhookPath:             normalizeWebhookPath(item.WebhookPath),
+						WebhookSecret:           strings.TrimSpace(item.WebhookSecret),
 						DefaultAgentID:          strings.TrimSpace(item.DefaultAgent),
 						AgentBindings:           filterBindingMap(item.AgentBindings),
 					}
@@ -1951,6 +2175,15 @@ func applyEnvOverrides(cfg *Snapshot) error {
 		}
 		cfg.TelegramPollingTimeout = time.Duration(parsed) * time.Second
 	}
+	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TELEGRAM_WEBHOOK_URL")); raw != "" {
+		cfg.TelegramWebhookURL = raw
+	}
+	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TELEGRAM_WEBHOOK_PATH")); raw != "" {
+		cfg.TelegramWebhookPath = normalizeWebhookPath(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TELEGRAM_WEBHOOK_SECRET")); raw != "" {
+		cfg.TelegramWebhookSecret = raw
+	}
 	if raw, ok := os.LookupEnv("SYNAPSEX_HEALTH_PROBE_ENABLED"); ok {
 		cfg.HealthProbeEnabled = parseBoolOrDefault(raw, cfg.HealthProbeEnabled)
 	}
@@ -2023,13 +2256,16 @@ func (s *Snapshot) normalizeChannelInstances() {
 			AllowedChatIDs:          filterEmpty(s.TelegramAllowedChatIDs),
 			RequireCommandOrMention: s.TelegramRequireCommandMention,
 			PollingTimeout:          s.TelegramPollingTimeout,
+			WebhookURL:              strings.TrimSpace(s.TelegramWebhookURL),
+			WebhookPath:             normalizeWebhookPath(s.TelegramWebhookPath),
+			WebhookSecret:           strings.TrimSpace(s.TelegramWebhookSecret),
 			DefaultAgentID:          strings.TrimSpace(s.TelegramDefaultAgentID),
 			AgentBindings:           filterBindingMap(s.TelegramAgentBindings),
 		}}
 	}
 
 	s.DiscordInstances = normalizeDiscordInstances(s.DiscordInstances, s.DiscordDefaultAgentID)
-	s.TelegramInstances = normalizeTelegramInstances(s.TelegramInstances, s.TelegramDefaultAgentID, s.TelegramPollingTimeout)
+	s.TelegramInstances = normalizeTelegramInstances(s.TelegramInstances, s.TelegramDefaultAgentID, s.TelegramPollingTimeout, s.TelegramWebhookPath)
 
 	s.DiscordEnabled = hasEnabledDiscordInstance(s.DiscordInstances)
 	s.TelegramEnabled = hasEnabledTelegramInstance(s.TelegramInstances)
@@ -2048,6 +2284,9 @@ func (s *Snapshot) normalizeChannelInstances() {
 		s.TelegramAllowedChatIDs = filterEmpty(first.AllowedChatIDs)
 		s.TelegramRequireCommandMention = first.RequireCommandOrMention
 		s.TelegramPollingTimeout = first.PollingTimeout
+		s.TelegramWebhookURL = strings.TrimSpace(first.WebhookURL)
+		s.TelegramWebhookPath = normalizeWebhookPath(first.WebhookPath)
+		s.TelegramWebhookSecret = strings.TrimSpace(first.WebhookSecret)
 	}
 }
 
@@ -2157,7 +2396,7 @@ func normalizeDiscordInstances(values []DiscordInstance, fallbackAgent string) [
 	return result
 }
 
-func normalizeTelegramInstances(values []TelegramInstance, fallbackAgent string, fallbackPollTimeout time.Duration) []TelegramInstance {
+func normalizeTelegramInstances(values []TelegramInstance, fallbackAgent string, fallbackPollTimeout time.Duration, fallbackWebhookPath string) []TelegramInstance {
 	if len(values) == 0 {
 		return nil
 	}
@@ -2180,6 +2419,9 @@ func normalizeTelegramInstances(values []TelegramInstance, fallbackAgent string,
 		item.Token = strings.TrimSpace(item.Token)
 		item.BotUsername = normalizeTelegramUsername(item.BotUsername)
 		item.AllowedChatIDs = filterEmpty(item.AllowedChatIDs)
+		item.WebhookURL = strings.TrimSpace(item.WebhookURL)
+		item.WebhookPath = normalizeWebhookPath(item.WebhookPath)
+		item.WebhookSecret = strings.TrimSpace(item.WebhookSecret)
 		item.DefaultAgentID = strings.TrimSpace(item.DefaultAgentID)
 		item.AgentBindings = filterBindingMap(item.AgentBindings)
 		if item.DefaultAgentID == "" {
@@ -2187,6 +2429,16 @@ func normalizeTelegramInstances(values []TelegramInstance, fallbackAgent string,
 		}
 		if item.Mode == "" {
 			item.Mode = "polling"
+		}
+		if item.WebhookPath == "" {
+			defaultPath := normalizeWebhookPath(fallbackWebhookPath)
+			if defaultPath == "" {
+				defaultPath = "/webhooks/telegram"
+			}
+			if len(values) > 1 {
+				defaultPath = strings.TrimRight(defaultPath, "/") + "/" + id
+			}
+			item.WebhookPath = defaultPath
 		}
 		if item.PollingTimeout <= 0 {
 			item.PollingTimeout = fallbackPollTimeout
@@ -2228,9 +2480,13 @@ func hasAnyDiscordLegacyConfig(s Snapshot) bool {
 
 func hasAnyTelegramLegacyConfig(s Snapshot) bool {
 	return s.TelegramEnabled ||
+		strings.EqualFold(strings.TrimSpace(s.TelegramMode), "webhook") ||
 		strings.TrimSpace(s.TelegramToken) != "" ||
 		strings.TrimSpace(s.TelegramBotUsername) != "" ||
 		len(s.TelegramAllowedChatIDs) > 0 ||
+		strings.TrimSpace(s.TelegramWebhookURL) != "" ||
+		strings.TrimSpace(s.TelegramWebhookPath) != "" ||
+		strings.TrimSpace(s.TelegramWebhookSecret) != "" ||
 		strings.TrimSpace(s.TelegramDefaultAgentID) != "" ||
 		len(s.TelegramAgentBindings) > 0
 }
@@ -2350,13 +2606,17 @@ func (s Snapshot) Validate() error {
 			return ErrInvalidConfig
 		}
 		if instance.Enabled {
-			if strings.ToLower(strings.TrimSpace(instance.Mode)) != "polling" {
+			mode := strings.ToLower(strings.TrimSpace(instance.Mode))
+			if mode != "polling" && mode != "webhook" {
 				return ErrInvalidConfig
 			}
 			if strings.TrimSpace(instance.Token) == "" {
 				return ErrInvalidConfig
 			}
-			if instance.PollingTimeout <= 0 {
+			if mode == "polling" && instance.PollingTimeout <= 0 {
+				return ErrInvalidConfig
+			}
+			if mode == "webhook" && (strings.TrimSpace(instance.WebhookURL) == "" || strings.TrimSpace(instance.WebhookPath) == "") {
 				return ErrInvalidConfig
 			}
 		}
@@ -2593,6 +2853,17 @@ func normalizeHealthPath(raw string) string {
 	value := strings.TrimSpace(raw)
 	if value == "" {
 		return "/healthz"
+	}
+	if strings.HasPrefix(value, "/") {
+		return value
+	}
+	return "/" + value
+}
+
+func normalizeWebhookPath(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
 	}
 	if strings.HasPrefix(value, "/") {
 		return value

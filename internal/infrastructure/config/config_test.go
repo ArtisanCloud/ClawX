@@ -464,6 +464,139 @@ func TestSetDefaultAgentUpdatesDefault(t *testing.T) {
 	}
 }
 
+func TestSetValueByDotKeyUpdatesTelegramIncrementally(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	path, created, err := EnsureDefaultFile()
+	if err != nil {
+		t.Fatalf("ensure default file: %v", err)
+	}
+	if !created || path != "config.json" {
+		t.Fatalf("expected default config.json to be created, created=%v path=%q", created, path)
+	}
+
+	if _, err := SetValueByDotKey("channels.discord.enabled", "true"); err != nil {
+		t.Fatalf("set discord enabled: %v", err)
+	}
+	if _, err := SetValueByDotKey("channels.discord.botToken", "discord-token"); err != nil {
+		t.Fatalf("set discord token: %v", err)
+	}
+	if _, err := SetValueByDotKey("channels.telegram.enabled", "true"); err != nil {
+		t.Fatalf("set telegram enabled: %v", err)
+	}
+	if _, err := SetValueByDotKey("channels.telegram.token", "telegram-token"); err != nil {
+		t.Fatalf("set telegram token: %v", err)
+	}
+	if _, err := SetValueByDotKey("channels.telegram.botUsername", "my_bot"); err != nil {
+		t.Fatalf("set telegram username: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.ActiveAgent == nil || cfg.ActiveAgent.ID != "main" {
+		t.Fatalf("expected default main agent to remain, got %#v", cfg.ActiveAgent)
+	}
+	if !cfg.DiscordEnabled || cfg.DiscordBotToken != "discord-token" {
+		t.Fatalf("expected discord config to remain set, enabled=%v token=%q", cfg.DiscordEnabled, cfg.DiscordBotToken)
+	}
+	if !cfg.TelegramEnabled || cfg.TelegramToken != "telegram-token" {
+		t.Fatalf("expected telegram to be updated, enabled=%v token=%q", cfg.TelegramEnabled, cfg.TelegramToken)
+	}
+	if cfg.TelegramBotUsername != "my_bot" {
+		t.Fatalf("unexpected telegram username: %q", cfg.TelegramBotUsername)
+	}
+}
+
+func TestGetValueByDotKeySupportsNestedAndRoot(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	if _, _, err := EnsureDefaultFile(); err != nil {
+		t.Fatalf("ensure default file: %v", err)
+	}
+	if _, err := SetValueByDotKey("channels.telegram.enabled", "true"); err != nil {
+		t.Fatalf("set telegram enabled: %v", err)
+	}
+
+	value, err := GetValueByDotKey("channels.telegram.enabled")
+	if err != nil {
+		t.Fatalf("get nested key: %v", err)
+	}
+	enabled, ok := value.(bool)
+	if !ok || !enabled {
+		t.Fatalf("expected bool true for telegram enabled, got %#v", value)
+	}
+
+	root, err := GetValueByDotKey("")
+	if err != nil {
+		t.Fatalf("get root config: %v", err)
+	}
+	if _, ok := root.(map[string]any); !ok {
+		t.Fatalf("expected root get to return map, got %T", root)
+	}
+}
+
+func TestGetValueByDotKeyMissingReturnsNotFound(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	if _, _, err := EnsureDefaultFile(); err != nil {
+		t.Fatalf("ensure default file: %v", err)
+	}
+
+	_, err := GetValueByDotKey("channels.telegram.not_exists")
+	if !errors.Is(err, ErrConfigKeyNotFound) {
+		t.Fatalf("expected ErrConfigKeyNotFound, got %v", err)
+	}
+}
+
+func TestValidateAllowsTelegramWebhookMode(t *testing.T) {
+	cfg := defaultSnapshot()
+	cfg.TelegramInstances = []TelegramInstance{
+		{
+			ID:                      "telegram-default",
+			Enabled:                 true,
+			Mode:                    "webhook",
+			Token:                   "token-1",
+			WebhookURL:              "https://example.com/webhook/tg",
+			WebhookPath:             "/webhooks/telegram",
+			RequireCommandOrMention: true,
+			PollingTimeout:          30,
+			DefaultAgentID:          "main",
+		},
+	}
+	cfg.normalizeChannelInstances()
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate webhook mode: %v", err)
+	}
+}
+
+func TestValidateRejectsTelegramWebhookWithoutURL(t *testing.T) {
+	cfg := defaultSnapshot()
+	cfg.TelegramInstances = []TelegramInstance{
+		{
+			ID:                      "telegram-default",
+			Enabled:                 true,
+			Mode:                    "webhook",
+			Token:                   "token-1",
+			WebhookPath:             "/webhooks/telegram",
+			RequireCommandOrMention: true,
+			PollingTimeout:          30,
+			DefaultAgentID:          "main",
+		},
+	}
+	cfg.normalizeChannelInstances()
+
+	err := cfg.Validate()
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got %v", err)
+	}
+}
+
 func TestWriteBootstrapFileWithDatabaseConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	chdirForTest(t, tempDir)

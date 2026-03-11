@@ -32,15 +32,30 @@
 - 内建控制命令必须在 Router 中优先解析。
 - 技能路由或自然语言路径不得覆盖内建命令。
 
-## 3. 错误契约
+## 3. 参数契约
+
+- `/resume` 与 `/switch` 必须携带 `session_id`。
+- `session_id` 必须是当前上下文可见会话；否则返回拒绝错误。
+- 当请求未显式传入 `window_id` 时，命令必须在 `compat:<conversation_id>` 上下文下工作。
+
+## 4. 错误契约
 
 以下场景必须返回明确用户可见错误：
 - 缺失必填 `session_id`
 - `session_id` 不存在
 - `session_id` 不可见或上下文不匹配
 - 当前窗口无可取消执行目标
+- 窗口绑定不存在或已失效
 
-## 4. 一致性要求
+## 5. 一致性要求
 
 - 两个受支持渠道（Discord/Telegram）命令语义一致。
 - 渠道差异只能存在于适配层语法映射，不得进入领域语义。
+- Discord Slash Command 映射到文本命令后，行为必须与文本命令完全一致。
+
+## 6. 状态变更要求
+
+- `new/resume/switch` 成功后必须刷新：
+  - 会话 `last_used_at`
+  - 窗口绑定 `last_used_at` / `updated_at`
+- `switch` 不得触发后端执行；任何执行计数增长视为契约违例。

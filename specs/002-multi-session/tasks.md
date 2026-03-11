@@ -125,14 +125,14 @@
 
 **目的**: 完成跨故事收尾、回归验证和文档闭环
 
-- [ ] T037 [P] 补充窗口语义渠道契约说明于 /home/ubuntu/workspace/SynapseX/specs/002-multi-session/contracts/window-routing-contract.md
-- [ ] T038 [P] 补充控制命令窗口语义与错误契约说明于 /home/ubuntu/workspace/SynapseX/specs/002-multi-session/contracts/control-command-window-contract.md
-- [ ] T039 运行全量回归测试并修复问题（`go test ./...`）于 /home/ubuntu/workspace/SynapseX/tests/
-- [ ] T040 更新第二阶段验证步骤与人工验收脚本于 /home/ubuntu/workspace/SynapseX/specs/002-multi-session/quickstart.md
-- [ ] T041 回写阶段交付摘要与风险状态于 /home/ubuntu/workspace/SynapseX/docs/plans/phase_2_multi_session.md
-- [ ] T042 [P] 生成 SC-001~SC-004 指标采集与统计脚本（7 天窗口、>=200 样本）于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_metrics_report_test.go
-- [ ] T043 执行 SC-005 人工验收并输出通过率报告于 /home/ubuntu/workspace/SynapseX/docs/guides/phase_2/phase_2_validation.md
-- [ ] T044 [P] 将 SC 指标采集与人工验收结论回写发布门禁说明于 /home/ubuntu/workspace/SynapseX/docs/plans/phase_2_multi_session.md
+- [X] T037 [P] 补充窗口语义渠道契约说明于 /home/ubuntu/workspace/SynapseX/specs/002-multi-session/contracts/window-routing-contract.md
+- [X] T038 [P] 补充控制命令窗口语义与错误契约说明于 /home/ubuntu/workspace/SynapseX/specs/002-multi-session/contracts/control-command-window-contract.md
+- [X] T039 运行全量回归测试并修复问题（`go test ./...`）于 /home/ubuntu/workspace/SynapseX/tests/
+- [X] T040 更新第二阶段验证步骤与人工验收脚本于 /home/ubuntu/workspace/SynapseX/specs/002-multi-session/quickstart.md
+- [X] T041 回写阶段交付摘要与风险状态于 /home/ubuntu/workspace/SynapseX/docs/plans/phase_2_multi_session.md
+- [X] T042 [P] 生成 SC-001~SC-004 指标采集与统计脚本（7 天窗口、>=200 样本）于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_metrics_report_test.go
+- [X] T043 执行 SC-005 人工验收并输出通过率报告于 /home/ubuntu/workspace/SynapseX/docs/guides/phase_2/phase_2_validation.md
+- [X] T044 [P] 将 SC 指标采集与人工验收结论回写发布门禁说明于 /home/ubuntu/workspace/SynapseX/docs/plans/phase_2_multi_session.md
 
 ---
 

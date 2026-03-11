@@ -60,3 +60,75 @@ func TestEnsureWorkspacePathRejectsFile(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestDirectoryEmptyOrMissing(t *testing.T) {
+	root := t.TempDir()
+
+	emptyDir := filepath.Join(root, "empty")
+	if err := os.MkdirAll(emptyDir, 0o755); err != nil {
+		t.Fatalf("mkdir empty: %v", err)
+	}
+	isEmpty, err := directoryEmptyOrMissing(emptyDir)
+	if err != nil {
+		t.Fatalf("check empty dir: %v", err)
+	}
+	if !isEmpty {
+		t.Fatalf("expected empty dir to be empty")
+	}
+
+	nonEmptyDir := filepath.Join(root, "non-empty")
+	if err := os.MkdirAll(nonEmptyDir, 0o755); err != nil {
+		t.Fatalf("mkdir non-empty: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nonEmptyDir, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	isEmpty, err = directoryEmptyOrMissing(nonEmptyDir)
+	if err != nil {
+		t.Fatalf("check non-empty dir: %v", err)
+	}
+	if isEmpty {
+		t.Fatalf("expected non-empty dir to be non-empty")
+	}
+
+	missing := filepath.Join(root, "missing")
+	isEmpty, err = directoryEmptyOrMissing(missing)
+	if err != nil {
+		t.Fatalf("check missing path: %v", err)
+	}
+	if !isEmpty {
+		t.Fatalf("expected missing path to be treated as empty")
+	}
+}
+
+func TestLooksLikeProjectDirectory(t *testing.T) {
+	root := t.TempDir()
+
+	project := filepath.Join(root, "project")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+
+	ok, err := looksLikeProjectDirectory(project)
+	if err != nil {
+		t.Fatalf("looksLikeProjectDirectory(project): %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected project dir to be recognized")
+	}
+
+	plain := filepath.Join(root, "plain")
+	if err := os.MkdirAll(plain, 0o755); err != nil {
+		t.Fatalf("mkdir plain: %v", err)
+	}
+	ok, err = looksLikeProjectDirectory(plain)
+	if err != nil {
+		t.Fatalf("looksLikeProjectDirectory(plain): %v", err)
+	}
+	if ok {
+		t.Fatalf("plain dir should not be recognized as project")
+	}
+}

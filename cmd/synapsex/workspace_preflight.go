@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"synapsex/internal/infrastructure/config"
 )
@@ -18,6 +19,78 @@ func ensureWorkspacesReady(cfg config.Snapshot) error {
 		}
 	}
 	return nil
+}
+
+func autoBootstrapDefaultAgentWorkspace(cfg config.Snapshot) (config.Snapshot, bool, error) {
+	defaultAgentID := strings.TrimSpace(cfg.DefaultAgentID)
+	if defaultAgentID == "" && cfg.ActiveAgent != nil {
+		defaultAgentID = strings.TrimSpace(cfg.ActiveAgent.ID)
+	}
+	if defaultAgentID == "" {
+		return cfg, false, nil
+	}
+
+	agent, ok := cfg.Agents[defaultAgentID]
+	if !ok {
+		return cfg, false, nil
+	}
+
+	workspace := strings.TrimSpace(agent.Workspace)
+	if workspace == "" {
+		workspace = strings.TrimSpace(cfg.DefaultCWD)
+	}
+	if workspace == "" {
+		return cfg, false, nil
+	}
+
+	workspace = filepath.Clean(workspace)
+	suggested := filepath.Clean(config.SuggestedAgentWorkspace(defaultAgentID))
+	if workspace != suggested {
+		return cfg, false, nil
+	}
+
+	empty, err := directoryEmptyOrMissing(workspace)
+	if err != nil || !empty {
+		return cfg, false, nil
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return cfg, false, nil
+	}
+	cwd = filepath.Clean(strings.TrimSpace(cwd))
+	if cwd == "" || cwd == workspace {
+		return cfg, false, nil
+	}
+
+	project, err := looksLikeProjectDirectory(cwd)
+	if err != nil || !project {
+		return cfg, false, nil
+	}
+
+	timeoutSeconds := int(agent.Timeout / time.Second)
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = int(cfg.Timeout / time.Second)
+	}
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 600
+	}
+
+	if _, err := config.UpsertAgent(config.AgentUpsertOptions{
+		ID:             defaultAgentID,
+		ProfileID:      agent.ProfileID,
+		Workspace:      cwd,
+		TimeoutSeconds: timeoutSeconds,
+		SetAsDefault:   true,
+	}); err != nil {
+		return cfg, false, fmt.Errorf("auto bootstrap workspace for agent %q: %w", defaultAgentID, err)
+	}
+
+	updated, err := config.Load()
+	if err != nil {
+		return cfg, false, err
+	}
+	return updated, true, nil
 }
 
 func collectWorkspacePaths(cfg config.Snapshot) []string {
@@ -74,4 +147,61 @@ func ensureWorkspacePath(path string) error {
 	_ = os.Remove(probePath)
 
 	return nil
+}
+
+func directoryEmptyOrMissing(path string) (bool, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return true, nil
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	if !info.IsDir() {
+		return false, nil
+	}
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false, err
+	}
+	return len(entries) == 0, nil
+}
+
+func looksLikeProjectDirectory(path string) (bool, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return false, nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if !info.IsDir() {
+		return false, nil
+	}
+
+	markers := []string{
+		".git",
+		"go.mod",
+		"package.json",
+		"pyproject.toml",
+		"Cargo.toml",
+	}
+	for _, marker := range markers {
+		if _, err := os.Stat(filepath.Join(path, marker)); err == nil {
+			return true, nil
+		} else if !os.IsNotExist(err) {
+			return false, err
+		}
+	}
+	return false, nil
 }
