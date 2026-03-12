@@ -201,6 +201,7 @@ func newTestRuntime(t *testing.T) testRuntime {
 		Timeout:         2 * time.Second,
 		ExecCommand:     "cat",
 		TelegramEnabled: true,
+		FeishuEnabled:   true,
 	}
 
 	repository := persistence.NewSessionMemoryRepository()

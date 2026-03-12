@@ -27,6 +27,13 @@ type NormalizeInput struct {
 	IsAllowed       bool
 }
 
+type FeishuNormalizeInput struct {
+	ChatID   string
+	ChatType string
+	UserID   string
+	Text     string
+}
+
 func NormalizeInboundMessage(input NormalizeInput) (Message, error) {
 	conversationID, err := conversation.BuildID(conversation.Parts{
 		Channel:  input.Channel,
@@ -57,6 +64,28 @@ func NormalizeInboundMessage(input NormalizeInput) (Message, error) {
 			IsAllowed:       input.IsAllowed,
 		},
 	}, nil
+}
+
+func NormalizeFeishuTextEvent(input FeishuNormalizeInput) (Message, error) {
+	chatID := strings.TrimSpace(input.ChatID)
+	chatType := strings.ToLower(strings.TrimSpace(input.ChatType))
+	isDirect := chatType == "p2p"
+
+	guildID := ""
+	if !isDirect {
+		guildID = chatID
+	}
+
+	return NormalizeInboundMessage(NormalizeInput{
+		Channel:         "feishu",
+		UserID:          strings.TrimSpace(input.UserID),
+		GuildID:         guildID,
+		ThreadID:        "",
+		Text:            strings.TrimSpace(input.Text),
+		IsDirectMessage: isDirect,
+		IsThread:        false,
+		IsAllowed:       true,
+	})
 }
 
 func normalizeWindowID(conversationID, rawWindowID string) (string, error) {

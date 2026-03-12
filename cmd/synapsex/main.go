@@ -30,6 +30,7 @@ import (
 	adminiface "synapsex/internal/interfaces/admin"
 	chatiface "synapsex/internal/interfaces/chat"
 	discordchat "synapsex/internal/interfaces/chat/discord"
+	feishuchat "synapsex/internal/interfaces/chat/feishu"
 	telegramchat "synapsex/internal/interfaces/chat/telegram"
 )
 
@@ -278,6 +279,87 @@ func runServe() error {
 		}()
 	}
 
+	for _, instance := range cfg.FeishuInstances {
+		if !instance.Enabled {
+			continue
+		}
+		started = true
+		httpRuntimeNeeded = true
+
+		feishuAdapter, err := feishuchat.NewAdapter(feishuchat.Options{
+			AppID:             instance.AppID,
+			AppSecret:         instance.AppSecret,
+			VerificationToken: instance.VerificationToken,
+			EncryptKey:        instance.EncryptKey,
+		})
+		if err != nil {
+			return fmt.Errorf("init feishu adapter[%s]: %w", instance.ID, err)
+		}
+
+		instanceCopy := instance
+		feishuAdapterCopy := feishuAdapter
+		path := normalizeFeishuRoutePath(instanceCopy.ID)
+		if _, exists := webhookPaths[path]; exists {
+			return fmt.Errorf("duplicate feishu webhook path %q", path)
+		}
+		webhookPaths[path] = struct{}{}
+
+		feishuInboundHandler := func(messageCtx context.Context, envelope feishuchat.InboundEnvelope) error {
+			scopeKey := routingScopeKey("feishu", instanceCopy.ID, envelope.Message.ConversationID)
+			if handled, response, err := handleAgentChatCommand(envelope.Message, scopeKey, agentOverrides, runtimes, defaultRuntimeID); handled {
+				if err != nil {
+					sendFeishuDirect(messageCtx, feishuAdapterCopy, envelope.Target, chatiface.FormatError(err))
+				} else {
+					sendFeishuDirect(messageCtx, feishuAdapterCopy, envelope.Target, response)
+				}
+				return nil
+			}
+
+			requestedAgentID := resolveFeishuAgentID(cfg, instanceCopy, envelope)
+			if forcedAgentID, ok := agentOverrides.Get(scopeKey); ok {
+				requestedAgentID = forcedAgentID
+			}
+			runtime := selectRuntime(runtimes, defaultRuntimeID, requestedAgentID)
+			scopedConversationID := scopeConversationID(envelope.Message.ConversationID, "feishu", instanceCopy.ID, runtime.agentID)
+			handleFeishuInbound(messageCtx, runtime, delivery, feishuAdapterCopy, envelope, scopedConversationID, instanceCopy.ID)
+			return nil
+		}
+
+		httpMux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			result, err := feishuAdapterCopy.ParseWebhookRequest(r)
+			if err != nil {
+				status := http.StatusBadRequest
+				if errors.Is(err, feishuchat.ErrWebhookUnauthorized) || errors.Is(err, feishuchat.ErrVerificationTokenFail) {
+					status = http.StatusForbidden
+				}
+				if errors.Is(err, feishuchat.ErrWebhookMethod) {
+					status = http.StatusMethodNotAllowed
+				}
+				http.Error(w, http.StatusText(status), status)
+				log.Printf("feishu webhook rejected: instance=%s path=%s err=%v", instanceCopy.ID, path, err)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			if result.IsChallenge {
+				_ = json.NewEncoder(w).Encode(map[string]string{"challenge": result.Challenge})
+				return
+			}
+			_, _ = io.WriteString(w, `{"code":0}`)
+			if !result.HasMessage {
+				return
+			}
+			go func() {
+				if err := feishuInboundHandler(ctx, result.Envelope); err != nil {
+					log.Printf("feishu webhook handler error: instance=%s path=%s err=%v", instanceCopy.ID, path, err)
+				}
+			}()
+		})
+
+		log.Printf("feishu webhook route registered: instance=%s path=%s", instanceCopy.ID, path)
+	}
+
 	var httpServer *http.Server
 	if httpRuntimeNeeded {
 		httpServer = startHTTPServer(ctx, cfg, httpMux, fatalErrCh)
@@ -424,6 +506,11 @@ func normalizeWebhookRoutePath(rawPath, rawURL, instanceID string) string {
 		path = strings.TrimRight(path, "/")
 	}
 	return path
+}
+
+func normalizeFeishuRoutePath(instanceID string) string {
+	segment := sanitizeConversationSegment(instanceID, "default")
+	return "/webhooks/feishu/" + segment
 }
 
 type sessionStore interface {
@@ -1442,6 +1529,23 @@ func resolveTelegramAgentID(cfg config.Snapshot, instance config.TelegramInstanc
 	return strings.TrimSpace(cfg.DefaultAgentID)
 }
 
+func resolveFeishuAgentID(cfg config.Snapshot, instance config.FeishuInstance, envelope feishuchat.InboundEnvelope) string {
+	targetChatID := strings.TrimSpace(envelope.Target.ChatID)
+	if agentID := resolveAgentBinding(instance.AgentBindings, "chat", targetChatID, envelope.Message); agentID != "" {
+		return agentID
+	}
+	if agentID := resolveAgentBinding(cfg.FeishuAgentBindings, "chat", targetChatID, envelope.Message); agentID != "" {
+		return agentID
+	}
+	if strings.TrimSpace(instance.DefaultAgentID) != "" {
+		return strings.TrimSpace(instance.DefaultAgentID)
+	}
+	if strings.TrimSpace(cfg.FeishuDefaultAgentID) != "" {
+		return strings.TrimSpace(cfg.FeishuDefaultAgentID)
+	}
+	return strings.TrimSpace(cfg.DefaultAgentID)
+}
+
 func resolveAgentBinding(bindings map[string]string, targetKind, targetID string, message chatiface.Message) string {
 	if len(bindings) == 0 {
 		return ""
@@ -1620,6 +1724,92 @@ func handleTelegramInbound(
 func sendTelegramDirect(ctx context.Context, adapter *telegramchat.Adapter, target telegramchat.Target, message string) {
 	if err := adapter.SendDirect(ctx, target, message); err != nil {
 		log.Printf("send telegram message: %v", err)
+	}
+}
+
+func handleFeishuInbound(
+	ctx context.Context,
+	runtime agentRuntime,
+	delivery *service.OutputDelivery,
+	adapter *feishuchat.Adapter,
+	envelope feishuchat.InboundEnvelope,
+	scopedConversationID string,
+	instanceID string,
+) {
+	message := envelope.Message
+	message.ConversationID = scopedConversationID
+	if handled, response, err := handleConfigChatCommand(message); handled {
+		if err != nil {
+			sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+			return
+		}
+		sendFeishuDirect(ctx, adapter, envelope.Target, response)
+		return
+	}
+	if handled, response := handleSynapseXSkillMetaCommand(runtime, message.Text); handled {
+		sendFeishuDirect(ctx, adapter, envelope.Target, response)
+		return
+	}
+
+	decision, err := runtime.router.Route(ctx, message)
+	if err != nil {
+		sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+		return
+	}
+	sendFeishuDirect(ctx, adapter, envelope.Target, "正在思考...")
+
+	switch decision.Kind {
+	case service.DecisionControl:
+		result, err := runtime.router.HandleControlCommand(ctx, decision.Command, decision.ConversationID, decision.WindowID)
+		if err != nil {
+			sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+			return
+		}
+
+		if result.CreatedSessionID != "" {
+			adapter.BindSession(result.CreatedSessionID, envelope.Target)
+		}
+		if result.ResumedSessionID != "" {
+			adapter.BindSession(result.ResumedSessionID, envelope.Target)
+		}
+		if result.CancelledSessionID != "" {
+			adapter.BindSession(result.CancelledSessionID, envelope.Target)
+		}
+
+		sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatControlResponse(toControlResponse(result)))
+	case service.DecisionSkill, service.DecisionExecute:
+		started := time.Now()
+		executeInput := buildExecutionInput(decision)
+		log.Printf("feishu execute begin: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, runtime.cwd, decision.ConversationID, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
+		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
+			Mode:           command.ModeContinue,
+			ConversationID: decision.ConversationID,
+			WindowID:       decision.WindowID,
+			Input:          executeInput,
+			Backend:        runtime.backendName,
+			CWD:            runtime.cwd,
+		})
+		if err != nil {
+			log.Printf("feishu execute failed: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
+			sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+			return
+		}
+		log.Printf("feishu execute done: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s session_id=%s backend_session_id=%s state=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
+
+		adapter.BindSession(flowResult.Session.ID, envelope.Target)
+
+		output := flowResult.Execution.Output
+		if output == "" {
+			output = "执行完成，无可见输出"
+		}
+		output = applyExecutionSourceLabel(decision, output)
+		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, feishuchat.MaxMessageLength, 1)
+	}
+}
+
+func sendFeishuDirect(ctx context.Context, adapter *feishuchat.Adapter, target feishuchat.Target, message string) {
+	if err := adapter.SendDirect(ctx, target, message); err != nil {
+		log.Printf("send feishu message: %v", err)
 	}
 }
 

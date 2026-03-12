@@ -79,17 +79,17 @@
 
 ### 测试任务（US2）
 
-- [ ] T019 [P] [US2] 增加 Feishu challenge 与签名校验单元测试于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/feishu/adapter_test.go
-- [ ] T020 [P] [US2] 增加 Feishu 控制命令全集集成测试（`/new`、`/resume`、`/list`、`/current`、`/switch`、`/cancel`）于 /home/ubuntu/workspace/SynapseX/tests/integration/feishu_control_flow_test.go
-- [ ] T021 [P] [US2] 增加 Feishu 消息归一化测试于 /home/ubuntu/workspace/SynapseX/tests/unit/feishu_normalize_test.go
+- [X] T019 [P] [US2] 增加 Feishu challenge 与签名校验单元测试于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/feishu/adapter_test.go
+- [X] T020 [P] [US2] 增加 Feishu 控制命令全集集成测试（`/new`、`/resume`、`/list`、`/current`、`/switch`、`/cancel`）于 /home/ubuntu/workspace/SynapseX/tests/integration/feishu_control_flow_test.go
+- [X] T021 [P] [US2] 增加 Feishu 消息归一化测试于 /home/ubuntu/workspace/SynapseX/tests/unit/feishu_normalize_test.go
 
 ### 实现任务（US2）
 
-- [ ] T022 [US2] 新增 Feishu 适配器核心实现于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/feishu/adapter.go
-- [ ] T023 [US2] 新增 Feishu webhook handler 与 challenge 处理于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/main.go
-- [ ] T024 [US2] 将 Feishu 文本事件映射到统一消息模型于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/normalize.go
-- [ ] T025 [US2] 扩展渠道路由装配支持 Feishu 实例于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/main.go
-- [ ] T026 [US2] 更新 Feishu 接入指南于 /home/ubuntu/workspace/SynapseX/docs/guides/feishu_bot_setup.md
+- [X] T022 [US2] 新增 Feishu 适配器核心实现于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/feishu/adapter.go
+- [X] T023 [US2] 新增 Feishu webhook handler 与 challenge 处理于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/main.go
+- [X] T024 [US2] 将 Feishu 文本事件映射到统一消息模型于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/normalize.go
+- [X] T025 [US2] 扩展渠道路由装配支持 Feishu 实例于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/main.go
+- [X] T026 [US2] 更新 Feishu 接入指南于 /home/ubuntu/workspace/SynapseX/docs/guides/feishu_bot_setup.md
 
 **检查点**: US1 与 US2 均应可独立通过验收
 
