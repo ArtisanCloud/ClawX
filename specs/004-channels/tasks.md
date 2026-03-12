@@ -126,14 +126,14 @@
 
 **目的**: 完成跨渠道一致性、文档闭环与发布门禁检查
 
-- [ ] T038 [P] 补充 Telegram 契约文档细节于 /home/ubuntu/workspace/SynapseX/specs/004-channels/contracts/telegram-webhook-contract.md
-- [ ] T039 [P] 补充 Feishu 契约文档细节于 /home/ubuntu/workspace/SynapseX/specs/004-channels/contracts/feishu-event-contract.md
-- [ ] T040 [P] 补充 WeCom 契约文档细节于 /home/ubuntu/workspace/SynapseX/specs/004-channels/contracts/wecom-event-contract.md
-- [ ] T041 [P] 补充跨渠道控制命令契约说明于 /home/ubuntu/workspace/SynapseX/specs/004-channels/contracts/channel-control-contract.md
-- [ ] T042 运行全量回归并修复问题（`go test ./...`）于 /home/ubuntu/workspace/SynapseX/tests/
-- [ ] T043 [P] 生成 Phase 4 指标采集测试（SC-001~SC-006）于 /home/ubuntu/workspace/SynapseX/tests/integration/channels_metrics_report_test.go
-- [ ] T044 更新 Phase 4 快速验证与人工验收脚本于 /home/ubuntu/workspace/SynapseX/specs/004-channels/quickstart.md
-- [ ] T045 回写 Phase 4 交付状态与风险于 /home/ubuntu/workspace/SynapseX/docs/plans/phase_4_channels.md
+- [X] T038 [P] 补充 Telegram 契约文档细节于 /home/ubuntu/workspace/SynapseX/specs/004-channels/contracts/telegram-webhook-contract.md
+- [X] T039 [P] 补充 Feishu 契约文档细节于 /home/ubuntu/workspace/SynapseX/specs/004-channels/contracts/feishu-event-contract.md
+- [X] T040 [P] 补充 WeCom 契约文档细节于 /home/ubuntu/workspace/SynapseX/specs/004-channels/contracts/wecom-event-contract.md
+- [X] T041 [P] 补充跨渠道控制命令契约说明于 /home/ubuntu/workspace/SynapseX/specs/004-channels/contracts/channel-control-contract.md
+- [X] T042 运行全量回归并修复问题（`go test ./...`）于 /home/ubuntu/workspace/SynapseX/tests/
+- [X] T043 [P] 生成 Phase 4 指标采集测试（SC-001~SC-006）于 /home/ubuntu/workspace/SynapseX/tests/integration/channels_metrics_report_test.go
+- [X] T044 更新 Phase 4 快速验证与人工验收脚本于 /home/ubuntu/workspace/SynapseX/specs/004-channels/quickstart.md
+- [X] T045 回写 Phase 4 交付状态与风险于 /home/ubuntu/workspace/SynapseX/docs/plans/phase_4_channels.md
 
 ---
 

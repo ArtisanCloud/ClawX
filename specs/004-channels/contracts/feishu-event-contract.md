@@ -1,44 +1,46 @@
 # 契约：Feishu 事件接入与安全校验
 
 ## 目的
-定义 Feishu 回调协议、challenge 验证、安全校验与消息归一化要求。
+定义 Feishu challenge、事件验签、文本消息归一化与错误语义。
 
-## 1. challenge 验证
+## 1. 路由契约
+- Path：`/webhooks/feishu/<instance-id>`
+- Method：`POST`
+- Content-Type：JSON
 
-当收到 Feishu challenge 请求时：
-- 必须识别 challenge 类型请求。
-- 必须返回协议要求的 challenge 值。
-- 不进入业务路由。
+## 2. challenge 契约
+- 输入：`type=url_verification` 请求。
+- 校验：`token` 必须等于实例 `verificationToken`。
+- 响应：`200` 且 JSON `{"challenge":"<value>"}`。
+- challenge 请求不得进入业务执行链路。
 
-## 2. 安全校验
+## 3. 签名契约
+- Header：`X-Lark-Request-Timestamp`、`X-Lark-Request-Nonce`、`X-Lark-Signature`
+- 计算：`sha256(appSecret, timestamp + nonce + rawBody)`
+- 兼容：十六进制签名与 base64 签名
+- 不通过时：`403`
 
-必须支持：
-- 时间戳与签名校验（按配置 app secret）
-- 非法签名拒绝
+## 4. 事件处理契约
+- 仅处理 `im.message.receive_v1` 的文本消息。
+- 非文本消息返回成功接收（`{"code":0}`）但不进入执行。
+- Header token 可用时必须校验 `verificationToken`。
 
-建议支持：
-- 时间窗校验，拒绝过期请求
-
-## 3. 文本消息归一化
-
+## 5. 归一化契约
 最小映射：
+- `channel=feishu`
+- `conversation_id`: `feishu:<guild_or_dash>:-:<user_id>`
+- `window_id`: `compat:<conversation_id>`
+- `user_id`: sender open_id/user_id/union_id
+- `text`: 解析 `content.text`
 
-```text
-conversation_id <- chat_id or open_chat_id
-user_id         <- sender_id
-window_id       <- feishu:<conversation_id>:<user_id>
-text            <- text content
-channel         <- feishu
-instance_id     <- configured id
-```
+## 6. 响应与错误语义
+- challenge 成功：`200` + `{"challenge":"..."}`
+- 普通事件成功：`200` + `{"code":0}`
+- Method 非法：`405`
+- 签名/token 非法：`403`
+- 解析失败：`400`
+- 事件接收后下游执行失败：返回 `200`，错误写入日志。
 
-## 4. 去重与重放
-
-- 事件 ID 可用时必须参与幂等键生成。
-- 同一事件重复投递不得重复执行业务。
-
-## 5. 错误处理
-
-- 验签失败：HTTP 拒绝 + 安全日志
-- 解析失败：HTTP 拒绝 + 结构化日志
-- 下游执行失败：返回成功接收（避免无限重投）并记录执行错误
+## 7. 去重约束
+- 幂等键：`channel|instance|event_id`。
+- 重复事件在幂等窗口内应标记 duplicate 并跳过执行。

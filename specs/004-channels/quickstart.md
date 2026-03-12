@@ -1,46 +1,64 @@
 # 快速启动：第四阶段渠道扩展
 
 ## 目标
-在保持现有多会话与路由链路稳定的前提下，完成 Telegram webhook、Feishu、WeCom 渠道扩展与增量配置闭环。
-并将 OpenClaw 未实现渠道同步到统一技术规范与任务波次（Wave 2~4）。
+在保持多会话与多窗口语义不回退的前提下，完成 Wave 1 交付：
+- Telegram 双模式（polling/webhook）
+- Feishu webhook 接入
+- WeCom webhook 接入
+- 增量配置闭环（`synapsex config channel <name>`）
 
 ## 开发前准备
+1. 确认分支：`004-channels`
+2. 阅读：
+   - `docs/plans/phase_4_channels.md`
+   - `specs/004-channels/spec.md`
+   - `specs/004-channels/contracts/*`
+   - `specs/004-channels/openclaw-channel-parity.md`
+3. 基础命令可运行：
+   - `go run ./cmd/synapsex serve`
+   - `go run ./cmd/synapsex config channel telegram|feishu|wecom`
+   - `GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache go test ./...`
 
-1. 确认当前分支为 `004-channels`。
-2. 阅读以下文档：
-   - `/home/ubuntu/workspace/SynapseX/docs/plans/phase_4_channels.md`
-   - `/home/ubuntu/workspace/SynapseX/specs/004-channels/spec.md`
-   - `/home/ubuntu/workspace/SynapseX/specs/004-channels/plan.md`
-   - `/home/ubuntu/workspace/SynapseX/specs/004-channels/openclaw-channel-parity.md`
-3. 确保本地可运行命令：
-   - `go run ./cmd/synapsex`
-   - `go test ./...`
+## 渠道配置（增量）
+推荐全部使用交互式增量配置：
 
-## 推荐实现顺序
+```bash
+go run ./cmd/synapsex config channel telegram
+go run ./cmd/synapsex config channel feishu
+go run ./cmd/synapsex config channel wecom
+```
 
-1. 完成渠道运行时容错基线（通道级重试、不崩主进程）。
-2. 先闭环 Telegram 双模式（含 webhook setWebhook 和验签）。
-3. 接入 Feishu（challenge + 签名 + 文本消息）。
-4. 接入 WeCom（URL 验证 + 签名/解密 + 文本消息）。
-5. 实现 `synapsex config channel <name>` 增量配置。
-6. 补齐跨渠道契约测试与回归文档。
-7. 按 Phase 7 任务补齐 Wave 2~4 未实现渠道实现卡。
+要求：
+- 仅修改目标渠道字段。
+- 非目标渠道配置必须保持不变。
 
-## 最小验收步骤（MVP: Telegram）
+## 人工验收脚本（Wave 1）
 
-1. 启动 `mode=polling`，发送 `/new` 和普通文本，确认可用。
-2. 切换到 `mode=webhook`，配置 `webhookUrl/webhookPath/webhookSecret`。
-3. 重启服务并确认日志含 webhook 注册与路由日志。
-4. 发送 `/list`、`/current`、普通文本，确认行为与 polling 一致。
-5. 人为制造 Telegram 网络失败，确认仅 Telegram 适配器重试，服务不退出。
+### A. Telegram
+1. `mode=polling`：发送 `/new`、普通文本、`/list`。
+2. 切到 `mode=webhook`，重启后确认日志含 `telegram webhook route registered`。
+3. 再次执行 `/current`、`/switch`、`/resume`、`/cancel`。
 
-## 全渠道验收步骤
+### B. Feishu
+1. 在飞书后台配置回调 URL：`/webhooks/feishu/<instance-id>`。
+2. 保存时通过 challenge。
+3. 在会话中执行：`/new`、`/list`、`/current`、普通文本。
 
-1. Feishu challenge 请求可通过。
-2. Feishu 普通消息与控制命令可达。
-3. WeCom URL 验证可通过。
-4. WeCom 普通消息与控制命令可达。
-5. 在四渠道分别执行 `/new`、`/resume`、`/list`、`/current`、`/switch`、`/cancel`，确认语义一致。
+### C. WeCom
+1. 在企业微信后台配置回调 URL：`/webhooks/wecom/<instance-id>`。
+2. 保存时通过 URL 验证（echostr）。
+3. 在会话中执行：`/new`、`/switch`、`/resume`、`/cancel`。
+
+### D. 跨渠道一致性
+在 Discord/Telegram/Feishu/WeCom 各执行一次：
+- `/new`
+- `/resume <session_id>`
+- `/switch <session_id>`
+- `/list`
+- `/current`
+- `/cancel`
+
+预期：命令语义一致，窗口绑定行为一致。
 
 ## 自动化回归
 
@@ -48,19 +66,34 @@
 GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache go test ./...
 ```
 
-## 指标门禁（SC-001 ~ SC-006）
+## 指标采集与门禁（SC-001~SC-006）
 
-- 样本窗口：最近 7 天。
-- 每项样本：不少于 200。
-- 关键阈值：
-  - Telegram 双模式链路成功率 >= 99%
-  - 单渠道故障下主进程存活率 = 100%
-  - 控制命令跨渠道回归通过率 = 100%
-  - 安全异常拦截率 = 100%
+### 1) 合成数据门禁测试
+
+```bash
+GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache \
+  go test ./tests/integration -run TestPhase4ChannelsMetricsReportGateWithSyntheticDataset
+```
+
+### 2) 真实日志门禁测试（可选）
+准备 JSONL（字段：`timestamp`、`sc_id`，以及 `success` 或 `latency_ms`）。
+
+```bash
+export SYNAPSEX_PHASE4_METRICS_JSONL=/path/to/phase4_metrics.jsonl
+export SYNAPSEX_PHASE4_METRICS_REPORT=docs/guides/phase_4/phase_4_metrics_report.md
+GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache \
+  go test ./tests/integration -run TestPhase4ChannelsMetricsReportFromJSONL
+```
+
+门禁规则：
+- SC-001 >= 99%
+- SC-002 >= 99%
+- SC-003 = 100%
+- SC-004 = 100%
+- SC-005 = 100%
+- SC-006 p95 < 120ms
 
 ## 完成检查
-
-- Telegram webhook 与 polling 均可用。
-- Feishu 与 WeCom 接入链路可用。
-- 增量配置不会覆盖其他渠道。
-- `go test ./...` 通过。
+- Wave 1 三渠道链路可用且单渠道故障不拖垮主进程。
+- `config channel` 增量流程可用且不覆盖其他渠道。
+- 契约/集成/指标门禁测试通过。
