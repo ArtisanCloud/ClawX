@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"synapsex/internal/application/command"
-	"synapsex/internal/domain/execution"
-	"synapsex/internal/domain/session"
+	"clawx/internal/application/command"
+	"clawx/internal/domain/execution"
+	"clawx/internal/domain/session"
 )
 
 type SessionFlowResult struct {

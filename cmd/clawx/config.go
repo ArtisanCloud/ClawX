@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"synapsex/internal/infrastructure/config"
+	"clawx/internal/infrastructure/config"
 )
 
 func runConfigChannelTelegram() error {

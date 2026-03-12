@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"synapsex/internal/application/command"
-	"synapsex/internal/application/service"
-	"synapsex/internal/infrastructure/persistence"
+	"clawx/internal/application/command"
+	"clawx/internal/application/service"
+	"clawx/internal/infrastructure/persistence"
 )
 
 func TestMultiSessionDomainWindowIndependentBinding(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"synapsex/internal/domain/session"
+	"clawx/internal/domain/session"
 )
 
 func TestSessionFileRepositoryCreateAndReload(t *testing.T) {

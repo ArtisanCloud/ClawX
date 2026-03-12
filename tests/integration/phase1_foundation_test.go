@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"synapsex/internal/application/command"
-	"synapsex/internal/application/service"
-	"synapsex/internal/infrastructure/backend"
-	"synapsex/internal/infrastructure/config"
-	"synapsex/internal/infrastructure/persistence"
-	chatiface "synapsex/internal/interfaces/chat"
-	telegramchat "synapsex/internal/interfaces/chat/telegram"
+	"clawx/internal/application/command"
+	"clawx/internal/application/service"
+	"clawx/internal/infrastructure/backend"
+	"clawx/internal/infrastructure/config"
+	"clawx/internal/infrastructure/persistence"
+	chatiface "clawx/internal/interfaces/chat"
+	telegramchat "clawx/internal/interfaces/chat/telegram"
 )
 
 func TestPhase1FoundationScenarios(t *testing.T) {

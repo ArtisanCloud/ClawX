@@ -1,7 +1,7 @@
-# SynapseX Constitution
+# ClawX Constitution
 
 ## Project Mission
-- SynapseX is a remote AI CLI control gateway for professional developers.
+- ClawX is a remote AI CLI control gateway for professional developers.
 - The current product goal is to map chat messages into controlled remote execution against the project-supported CLI backend.
 - The current delivery focus is to make remote CLI control stable, session-safe, observable, and operable on Linux.
 
@@ -64,7 +64,7 @@
 
 ### VI. Reference Is Input, Never Authority
 - `docs/reference/` exists only for local research, comparison, and temporary architectural inspiration.
-- Reference materials may inform design thinking, but they must be translated into SynapseX-native decisions before they affect product code or official docs.
+- Reference materials may inform design thinking, but they must be translated into ClawX-native decisions before they affect product code or official docs.
 - No implementation may copy product rules, naming, architecture, or behavior directly from reference materials without first defining the equivalent rule in `docs/features/` or `docs/plans/`.
 - Reference materials must never override this constitution, feature docs, phase plans, or stable project docs.
 
@@ -331,9 +331,9 @@
   - the canonical source for architecture decisions
   - the direct source for generated specs
   - the only source used to justify implementation behavior
-- If reference materials influence a design, the resulting rule must be restated in SynapseX-owned documentation before implementation is considered aligned.
+- If reference materials influence a design, the resulting rule must be restated in ClawX-owned documentation before implementation is considered aligned.
 - Official docs may mention external products only as comparative context.
-- Normative requirements must be restated in SynapseX-native terms and must not depend on external project naming or paths for correctness.
+- Normative requirements must be restated in ClawX-native terms and must not depend on external project naming or paths for correctness.
 - `docs/reference/` should remain excluded from normal product governance and should not be treated as part of the versioned product specification surface.
 
 ### Change Workflow

@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"synapsex/internal/application/intent"
-	skillsinfra "synapsex/internal/infrastructure/skills"
-	chatiface "synapsex/internal/interfaces/chat"
+	"clawx/internal/application/intent"
+	skillsinfra "clawx/internal/infrastructure/skills"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 func TestSkillPermissionPolicyDefaultAndDisabled(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"synapsex/internal/infrastructure/config"
+	"clawx/internal/infrastructure/config"
 )
 
 func TestChannelConfigIncrementalPreservesNonTargetChannels(t *testing.T) {
@@ -12,7 +12,7 @@ func TestChannelConfigIncrementalPreservesNonTargetChannels(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.json")
 	homeDir := filepath.Join(tempDir, "home")
 
-	t.Setenv("SYNAPSEX_CONFIG", configPath)
+	t.Setenv("CLAWX_CONFIG", configPath)
 	t.Setenv("HOME", homeDir)
 
 	if _, _, err := config.EnsureDefaultFile(); err != nil {

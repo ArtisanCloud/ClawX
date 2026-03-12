@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"synapsex/internal/domain/execution"
+	"clawx/internal/domain/execution"
 )
 
 type Profile struct {
@@ -58,7 +58,7 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 
 		startedAt := time.Now().UTC()
 		existingThreadID := normalizeCodexThreadID(request.BackendSessionID)
-		outputFile, err := os.CreateTemp("", "synapsex-codex-last-*.txt")
+		outputFile, err := os.CreateTemp("", "clawx-codex-last-*.txt")
 		if err != nil {
 			return execution.Result{}, err
 		}

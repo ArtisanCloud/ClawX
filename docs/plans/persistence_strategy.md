@@ -16,10 +16,10 @@
 3. 文件仓储已支持 `sessions.json + *.jsonl` 的基础读写与重启恢复。
 
 ## 状态目录规范
-所有状态统一落在 `~/.synapsex`：
+所有状态统一落在 `~/.clawx`：
 
 ```text
-~/.synapsex/
+~/.clawx/
   config.json
   workspaces/
     <agent_id>/

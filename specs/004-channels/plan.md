@@ -1,7 +1,7 @@
 # 实现计划：第四阶段渠道扩展
 
-**分支**: `004-channels` | **日期**: 2026-03-10 | **规格**: `/home/ubuntu/workspace/SynapseX/specs/004-channels/spec.md`  
-**输入**: 功能规格来自 `/home/ubuntu/workspace/SynapseX/specs/004-channels/spec.md`
+**分支**: `004-channels` | **日期**: 2026-03-10 | **规格**: `/home/ubuntu/workspace/ClawX/specs/004-channels/spec.md`  
+**输入**: 功能规格来自 `/home/ubuntu/workspace/ClawX/specs/004-channels/spec.md`
 
 ## 摘要
 
@@ -12,8 +12,8 @@
 ## 技术上下文
 
 **Language/Version**: Go 1.23  
-**Primary Dependencies**: Go 标准库、现有 SynapseX DDD 模块、DiscordGo、Telegram Bot SDK（Go）、现有配置与持久化组件  
-**Storage**: 本地配置文件（`~/.synapsex/config.json`）+ 现有会话存储  
+**Primary Dependencies**: Go 标准库、现有 ClawX DDD 模块、DiscordGo、Telegram Bot SDK（Go）、现有配置与持久化组件  
+**Storage**: 本地配置文件（`~/.clawx/config.json`）+ 现有会话存储  
 **Testing**: Go 原生 `testing`（unit/integration/contract）+ `go test ./...`  
 **Target Platform**: Linux server（公网 HTTPS 可用场景）  
 **Project Type**: 聊天驱动后端服务 / CLI 控制网关  
@@ -47,7 +47,7 @@
 ### 文档（本功能）
 
 ```text
-/home/ubuntu/workspace/SynapseX/specs/004-channels/
+/home/ubuntu/workspace/ClawX/specs/004-channels/
 ├── plan.md
 ├── research.md
 ├── data-model.md
@@ -68,9 +68,9 @@
 ### 源码（仓库根目录）
 
 ```text
-/home/ubuntu/workspace/SynapseX/
+/home/ubuntu/workspace/ClawX/
 ├── cmd/
-│   └── synapsex/
+│   └── clawx/
 │       ├── main.go
 │       ├── config.go
 │       └── config_channel.go
@@ -94,7 +94,7 @@
 
 ## 渠道对齐波次计划
 
-对齐矩阵来源：`/home/ubuntu/workspace/SynapseX/specs/004-channels/openclaw-channel-parity.md`
+对齐矩阵来源：`/home/ubuntu/workspace/ClawX/specs/004-channels/openclaw-channel-parity.md`
 
 - Wave 1（基线）：Telegram webhook + Feishu + WeCom
 - Wave 2（主流通用）：Slack、WhatsApp、Signal、Google Chat、IRC
@@ -116,7 +116,7 @@
 - Feishu：challenge + 事件验签 + 文本消息归一化 + 控制命令链路可用。
 - WeCom：URL 验证 + 签名/解密 + 文本消息归一化 + 控制命令链路可用。
 - 安全与可测性：重放请求拒绝、重试结构化日志字段断言、渠道路由 p95 指标可测。
-- 配置：`synapsex config channel <name>` 支持单渠道增量配置。
+- 配置：`clawx config channel <name>` 支持单渠道增量配置。
 - 测试：新增渠道契约/集成测试，覆盖安全、故障隔离与命令一致性。
 - 对齐：未实现渠道全部进入分波次任务清单并具备统一实现模板。
 

@@ -11,7 +11,7 @@
 
 - Q: Telegram 默认运行模式是什么？ → A: 默认 `polling`，可选 `webhook`。
 - Q: 单个渠道故障是否允许导致主进程退出？ → A: 不允许，必须通道级隔离并自动重试。
-- Q: 增量配置命令是否纳入本阶段？ → A: 纳入，支持 `synapsex config channel <name>`。
+- Q: 增量配置命令是否纳入本阶段？ → A: 纳入，支持 `clawx config channel <name>`。
 - Q: 多渠道是否要求控制命令语义完全一致？ → A: 要求一致，至少覆盖 `/new`、`/resume`、`/list`、`/current`、`/switch`、`/cancel`。
 
 ### Session 2026-03-11
@@ -21,7 +21,7 @@
 
 ## 渠道对齐范围（外部基线映射，2026-03-11）
 
-对齐矩阵见：`/home/ubuntu/workspace/SynapseX/specs/004-channels/openclaw-channel-parity.md`
+对齐矩阵见：`/home/ubuntu/workspace/ClawX/specs/004-channels/openclaw-channel-parity.md`
 
 - 已实现：Discord、Telegram（polling/webhook）
 - Wave 1（Phase 4 基线）：Feishu、WeCom
@@ -49,7 +49,7 @@
 
 ### 用户故事 2 - Feishu 可作为独立窗口入口接入（优先级：P2）
 
-作为团队用户，我希望能在飞书里直接使用 SynapseX，并复用现有会话与控制命令行为，这样无需切换到其他渠道也能完成任务。
+作为团队用户，我希望能在飞书里直接使用 ClawX，并复用现有会话与控制命令行为，这样无需切换到其他渠道也能完成任务。
 
 **为什么是这个优先级**: 这是新增企业渠道中最常见诉求之一，优先级高于 WeCom 但低于 Telegram 稳定性。
 
@@ -69,19 +69,19 @@
 
 **为什么是这个优先级**: WeCom 是关键企业渠道，但可以在 Telegram/Feishu 基线稳定后交付。
 
-**独立测试方式**: 配置 WeCom 回调并完成 URL 验证、消息签名/解密、命令路由；再用 `synapsex config channel wecom`、`synapsex config channel telegram` 验证增量配置不会覆盖其他渠道。
+**独立测试方式**: 配置 WeCom 回调并完成 URL 验证、消息签名/解密、命令路由；再用 `clawx config channel wecom`、`clawx config channel telegram` 验证增量配置不会覆盖其他渠道。
 
 **验收场景**:
 
 1. **假如** WeCom 配置完成并通过 URL 验证，**当** 用户发送控制命令时，**那么** 系统应按统一控制语义处理并返回结果。
-2. **假如** 运维只修改 Telegram 渠道配置，**当** 执行 `synapsex config channel telegram` 后，**那么** 其他渠道配置不得被清空。
+2. **假如** 运维只修改 Telegram 渠道配置，**当** 执行 `clawx config channel telegram` 后，**那么** 其他渠道配置不得被清空。
 3. **假如** WeCom 回调出现解密失败或重放请求，**当** 系统接收该请求时，**那么** 系统应拒绝并产生日志，不影响其他渠道执行。
 
 ---
 
 ### 用户故事 4 - 补齐未实现外部基线渠道的技术规范与分波次执行（优先级：P4）
 
-作为架构负责人，我希望把外部基线已支持但 SynapseX 未实现的渠道全部纳入统一对齐规范，这样后续扩展不会反复重做架构或安全策略。
+作为架构负责人，我希望把外部基线已支持但 ClawX 未实现的渠道全部纳入统一对齐规范，这样后续扩展不会反复重做架构或安全策略。
 
 **为什么是这个优先级**: 这不阻塞 Wave 1 上线，但它直接决定后续 Wave 2~4 的交付速度和一致性。
 
@@ -120,7 +120,7 @@
 - **FR-009**: Feishu 与 WeCom 文本消息必须归一化到统一消息模型，并复用既有 Session/Router 链路。
 - **FR-010**: Discord、Telegram、Feishu、WeCom 的控制命令语义必须一致，且至少覆盖 `/new`、`/resume`、`/list`、`/current`、`/switch`、`/cancel`。
 - **FR-011**: 渠道适配器重启必须使用指数退避（初始 2s、最大 60s），并输出结构化日志字段（`channel`、`instance`、`retry_count`、`last_error`）。
-- **FR-012**: 系统必须提供 `synapsex config channel <name>` 增量配置入口。
+- **FR-012**: 系统必须提供 `clawx config channel <name>` 增量配置入口。
 - **FR-013**: 增量配置必须仅更新目标渠道字段，不得覆盖其他渠道已有配置。
 - **FR-014**: 渠道配置必须支持实例化（至少 `id`、`enabled`、`mode`、`token/secret`、`agent`）。
 - **FR-015**: 系统必须保留 Phase 2 多窗口多会话语义，不得因新增渠道回退。
@@ -160,7 +160,7 @@
 - **SC-002**: 任一单渠道出现连续错误时，主进程存活率为 100%，且其他渠道请求成功率 >= 99%。
 - **SC-003**: Feishu 与 WeCom 基础控制命令回归通过率 100%（`/new`、`/resume`、`/list`、`/current`、`/switch`、`/cancel`）。
 - **SC-004**: 验签失败/解密失败/重放请求拦截率 100%，并产出可检索日志。
-- **SC-005**: `synapsex config channel <name>` 增量配置场景下，非目标渠道配置保留率 100%。
+- **SC-005**: `clawx config channel <name>` 增量配置场景下，非目标渠道配置保留率 100%。
 - **SC-006**: 渠道路由判定（不含后端执行）p95 < 120ms。
 - **SC-007**: 对齐矩阵中的未实现渠道 100% 出现在任务波次（Wave 2~4）中，不得遗漏。
 - **SC-008**: 新增任一渠道的技术方案评审输入文档完整率 100%（至少含契约、数据模型映射、测试计划）。

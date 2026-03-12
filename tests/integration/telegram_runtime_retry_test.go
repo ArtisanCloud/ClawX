@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	telegramchat "synapsex/internal/interfaces/chat/telegram"
+	telegramchat "clawx/internal/interfaces/chat/telegram"
 )
 
 func TestTelegramRuntimeRetryAndIsolation(t *testing.T) {

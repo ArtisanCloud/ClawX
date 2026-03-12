@@ -16,7 +16,7 @@
 直接运行：
 
 ```bash
-go run ./cmd/synapsex config channel telegram
+go run ./cmd/clawx config channel telegram
 ```
 
 说明：
@@ -27,7 +27,7 @@ go run ./cmd/synapsex config channel telegram
 可选检查（仅在你不确定配置文件位置时）：
 
 ```bash
-go run ./cmd/synapsex config path
+go run ./cmd/clawx config path
 ```
 
 当提示 `Telegram mode` 时：
@@ -42,20 +42,20 @@ Webhook 关键约束：
 ### webhook 到底在哪配？
 
 - 不是在 Telegram 客户端里配。
-- 是在 SynapseX 配置里填写 `webhookUrl/webhookPath/webhookSecret`。
-- SynapseX 启动后会调用 Telegram Bot API `setWebhook` 自动注册。
+- 是在 ClawX 配置里填写 `webhookUrl/webhookPath/webhookSecret`。
+- ClawX 启动后会调用 Telegram Bot API `setWebhook` 自动注册。
 - 注册成功后，Telegram 才会把消息回调到你的 `webhookUrl`。
 
 可选核对：
 
 ```bash
-go run ./cmd/synapsex config get channels.telegram
+go run ./cmd/clawx config get channels.telegram
 ```
 
 ## 3. 启动服务
 
 ```bash
-go run ./cmd/synapsex serve
+go run ./cmd/clawx serve
 ```
 
 Polling 模式下，预期日志包含：
@@ -142,7 +142,7 @@ curl -s "https://api.telegram.org/bot$BOT_TOKEN/getWebhookInfo"
 - 这个私聊窗口就是单窗口测试入口。
 
 ## 6. 常见问题（Webhook）
-- `404`：通常是 SynapseX 未以 webhook 模式启动，或 `webhookPath` 不一致。
+- `404`：通常是 ClawX 未以 webhook 模式启动，或 `webhookPath` 不一致。
 - `401`：回调被 Basic Auth 挡住，需确保 webhook 路径关闭认证。
 - `getWebhookInfo.url` 为空：`setWebhook` 未成功，检查服务日志和公网 HTTPS 可达性。
 - 证书不匹配：证书 SAN 必须包含你的 webhook 域名。
@@ -155,8 +155,8 @@ curl -s "https://api.telegram.org/bot$BOT_TOKEN/getWebhookInfo"
 只有在你做脚本化部署时，才建议用 `config set`：
 
 ```bash
-go run ./cmd/synapsex config set channels.telegram.mode webhook
-go run ./cmd/synapsex config set channels.telegram.webhookUrl https://<your-domain>/webhooks/telegram
-go run ./cmd/synapsex config set channels.telegram.webhookPath /webhooks/telegram
-go run ./cmd/synapsex config set channels.telegram.webhookSecret <RANDOM_SECRET>
+go run ./cmd/clawx config set channels.telegram.mode webhook
+go run ./cmd/clawx config set channels.telegram.webhookUrl https://<your-domain>/webhooks/telegram
+go run ./cmd/clawx config set channels.telegram.webhookPath /webhooks/telegram
+go run ./cmd/clawx config set channels.telegram.webhookSecret <RANDOM_SECRET>
 ```

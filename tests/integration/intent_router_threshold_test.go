@@ -5,14 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"synapsex/internal/application/intent"
-	"synapsex/internal/application/service"
-	"synapsex/internal/application/skillregistry"
-	skilldomain "synapsex/internal/domain/skill"
-	"synapsex/internal/infrastructure/config"
-	"synapsex/internal/infrastructure/persistence"
-	skillsinfra "synapsex/internal/infrastructure/skills"
-	chatiface "synapsex/internal/interfaces/chat"
+	"clawx/internal/application/intent"
+	"clawx/internal/application/service"
+	"clawx/internal/application/skillregistry"
+	skilldomain "clawx/internal/domain/skill"
+	"clawx/internal/infrastructure/config"
+	"clawx/internal/infrastructure/persistence"
+	skillsinfra "clawx/internal/infrastructure/skills"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 func TestIntentRouterThresholdFallbackToTask(t *testing.T) {

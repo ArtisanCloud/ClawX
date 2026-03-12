@@ -16,7 +16,7 @@
 
 - 执行日期（UTC）：待填写
 - 执行分支：`004-channels`
-- 执行目录：`/home/ubuntu/workspace/SynapseX`
+- 执行目录：`/home/ubuntu/workspace/ClawX`
 - Go 缓存策略：`GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache`
 
 ## 自动化回归（待补）
@@ -31,7 +31,7 @@ GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache go test ./...
 
 ## 人工验收（待补）
 
-- 脚本来源：`/home/ubuntu/workspace/SynapseX/specs/004-channels/quickstart.md`
+- 脚本来源：`/home/ubuntu/workspace/ClawX/specs/004-channels/quickstart.md`
 - 执行记录：待填写
 - 结论：待填写
 

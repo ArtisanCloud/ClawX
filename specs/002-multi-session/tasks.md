@@ -1,6 +1,6 @@
 # 任务清单：第二阶段多窗口多会话
 
-**输入**: `/home/ubuntu/workspace/SynapseX/specs/002-multi-session/` 下的设计文档  
+**输入**: `/home/ubuntu/workspace/ClawX/specs/002-multi-session/` 下的设计文档  
 **前置条件**: `plan.md`（必需）、`spec.md`（必需）、`research.md`、`data-model.md`、`contracts/`、`quickstart.md`
 
 **测试**: 规格中已给出独立测试方式与验收场景，因此本清单包含测试任务（单元/集成/契约）。
@@ -15,17 +15,17 @@
 
 ## 路径约定
 
-- 代码路径：`/home/ubuntu/workspace/SynapseX/internal/`、`/home/ubuntu/workspace/SynapseX/cmd/`
-- 测试路径：`/home/ubuntu/workspace/SynapseX/tests/`
-- 文档路径：`/home/ubuntu/workspace/SynapseX/docs/`、`/home/ubuntu/workspace/SynapseX/specs/002-multi-session/`
+- 代码路径：`/home/ubuntu/workspace/ClawX/internal/`、`/home/ubuntu/workspace/ClawX/cmd/`
+- 测试路径：`/home/ubuntu/workspace/ClawX/tests/`
+- 文档路径：`/home/ubuntu/workspace/ClawX/docs/`、`/home/ubuntu/workspace/ClawX/specs/002-multi-session/`
 
 ## Phase 1：初始化（共享基础）
 
 **目的**: 建立 Phase 2 的验证入口与文档占位，不改变既有业务路径
 
-- [X] T001 创建第二阶段验证文档占位于 /home/ubuntu/workspace/SynapseX/docs/guides/phase_2/phase_2_validation.md
-- [X] T002 [P] 创建多会话集成测试骨架文件于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_window_routing_test.go
-- [X] T003 [P] 创建多会话契约测试骨架文件于 /home/ubuntu/workspace/SynapseX/tests/contract/multi_session_control_contract_test.go
+- [X] T001 创建第二阶段验证文档占位于 /home/ubuntu/workspace/ClawX/docs/guides/phase_2/phase_2_validation.md
+- [X] T002 [P] 创建多会话集成测试骨架文件于 /home/ubuntu/workspace/ClawX/tests/integration/multi_session_window_routing_test.go
+- [X] T003 [P] 创建多会话契约测试骨架文件于 /home/ubuntu/workspace/ClawX/tests/contract/multi_session_control_contract_test.go
 
 ---
 
@@ -35,15 +35,15 @@
 
 **⚠️ 关键说明**: 本阶段完成前不得开始用户故事实现
 
-- [X] T004 扩展统一消息模型增加 `WindowID` 字段于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/message.go
-- [X] T005 [P] 扩展消息归一化输入支持显式 `window_id` 于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/normalize.go
-- [X] T006 [P] 实现缺省窗口兼容值生成 `compat:<conversation_id>` 于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/normalize.go
-- [X] T007 扩展会话命令对象支持 `WindowID` 于 /home/ubuntu/workspace/SynapseX/internal/application/command/session_command.go
-- [X] T008 [P] 扩展控制命令对象支持 `WindowID` 于 /home/ubuntu/workspace/SynapseX/internal/application/command/control_command.go
-- [X] T009 定义窗口绑定仓储接口（get/set/list）于 /home/ubuntu/workspace/SynapseX/internal/domain/session/repository.go
-- [X] T010 [P] 在内存仓储实现窗口绑定读写与窗口级查询于 /home/ubuntu/workspace/SynapseX/internal/infrastructure/persistence/session_memory_repository.go
-- [X] T011 调整 Session Manager 依赖注入并暴露窗口绑定方法于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager.go
-- [X] T012 [P] 补充内存仓储窗口绑定单元测试于 /home/ubuntu/workspace/SynapseX/internal/infrastructure/persistence/session_memory_repository_test.go
+- [X] T004 扩展统一消息模型增加 `WindowID` 字段于 /home/ubuntu/workspace/ClawX/internal/interfaces/chat/message.go
+- [X] T005 [P] 扩展消息归一化输入支持显式 `window_id` 于 /home/ubuntu/workspace/ClawX/internal/interfaces/chat/normalize.go
+- [X] T006 [P] 实现缺省窗口兼容值生成 `compat:<conversation_id>` 于 /home/ubuntu/workspace/ClawX/internal/interfaces/chat/normalize.go
+- [X] T007 扩展会话命令对象支持 `WindowID` 于 /home/ubuntu/workspace/ClawX/internal/application/command/session_command.go
+- [X] T008 [P] 扩展控制命令对象支持 `WindowID` 于 /home/ubuntu/workspace/ClawX/internal/application/command/control_command.go
+- [X] T009 定义窗口绑定仓储接口（get/set/list）于 /home/ubuntu/workspace/ClawX/internal/domain/session/repository.go
+- [X] T010 [P] 在内存仓储实现窗口绑定读写与窗口级查询于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/session_memory_repository.go
+- [X] T011 调整 Session Manager 依赖注入并暴露窗口绑定方法于 /home/ubuntu/workspace/ClawX/internal/application/service/session_manager.go
+- [X] T012 [P] 补充内存仓储窗口绑定单元测试于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/session_memory_repository_test.go
 
 **检查点**: 基础能力完成后，用户故事可进入实现
 
@@ -57,18 +57,18 @@
 
 ### 测试任务（US1）
 
-- [X] T013 [P] [US1] 增加窗口独立绑定单元测试于 /home/ubuntu/workspace/SynapseX/tests/unit/multi_session_domain_test.go
-- [X] T014 [P] [US1] 增加窗口 A/B 并行继续集成测试于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_window_routing_test.go
+- [X] T013 [P] [US1] 增加窗口独立绑定单元测试于 /home/ubuntu/workspace/ClawX/tests/unit/multi_session_domain_test.go
+- [X] T014 [P] [US1] 增加窗口 A/B 并行继续集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/multi_session_window_routing_test.go
 
 ### 实现任务（US1）
 
-- [X] T015 [US1] 在新建会话流程写入 `WindowID` 并刷新窗口绑定于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_create.go
-- [X] T016 [US1] 在继续会话流程实现“窗口优先 -> conversation 回退 -> 新建”于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_continue.go
-- [X] T017 [US1] 在恢复会话流程刷新窗口绑定并校验上下文归属于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_resume.go
-- [X] T018 [US1] 在会话路由流程透传 `WindowID` 并按窗口决策于 /home/ubuntu/workspace/SynapseX/internal/application/service/router_session_flow.go
-- [X] T019 [US1] 在路由决策对象中保留 `WindowID` 上下文于 /home/ubuntu/workspace/SynapseX/internal/application/service/router.go
-- [X] T020 [US1] 在 new/resume/switch/执行成功后统一刷新 session 与 window 的 `last_used_at` 于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_create.go、/home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_resume.go、/home/ubuntu/workspace/SynapseX/internal/application/service/router_session_flow.go
-- [X] T021 [P] [US1] 增加最近使用时间刷新单元测试（覆盖 new/resume/switch/execute_success）于 /home/ubuntu/workspace/SynapseX/tests/unit/multi_session_recency_test.go
+- [X] T015 [US1] 在新建会话流程写入 `WindowID` 并刷新窗口绑定于 /home/ubuntu/workspace/ClawX/internal/application/service/session_manager_create.go
+- [X] T016 [US1] 在继续会话流程实现“窗口优先 -> conversation 回退 -> 新建”于 /home/ubuntu/workspace/ClawX/internal/application/service/session_manager_continue.go
+- [X] T017 [US1] 在恢复会话流程刷新窗口绑定并校验上下文归属于 /home/ubuntu/workspace/ClawX/internal/application/service/session_manager_resume.go
+- [X] T018 [US1] 在会话路由流程透传 `WindowID` 并按窗口决策于 /home/ubuntu/workspace/ClawX/internal/application/service/router_session_flow.go
+- [X] T019 [US1] 在路由决策对象中保留 `WindowID` 上下文于 /home/ubuntu/workspace/ClawX/internal/application/service/router.go
+- [X] T020 [US1] 在 new/resume/switch/执行成功后统一刷新 session 与 window 的 `last_used_at` 于 /home/ubuntu/workspace/ClawX/internal/application/service/session_manager_create.go、/home/ubuntu/workspace/ClawX/internal/application/service/session_manager_resume.go、/home/ubuntu/workspace/ClawX/internal/application/service/router_session_flow.go
+- [X] T021 [P] [US1] 增加最近使用时间刷新单元测试（覆盖 new/resume/switch/execute_success）于 /home/ubuntu/workspace/ClawX/tests/unit/multi_session_recency_test.go
 
 **检查点**: US1 完成后，应可独立演示“多窗口不串线”
 
@@ -82,16 +82,16 @@
 
 ### 测试任务（US2）
 
-- [X] T022 [P] [US2] 增加窗口语义控制流集成测试（list/current/switch）于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_control_switch_test.go
-- [X] T023 [P] [US2] 增加控制命令窗口契约测试于 /home/ubuntu/workspace/SynapseX/tests/contract/multi_session_control_contract_test.go
+- [X] T022 [P] [US2] 增加窗口语义控制流集成测试（list/current/switch）于 /home/ubuntu/workspace/ClawX/tests/integration/multi_session_control_switch_test.go
+- [X] T023 [P] [US2] 增加控制命令窗口契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/multi_session_control_contract_test.go
 
 ### 实现任务（US2）
 
-- [X] T024 [US2] 扩展控制命令解析新增 `/switch <session_id>` 于 /home/ubuntu/workspace/SynapseX/internal/application/command/control_command.go
-- [X] T025 [US2] 在控制流实现 `/switch` 仅更新窗口绑定不执行于 /home/ubuntu/workspace/SynapseX/internal/application/service/router_control_flow.go
-- [X] T026 [US2] 将 `/new`、`/resume`、`/list`、`/cancel`、`/current` 全量切换到窗口语义于 /home/ubuntu/workspace/SynapseX/internal/application/service/router_control_flow.go
-- [X] T027 [US2] 扩展会话列表服务支持窗口级列表与当前会话标记于 /home/ubuntu/workspace/SynapseX/internal/application/service/session_manager_list.go
-- [X] T028 [US2] 更新控制命令响应映射支持窗口当前会话反馈于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/control_response.go
+- [X] T024 [US2] 扩展控制命令解析新增 `/switch <session_id>` 于 /home/ubuntu/workspace/ClawX/internal/application/command/control_command.go
+- [X] T025 [US2] 在控制流实现 `/switch` 仅更新窗口绑定不执行于 /home/ubuntu/workspace/ClawX/internal/application/service/router_control_flow.go
+- [X] T026 [US2] 将 `/new`、`/resume`、`/list`、`/cancel`、`/current` 全量切换到窗口语义于 /home/ubuntu/workspace/ClawX/internal/application/service/router_control_flow.go
+- [X] T027 [US2] 扩展会话列表服务支持窗口级列表与当前会话标记于 /home/ubuntu/workspace/ClawX/internal/application/service/session_manager_list.go
+- [X] T028 [US2] 更新控制命令响应映射支持窗口当前会话反馈于 /home/ubuntu/workspace/ClawX/internal/interfaces/chat/control_response.go
 
 **检查点**: US1 与 US2 均应可独立验证
 
@@ -105,17 +105,17 @@
 
 ### 测试任务（US3）
 
-- [X] T029 [P] [US3] 增加缺省 `window_id` 兼容回退集成测试于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_compat_fallback_test.go
-- [X] T030 [P] [US3] 增加命令优先级回归测试（控制命令优先）于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_command_priority_test.go
-- [X] T031 [P] [US3] 增加“同一 session 并发请求必须串行/拒绝”集成回归测试于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_serial_execution_test.go
-- [X] T032 [P] [US3] 增加窗口绑定字段持久化与查询测试（`window_id/current_session_id/conversation_id/updated_at/last_used_at`）于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_binding_fields_test.go
+- [X] T029 [P] [US3] 增加缺省 `window_id` 兼容回退集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/multi_session_compat_fallback_test.go
+- [X] T030 [P] [US3] 增加命令优先级回归测试（控制命令优先）于 /home/ubuntu/workspace/ClawX/tests/integration/multi_session_command_priority_test.go
+- [X] T031 [P] [US3] 增加“同一 session 并发请求必须串行/拒绝”集成回归测试于 /home/ubuntu/workspace/ClawX/tests/integration/multi_session_serial_execution_test.go
+- [X] T032 [P] [US3] 增加窗口绑定字段持久化与查询测试（`window_id/current_session_id/conversation_id/updated_at/last_used_at`）于 /home/ubuntu/workspace/ClawX/tests/integration/multi_session_binding_fields_test.go
 
 ### 实现任务（US3）
 
-- [X] T033 [US3] 固化缺省窗口兼容策略并统一错误返回于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/normalize.go
-- [X] T034 [US3] 在 Router 固化内建控制命令优先分流于 /home/ubuntu/workspace/SynapseX/internal/application/service/router.go
-- [X] T035 [US3] 扩展错误映射覆盖窗口绑定异常场景于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/error_response.go
-- [X] T036 [US3] 同步“无 window_id 兼容路径”冒烟验证到 /home/ubuntu/workspace/SynapseX/tests/integration/phase1_foundation_test.go
+- [X] T033 [US3] 固化缺省窗口兼容策略并统一错误返回于 /home/ubuntu/workspace/ClawX/internal/interfaces/chat/normalize.go
+- [X] T034 [US3] 在 Router 固化内建控制命令优先分流于 /home/ubuntu/workspace/ClawX/internal/application/service/router.go
+- [X] T035 [US3] 扩展错误映射覆盖窗口绑定异常场景于 /home/ubuntu/workspace/ClawX/internal/interfaces/chat/error_response.go
+- [X] T036 [US3] 同步“无 window_id 兼容路径”冒烟验证到 /home/ubuntu/workspace/ClawX/tests/integration/phase1_foundation_test.go
 
 **检查点**: 三个用户故事均可独立通过各自验收场景
 
@@ -125,14 +125,14 @@
 
 **目的**: 完成跨故事收尾、回归验证和文档闭环
 
-- [X] T037 [P] 补充窗口语义渠道契约说明于 /home/ubuntu/workspace/SynapseX/specs/002-multi-session/contracts/window-routing-contract.md
-- [X] T038 [P] 补充控制命令窗口语义与错误契约说明于 /home/ubuntu/workspace/SynapseX/specs/002-multi-session/contracts/control-command-window-contract.md
-- [X] T039 运行全量回归测试并修复问题（`go test ./...`）于 /home/ubuntu/workspace/SynapseX/tests/
-- [X] T040 更新第二阶段验证步骤与人工验收脚本于 /home/ubuntu/workspace/SynapseX/specs/002-multi-session/quickstart.md
-- [X] T041 回写阶段交付摘要与风险状态于 /home/ubuntu/workspace/SynapseX/docs/plans/phase_2_multi_session.md
-- [X] T042 [P] 生成 SC-001~SC-004 指标采集与统计脚本（7 天窗口、>=200 样本）于 /home/ubuntu/workspace/SynapseX/tests/integration/multi_session_metrics_report_test.go
-- [X] T043 执行 SC-005 人工验收并输出通过率报告于 /home/ubuntu/workspace/SynapseX/docs/guides/phase_2/phase_2_validation.md
-- [X] T044 [P] 将 SC 指标采集与人工验收结论回写发布门禁说明于 /home/ubuntu/workspace/SynapseX/docs/plans/phase_2_multi_session.md
+- [X] T037 [P] 补充窗口语义渠道契约说明于 /home/ubuntu/workspace/ClawX/specs/002-multi-session/contracts/window-routing-contract.md
+- [X] T038 [P] 补充控制命令窗口语义与错误契约说明于 /home/ubuntu/workspace/ClawX/specs/002-multi-session/contracts/control-command-window-contract.md
+- [X] T039 运行全量回归测试并修复问题（`go test ./...`）于 /home/ubuntu/workspace/ClawX/tests/
+- [X] T040 更新第二阶段验证步骤与人工验收脚本于 /home/ubuntu/workspace/ClawX/specs/002-multi-session/quickstart.md
+- [X] T041 回写阶段交付摘要与风险状态于 /home/ubuntu/workspace/ClawX/docs/plans/phase_2_multi_session.md
+- [X] T042 [P] 生成 SC-001~SC-004 指标采集与统计脚本（7 天窗口、>=200 样本）于 /home/ubuntu/workspace/ClawX/tests/integration/multi_session_metrics_report_test.go
+- [X] T043 执行 SC-005 人工验收并输出通过率报告于 /home/ubuntu/workspace/ClawX/docs/guides/phase_2/phase_2_validation.md
+- [X] T044 [P] 将 SC 指标采集与人工验收结论回写发布门禁说明于 /home/ubuntu/workspace/ClawX/docs/plans/phase_2_multi_session.md
 
 ---
 

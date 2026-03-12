@@ -1,4 +1,4 @@
-module synapsex
+module clawx
 
 go 1.23.0
 

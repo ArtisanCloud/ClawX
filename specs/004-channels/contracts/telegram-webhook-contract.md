@@ -1,7 +1,7 @@
 # 契约：Telegram polling/webhook 交付行为
 
 ## 目的
-定义 Telegram 双模式在 SynapseX 的接入协议、安全约束、错误语义与一致性要求。
+定义 Telegram 双模式在 ClawX 的接入协议、安全约束、错误语义与一致性要求。
 
 ## 1. 模式契约
 - `mode=polling`：适配器通过 `getUpdates` 拉取消息。

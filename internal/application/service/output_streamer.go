@@ -3,7 +3,7 @@ package service
 import (
 	"strings"
 
-	"synapsex/internal/domain/execution"
+	"clawx/internal/domain/execution"
 )
 
 type OutputStreamer struct{}

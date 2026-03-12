@@ -16,7 +16,7 @@
 
 - 执行日期（UTC）：2026-03-09
 - 执行分支：`002-multi-session`
-- 执行目录：`/home/ubuntu/workspace/SynapseX`
+- 执行目录：`/home/ubuntu/workspace/ClawX`
 - Go 缓存策略：`GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache`
 
 ## 自动化回归（T039）
@@ -63,8 +63,8 @@ go test ./tests/integration \
 执行模板：
 
 ```bash
-SYNAPSEX_PHASE2_METRICS_JSONL=/path/to/phase2_metrics.jsonl \
-SYNAPSEX_PHASE2_METRICS_REPORT=docs/guides/phase_2/phase_2_metrics_report.md \
+CLAWX_PHASE2_METRICS_JSONL=/path/to/phase2_metrics.jsonl \
+CLAWX_PHASE2_METRICS_REPORT=docs/guides/phase_2/phase_2_metrics_report.md \
 GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache \
 go test ./tests/integration -run TestMultiSessionMetricsReportFromJSONL -count=1
 ```

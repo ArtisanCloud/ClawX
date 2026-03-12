@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"synapsex/internal/domain/execution"
+	"clawx/internal/domain/execution"
 )
 
 type ExecutorFunc func(ctx context.Context, request execution.Request) (execution.Result, error)

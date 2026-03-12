@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"synapsex/internal/infrastructure/config"
-	chatiface "synapsex/internal/interfaces/chat"
+	"clawx/internal/infrastructure/config"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 func TestParseConfigChatCommand(t *testing.T) {
@@ -29,9 +29,9 @@ func TestHandleConfigChatCommandPlanAndApply(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.json")
 	homeDir := filepath.Join(tempDir, "home")
 
-	t.Setenv("SYNAPSEX_CONFIG", configPath)
+	t.Setenv("CLAWX_CONFIG", configPath)
 	t.Setenv("HOME", homeDir)
-	t.Setenv("SYNAPSEX_CONFIG_ADMIN_USERS", "")
+	t.Setenv("CLAWX_CONFIG_ADMIN_USERS", "")
 
 	clearPendingConfigPlans()
 

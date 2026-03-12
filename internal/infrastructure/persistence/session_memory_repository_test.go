@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"synapsex/internal/domain/session"
+	"clawx/internal/domain/session"
 )
 
 func TestSessionMemoryRepositoryWindowBindingSetAndGet(t *testing.T) {

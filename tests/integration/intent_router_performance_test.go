@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	chatiface "synapsex/internal/interfaces/chat"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 func TestIntentRouterDecisionPerformance(t *testing.T) {

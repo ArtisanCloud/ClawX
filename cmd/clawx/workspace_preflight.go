@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"synapsex/internal/infrastructure/config"
+	"clawx/internal/infrastructure/config"
 )
 
 func ensureWorkspacesReady(cfg config.Snapshot) error {
@@ -138,7 +138,7 @@ func ensureWorkspacePath(path string) error {
 		return fmt.Errorf("workspace %q is not a directory", path)
 	}
 
-	probe, err := os.CreateTemp(path, ".synapsex-writecheck-*")
+	probe, err := os.CreateTemp(path, ".clawx-writecheck-*")
 	if err != nil {
 		return fmt.Errorf("workspace %q is not writable: %w", path, err)
 	}

@@ -1,7 +1,7 @@
 # Skill Registry + Intent Router（Phase Next）
 
 ## 目标
-- 在 SynapseX 中引入可扩展 Skill 注册中心与意图路由。
+- 在 ClawX 中引入可扩展 Skill 注册中心与意图路由。
 - 100% 兼容 Claude Code Skill 结构（`SKILL.md` + frontmatter）。
 - 与现有多会话、Discord/Telegram、`main` agent 机制无缝协作。
 

@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"synapsex/internal/application/service"
-	"synapsex/internal/domain/execution"
-	"synapsex/internal/infrastructure/config"
-	"synapsex/internal/infrastructure/persistence"
-	chatiface "synapsex/internal/interfaces/chat"
+	"clawx/internal/application/service"
+	"clawx/internal/domain/execution"
+	"clawx/internal/infrastructure/config"
+	"clawx/internal/infrastructure/persistence"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 func TestChannelControlSemanticsContract(t *testing.T) {

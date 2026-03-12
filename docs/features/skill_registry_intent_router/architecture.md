@@ -9,8 +9,8 @@
 
 ## Skill Registry
 - 来源优先级：
-1. `~/.synapsex/skills`
-2. `<workspace>/.synapsex/skills`
+1. `~/.clawx/skills`
+2. `<workspace>/.clawx/skills`
 3. 内置 `internal/skills/builtin`
 - 目录要求：
 1. Skill 根目录必须存在 `SKILL.md`
@@ -18,7 +18,7 @@
 - 冲突规则：
 1. `name` 全局唯一
 2. 禁止与系统命令名冲突（如 `new/list/resume/cancel/current`）
-- 索引缓存：`~/.synapsex/state/skills_index.json`
+- 索引缓存：`~/.clawx/state/skills_index.json`
 
 ## Intent Router（规则优先 + LLM 兜底）
 - 优先级固定：

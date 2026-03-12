@@ -7,7 +7,7 @@
 1. 发送：`/config plan 创建 agent reviewer 使用 claude`
 2. 发送：`/config show`
 3. 发送：`/config apply`
-4. 执行：`go run ./cmd/synapsex config agent list`
+4. 执行：`go run ./cmd/clawx config agent list`
 
 ## 预期
 1. `plan` 返回待确认计划摘要。

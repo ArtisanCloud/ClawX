@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"synapsex/internal/infrastructure/health"
+	"clawx/internal/infrastructure/health"
 )
 
 type HealthHandler struct {

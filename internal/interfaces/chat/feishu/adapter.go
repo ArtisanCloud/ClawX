@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	chatiface "synapsex/internal/interfaces/chat"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 const MaxMessageLength = 4000

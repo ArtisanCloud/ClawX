@@ -1,16 +1,16 @@
 # 实现计划：第二阶段多窗口多会话
 
-**分支**: `002-multi-session` | **日期**: 2026-03-09 | **规格**: `/home/ubuntu/workspace/SynapseX/specs/002-multi-session/spec.md`
-**输入**: 功能规格来自 `/home/ubuntu/workspace/SynapseX/specs/002-multi-session/spec.md`
+**分支**: `002-multi-session` | **日期**: 2026-03-09 | **规格**: `/home/ubuntu/workspace/ClawX/specs/002-multi-session/spec.md`
+**输入**: 功能规格来自 `/home/ubuntu/workspace/ClawX/specs/002-multi-session/spec.md`
 
 ## 摘要
 
-本阶段将 SynapseX 从单会话倾向升级为多窗口多会话默认模型：输入优先按 `window_id` 命中当前会话，在缺省 `window_id` 时回退到兼容路径，确保既有入口不回退。实现保持现有 `Router -> Session Manager -> Backend Adapter` 直连链路，新增窗口绑定能力、窗口级会话列表与切换语义，并固定内建控制命令优先级。
+本阶段将 ClawX 从单会话倾向升级为多窗口多会话默认模型：输入优先按 `window_id` 命中当前会话，在缺省 `window_id` 时回退到兼容路径，确保既有入口不回退。实现保持现有 `Router -> Session Manager -> Backend Adapter` 直连链路，新增窗口绑定能力、窗口级会话列表与切换语义，并固定内建控制命令优先级。
 
 ## 技术上下文
 
 **Language/Version**: Go 1.23  
-**Primary Dependencies**: Go 标准库、现有 SynapseX DDD 模块、现有 Discord/Telegram 适配层、现有配置与持久化模块  
+**Primary Dependencies**: Go 标准库、现有 ClawX DDD 模块、现有 Discord/Telegram 适配层、现有配置与持久化模块  
 **Storage**: 内存会话仓储（已存在）+ 计划新增窗口绑定持久化结构（内存优先，兼容后续文件/数据库扩展）  
 **Testing**: Go 原生 `testing`（unit/integration/contract）+ `go test ./...`  
 **Target Platform**: Linux server  
@@ -43,7 +43,7 @@
 ### 文档（本功能）
 
 ```text
-/home/ubuntu/workspace/SynapseX/specs/002-multi-session/
+/home/ubuntu/workspace/ClawX/specs/002-multi-session/
 ├── plan.md
 ├── research.md
 ├── data-model.md
@@ -59,9 +59,9 @@
 ### 源码（仓库根目录）
 
 ```text
-/home/ubuntu/workspace/SynapseX/
+/home/ubuntu/workspace/ClawX/
 ├── cmd/
-│   └── synapsex/
+│   └── clawx/
 │       └── main.go
 ├── internal/
 │   ├── domain/

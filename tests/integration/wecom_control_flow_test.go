@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"synapsex/internal/application/service"
-	wecomchat "synapsex/internal/interfaces/chat/wecom"
+	"clawx/internal/application/service"
+	wecomchat "clawx/internal/interfaces/chat/wecom"
 )
 
 func TestWeComControlFlow(t *testing.T) {

@@ -110,8 +110,8 @@ func TestLoadAllowsEnvOverrideOnTopOfConfigJSON(t *testing.T) {
 		t.Fatalf("write config.json: %v", err)
 	}
 
-	t.Setenv("SYNAPSEX_EXEC_COMMAND", "printf")
-	t.Setenv("SYNAPSEX_HTTP_LISTEN_ADDR", ":28080")
+	t.Setenv("CLAWX_EXEC_COMMAND", "printf")
+	t.Setenv("CLAWX_HTTP_LISTEN_ADDR", ":28080")
 
 	cfg, err := Load()
 	if err != nil {
@@ -147,7 +147,7 @@ func TestLoadIgnoresDotEnvWhenConfigExistsByDefault(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write config.json: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte("SYNAPSEX_DISCORD_ENABLED=true\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte("CLAWX_DISCORD_ENABLED=true\n"), 0o644); err != nil {
 		t.Fatalf("write .env: %v", err)
 	}
 
@@ -517,7 +517,7 @@ func TestUpsertAgentUsesSuggestedWorkspace(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected project-alpha agent")
 	}
-	wantWorkspace := filepath.Join(homeDir, ".synapsex", "workspaces", "project-alpha")
+	wantWorkspace := filepath.Join(homeDir, ".clawx", "workspaces", "project-alpha")
 	if agent.Workspace != wantWorkspace {
 		t.Fatalf("unexpected workspace: got %q want %q", agent.Workspace, wantWorkspace)
 	}
@@ -773,7 +773,7 @@ func TestWriteBootstrapFileWithDatabaseConfig(t *testing.T) {
 		DatabaseDriver:     "postgres",
 		DatabaseHost:       "127.0.0.1",
 		DatabasePort:       5432,
-		DatabaseName:       "synapse_x",
+		DatabaseName:       "claw_x",
 		DatabaseUser:       "postgres",
 		DatabasePassword:   "secret",
 		DatabaseSSLMode:    "disable",
@@ -794,7 +794,7 @@ func TestWriteBootstrapFileWithDatabaseConfig(t *testing.T) {
 	if cfg.Database.Driver != "postgres" {
 		t.Fatalf("unexpected database driver: %q", cfg.Database.Driver)
 	}
-	if cfg.Database.Name != "synapse_x" {
+	if cfg.Database.Name != "claw_x" {
 		t.Fatalf("unexpected database name: %q", cfg.Database.Name)
 	}
 	if cfg.Database.User != "postgres" {
@@ -810,7 +810,7 @@ func TestEnsureStateLayoutMigratesLegacyWorkspaceRootAndConfigPaths(t *testing.T
 	chdirForTest(t, tempDir)
 
 	homeDir := filepath.Join(tempDir, "home")
-	stateDir := filepath.Join(homeDir, ".synapsex")
+	stateDir := filepath.Join(homeDir, ".clawx")
 	legacyRoot := filepath.Join(stateDir, "workworkspace")
 	legacyMain := filepath.Join(legacyRoot, "main")
 	if err := os.MkdirAll(legacyMain, 0o755); err != nil {
@@ -884,7 +884,7 @@ func TestEnsureStateLayoutCreatesStarterSkill(t *testing.T) {
 		t.Fatalf("ensure state layout: %v", err)
 	}
 
-	manifestPath := filepath.Join(os.Getenv("HOME"), ".synapsex", "skills", "echo", "SKILL.md")
+	manifestPath := filepath.Join(os.Getenv("HOME"), ".clawx", "skills", "echo", "SKILL.md")
 	body, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatalf("read starter skill manifest: %v", err)
@@ -902,7 +902,7 @@ func TestEnsureStateLayoutDoesNotOverwriteStarterSkill(t *testing.T) {
 	tempDir := t.TempDir()
 	chdirForTest(t, tempDir)
 
-	manifestPath := filepath.Join(os.Getenv("HOME"), ".synapsex", "skills", "echo", "SKILL.md")
+	manifestPath := filepath.Join(os.Getenv("HOME"), ".clawx", "skills", "echo", "SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
 		t.Fatalf("mkdir starter skill dir: %v", err)
 	}
@@ -927,7 +927,7 @@ func TestEnsureStateLayoutDoesNotOverwriteStarterSkill(t *testing.T) {
 func chdirForTest(t *testing.T, dir string) {
 	t.Helper()
 
-	t.Setenv("SYNAPSEX_CONFIG", "config.json")
+	t.Setenv("CLAWX_CONFIG", "config.json")
 	homeDir := filepath.Join(dir, "home")
 	if err := os.MkdirAll(homeDir, 0o755); err != nil {
 		t.Fatalf("mkdir home: %v", err)

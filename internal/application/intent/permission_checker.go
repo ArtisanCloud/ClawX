@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	skillsinfra "synapsex/internal/infrastructure/skills"
-	chatiface "synapsex/internal/interfaces/chat"
+	skillsinfra "clawx/internal/infrastructure/skills"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 type ErrorCategory string

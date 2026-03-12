@@ -1,4 +1,4 @@
-# SynapseX 文档总览（V1）
+# ClawX 文档总览（V1）
 
 第一阶段目标：把 Discord / Telegram 消息映射成对 Codex CLI 的远程控制，提供会话管理、流式/分段回传和基础运维能力，先跑通“远程 Codex CLI 控制网关”。
 

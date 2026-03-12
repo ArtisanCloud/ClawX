@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"synapsex/internal/application/command"
-	"synapsex/internal/application/service"
-	chatiface "synapsex/internal/interfaces/chat"
-	telegramchat "synapsex/internal/interfaces/chat/telegram"
+	"clawx/internal/application/command"
+	"clawx/internal/application/service"
+	chatiface "clawx/internal/interfaces/chat"
+	telegramchat "clawx/internal/interfaces/chat/telegram"
 )
 
 func TestTelegramDualModeRouting(t *testing.T) {

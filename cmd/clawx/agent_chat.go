@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	chatiface "synapsex/internal/interfaces/chat"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 type conversationAgentOverrides struct {

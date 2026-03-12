@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"synapsex/internal/application/intent"
-	"synapsex/internal/application/skillregistry"
-	skilldomain "synapsex/internal/domain/skill"
-	"synapsex/internal/infrastructure/config"
-	skillsinfra "synapsex/internal/infrastructure/skills"
+	"clawx/internal/application/intent"
+	"clawx/internal/application/skillregistry"
+	skilldomain "clawx/internal/domain/skill"
+	"clawx/internal/infrastructure/config"
+	skillsinfra "clawx/internal/infrastructure/skills"
 )
 
 func runSkillCommand(args []string) error {
@@ -53,7 +53,7 @@ func runSkillCommand(args []string) error {
 		return nil
 	case "enable":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: synapsex skill enable <name>")
+			return fmt.Errorf("usage: clawx skill enable <name>")
 		}
 		name := strings.TrimSpace(args[1])
 		if err := registry.Enable(name); err != nil {
@@ -66,7 +66,7 @@ func runSkillCommand(args []string) error {
 		return nil
 	case "disable":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: synapsex skill disable <name>")
+			return fmt.Errorf("usage: clawx skill disable <name>")
 		}
 		name := strings.TrimSpace(args[1])
 		if err := registry.Disable(name); err != nil {

@@ -3,7 +3,7 @@
 ## 1. 功能背景与目标
 
 ### 1.1 为什么要做
-- 业务背景：SynapseX 需要从单一聊天入口升级为多渠道入口，支持团队在既有 IM 平台直接驱动 Agent。
+- 业务背景：ClawX 需要从单一聊天入口升级为多渠道入口，支持团队在既有 IM 平台直接驱动 Agent。
 - 当前痛点：
   - Telegram 仅单模式时，部署场景受限。
   - 缺少 Feishu/WeCom 接入时，企业场景迁移成本高。
@@ -43,7 +43,7 @@ flowchart LR
   - Telegram: `internal/interfaces/chat/telegram/adapter.go`
   - Feishu: `internal/interfaces/chat/feishu/adapter.go`
   - WeCom: `internal/interfaces/chat/wecom/adapter.go`
-- 统一编排入口：`cmd/synapsex/main.go`
+- 统一编排入口：`cmd/clawx/main.go`
 - 统一消息模型：`internal/interfaces/chat/normalize.go`
 - 会话与命令路由：`internal/application/service/*`
 - 配置系统：`internal/infrastructure/config/config.go`
@@ -72,7 +72,7 @@ flowchart LR
     O2["执行 config channel 增量配置"]
   end
 
-  subgraph L2["SynapseX 服务"]
+  subgraph L2["ClawX 服务"]
     S1["注册路由并启动适配器"]
     S2["验签/解密/路由"]
     S3["回发消息与日志"]
@@ -88,14 +88,14 @@ flowchart LR
 ```
 
 ## 6. 前置条件与依赖
-- 配置文件存在：`~/.synapsex/config.json`。
+- 配置文件存在：`~/.clawx/config.json`。
 - 必要密钥：
   - Telegram: `token`（webhook 模式还需 `webhookUrl/webhookPath`）
   - Feishu: `appId/appSecret/verificationToken`
   - WeCom: `corpId/agentId/secret/token/encodingAesKey`
 - 运行命令：
-  - `go run ./cmd/synapsex serve`
-  - `go run ./cmd/synapsex config channel telegram|feishu|wecom`
+  - `go run ./cmd/clawx serve`
+  - `go run ./cmd/clawx config channel telegram|feishu|wecom`
 - 网络依赖：Webhook 模式要求公网 HTTPS 可回调。
 
 ## 7. 操作步骤（按场景拆分）
@@ -138,12 +138,12 @@ flowchart LR
 
 | 文档步骤 | 代码位置 | 说明 |
 |---|---|---|
-| 路由与适配器装配 | `cmd/synapsex/main.go` | Telegram/Feishu/WeCom 路由注册与入站处理 |
+| 路由与适配器装配 | `cmd/clawx/main.go` | Telegram/Feishu/WeCom 路由注册与入站处理 |
 | Telegram 双模式 | `internal/interfaces/chat/telegram/adapter.go` | polling、webhook、setWebhook、鉴权 |
 | Feishu challenge+验签 | `internal/interfaces/chat/feishu/adapter.go` | challenge、签名校验、文本解析 |
 | WeCom 验证+解密 | `internal/interfaces/chat/wecom/adapter.go` | URL 验证、签名、解密、回发 |
 | 统一消息归一化 | `internal/interfaces/chat/normalize.go` | Feishu/WeCom 文本映射 |
-| 增量配置入口 | `cmd/synapsex/config_channel.go` | telegram/feishu/wecom 交互式配置 |
+| 增量配置入口 | `cmd/clawx/config_channel.go` | telegram/feishu/wecom 交互式配置 |
 | 配置补丁与原子保存 | `internal/infrastructure/config/config.go` | `SetValuesByDotKey` + 原子写盘 |
 | 跨渠道命令契约验证 | `tests/contract/channel_control_semantics_contract_test.go` | 统一命令语义门禁 |
 
@@ -152,18 +152,18 @@ flowchart LR
 ### Q1：Webhook 配置保存失败
 - 现象：Feishu/WeCom 后台提示 challenge 或 URL 验证失败。
 - 排查命令：
-  - `go run ./cmd/synapsex config get channels.feishu`
-  - `go run ./cmd/synapsex config get channels.wecom`
+  - `go run ./cmd/clawx config get channels.feishu`
+  - `go run ./cmd/clawx config get channels.wecom`
 - 修复建议：核对回调路径与实例 ID，确认 token/secret/aesKey 一致。
 
 ### Q2：发送控制命令后无响应
 - 现象：渠道侧看不到 `/new` 返回。
-- 排查命令：`go run ./cmd/synapsex serve` 并观察运行日志。
+- 排查命令：`go run ./cmd/clawx serve` 并观察运行日志。
 - 修复建议：确认路由未冲突、渠道实例 `enabled=true`、网络代理可用。
 
 ### Q3：改 WeCom 配置导致 Telegram 异常
 - 现象：修改后 Telegram token 丢失。
-- 排查命令：`go run ./cmd/synapsex config get channels`
+- 排查命令：`go run ./cmd/clawx config get channels`
 - 修复建议：仅使用 `config channel <name>` 或批量 patch，避免手工全量覆盖。
 
 ## 11. 回滚与风险控制
@@ -177,5 +177,5 @@ flowchart LR
 ## 12. 变更记录
 - 版本：v1.0
 - 日期：2026-03-12
-- 责任人：SynapseX 开发协作（Codex）
+- 责任人：ClawX 开发协作（Codex）
 - 变更内容：按 004-channels Wave 1 实现生成总览与用例指导。

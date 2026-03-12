@@ -1,7 +1,7 @@
 # OpenClaw 渠道对齐矩阵（Phase 4 扩展）
 
 ## 目的
-- 对齐 OpenClaw 线上渠道能力清单，明确 SynapseX 当前缺口。
+- 对齐 OpenClaw 线上渠道能力清单，明确 ClawX 当前缺口。
 - 把“未实现渠道”转成可执行的技术规范与分波次实现计划。
 
 ## 参考基线
@@ -12,12 +12,12 @@
 
 ## 渠道对齐矩阵（2026-03-11）
 
-| 渠道 | OpenClaw 状态 | SynapseX 当前状态 | 对齐波次 |
+| 渠道 | OpenClaw 状态 | ClawX 当前状态 | 对齐波次 |
 | --- | --- | --- | --- |
 | Discord | 内建 | 已实现 | 已完成 |
 | Telegram | 内建 | 已实现（polling/webhook） | 已完成 |
 | Feishu/Lark | 插件 | 规划中（Phase 4） | Wave 1 |
-| WeCom（企业微信） | 非 OpenClaw 主清单项 | 规划中（Phase 4） | Wave 1（SynapseX 特化） |
+| WeCom（企业微信） | 非 OpenClaw 主清单项 | 规划中（Phase 4） | Wave 1（ClawX 特化） |
 | Slack | 内建 | 未实现 | Wave 2 |
 | WhatsApp | 内建 | 未实现 | Wave 2 |
 | Signal | 内建 | 未实现 | Wave 2 |
@@ -74,13 +74,13 @@
 - 输出复用现有 `OutputDelivery`，避免渠道分叉实现
 
 2. **启动编排**
-- 在 `cmd/synapsex/main.go` 注册渠道实例与生命周期
+- 在 `cmd/clawx/main.go` 注册渠道实例与生命周期
 - 失败采用“通道级重试”，不得导致主进程退出
 
 3. **配置模型**
 - 在 `internal/infrastructure/config/config.go` 增加渠道配置结构
 - 支持 `enabled/defaultAgent/instances` 最小字段集
-- `synapsex config channel <name>` 支持增量配置，不覆盖其他渠道
+- `clawx config channel <name>` 支持增量配置，不覆盖其他渠道
 
 4. **控制语义**
 - 必须支持统一命令：`/new /resume /list /current /switch /cancel`

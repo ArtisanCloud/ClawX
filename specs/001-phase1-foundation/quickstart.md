@@ -16,7 +16,7 @@
 1. 初始化本地配置：
 
 ```bash
-go run ./cmd/synapsex config
+go run ./cmd/clawx config
 ```
 
 如果 `config.json` 不存在，这条命令会进入交互式向导（支持上下键切换、数字直达、回车确认），写入前会先显示配置摘要，并在确认后写入默认结构的 `config.json`。
@@ -83,7 +83,7 @@ go test ./...
 4. 启动服务：
 
 ```bash
-go run ./cmd/synapsex
+go run ./cmd/clawx
 ```
 
 如果你跳过了第 1 步，且当前目录还没有 `config.json`，这条命令会先进入交互式配置向导；向导完成后会继续启动服务。
@@ -157,7 +157,7 @@ curl -s http://127.0.0.1:8080/healthz
 - 把默认 agent 切到真实 `codex` 或 `claude`
 - 完成一次带真实 Telegram / Discord 凭证的人工验收
 - 按实际验收结果更新阶段文档
-- 如需让 `.env` 继续参与覆盖，显式设置 `SYNAPSEX_LOAD_DOTENV=true`
+- 如需让 `.env` 继续参与覆盖，显式设置 `CLAWX_LOAD_DOTENV=true`
 
 ## 明确不做
 - 多窗口管理

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"synapsex/internal/domain/session"
+	"clawx/internal/domain/session"
 )
 
 type SessionSummary struct {

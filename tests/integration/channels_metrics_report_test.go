@@ -84,9 +84,9 @@ func TestPhase4ChannelsMetricsReportGateWithSyntheticDataset(t *testing.T) {
 }
 
 func TestPhase4ChannelsMetricsReportFromJSONL(t *testing.T) {
-	inputPath := strings.TrimSpace(os.Getenv("SYNAPSEX_PHASE4_METRICS_JSONL"))
+	inputPath := strings.TrimSpace(os.Getenv("CLAWX_PHASE4_METRICS_JSONL"))
 	if inputPath == "" {
-		t.Skip("set SYNAPSEX_PHASE4_METRICS_JSONL to collect SC-001~SC-006 metrics from real logs")
+		t.Skip("set CLAWX_PHASE4_METRICS_JSONL to collect SC-001~SC-006 metrics from real logs")
 	}
 
 	events, err := loadPhase4MetricEventsJSONL(inputPath)
@@ -98,7 +98,7 @@ func TestPhase4ChannelsMetricsReportFromJSONL(t *testing.T) {
 	report := evaluatePhase4MetricGate(events, now)
 	markdown := renderPhase4MetricGateMarkdown(report, now, inputPath)
 
-	outputPath := strings.TrimSpace(os.Getenv("SYNAPSEX_PHASE4_METRICS_REPORT"))
+	outputPath := strings.TrimSpace(os.Getenv("CLAWX_PHASE4_METRICS_REPORT"))
 	if outputPath == "" {
 		outputPath = filepath.Join("docs", "guides", "phase_4", "phase_4_metrics_report.md")
 	}

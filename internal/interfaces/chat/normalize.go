@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"synapsex/internal/domain/conversation"
+	"clawx/internal/domain/conversation"
 )
 
 var (

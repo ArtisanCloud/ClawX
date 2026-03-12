@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"synapsex/internal/infrastructure/config"
+	"clawx/internal/infrastructure/config"
 )
 
 func runConfigChannelCommand(args []string) error {
@@ -21,7 +21,7 @@ func runConfigChannelCommand(args []string) error {
 	}
 	if channel == "" {
 		if !interactiveInputAvailable() {
-			return fmt.Errorf("channel is required in non-interactive mode; use `synapsex config channel telegram|discord|feishu|wecom`")
+			return fmt.Errorf("channel is required in non-interactive mode; use `clawx config channel telegram|discord|feishu|wecom`")
 		}
 		selected, err := promptMenu(
 			"选择要增量配置的 Channel:",
@@ -48,7 +48,7 @@ func runConfigChannelCommand(args []string) error {
 	case "wecom", "wx", "qywx":
 		return runConfigChannelWeCom()
 	case "help", "-h", "--help":
-		fmt.Fprintln(os.Stdout, "Usage: synapsex config channel [telegram|discord|feishu|wecom]")
+		fmt.Fprintln(os.Stdout, "Usage: clawx config channel [telegram|discord|feishu|wecom]")
 		return nil
 	default:
 		return fmt.Errorf("unknown channel %q; expected telegram, discord, feishu, or wecom", channel)

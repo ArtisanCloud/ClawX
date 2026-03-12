@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"synapsex/internal/application/command"
-	"synapsex/internal/domain/session"
+	"clawx/internal/application/command"
+	"clawx/internal/domain/session"
 )
 
 func FormatError(err error) string {

@@ -8,8 +8,8 @@
    - `kind: generic-cli`
    - `command: pwd`
 2. 新增两个 agent：
-   - `main` 的 `workspace`: `~/.synapsex/workspaces/main`
-   - `review` 的 `workspace`: `~/.synapsex/workspaces/review`
+   - `main` 的 `workspace`: `~/.clawx/workspaces/main`
+   - `review` 的 `workspace`: `~/.clawx/workspaces/review`
    - 两者都使用 `pwd-smoke`
 3. 在 channel 配置绑定一个入口到 `review`：
    - Discord 示例：`"channel:<your_channel_id>": "review"`

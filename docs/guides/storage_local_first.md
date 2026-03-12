@@ -5,7 +5,7 @@
 - 目标是最小依赖启动，不把数据库当作默认前置。
 
 ## 默认策略
-1. 配置、会话、工作目录都放在 `~/.synapsex`。
+1. 配置、会话、工作目录都放在 `~/.clawx`。
 2. 会话主存储使用本地文件（当前默认实现）：
 - `agents/<agent_id>/sessions/sessions.json`
 - `agents/<agent_id>/sessions/<session_id>.jsonl`

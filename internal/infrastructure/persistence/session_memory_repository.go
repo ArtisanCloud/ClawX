@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"synapsex/internal/domain/session"
+	"clawx/internal/domain/session"
 )
 
 var ErrLockHeldByAnotherProcess = errors.New("lock held by another process")

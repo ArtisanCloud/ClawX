@@ -7,8 +7,8 @@
 
 注册中心按如下顺序加载来源：
 
-1. `~/.synapsex/skills`
-2. `<workspace>/.synapsex/skills`
+1. `~/.clawx/skills`
+2. `<workspace>/.clawx/skills`
 3. 内置技能来源
 
 同名冲突时，上位来源胜出。

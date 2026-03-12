@@ -2,13 +2,13 @@
 
 ## 决策 1：Skill 格式完全兼容 Claude Code `SKILL.md`
 - **决策**: Skill 目录以 `SKILL.md` 为唯一必需入口，frontmatter 至少包含 `name`、`description`。
-- **理由**: 目标是直接复用现有 Skill 生态，避免 SynapseX 自建格式导致迁移成本。
+- **理由**: 目标是直接复用现有 Skill 生态，避免 ClawX 自建格式导致迁移成本。
 - **备选方案**:
-  - 定义 SynapseX 私有 manifest：灵活但破坏兼容目标。
+  - 定义 ClawX 私有 manifest：灵活但破坏兼容目标。
   - 双格式并存：实现复杂度更高且长期维护成本大。
 
 ## 决策 2：Skill 来源采用固定优先级
-- **决策**: 来源优先级为 `~/.synapsex/skills` > `<workspace>/.synapsex/skills` > 内置。
+- **决策**: 来源优先级为 `~/.clawx/skills` > `<workspace>/.clawx/skills` > 内置。
 - **理由**: 让用户级覆盖与项目级覆盖行为可预测，冲突处理可解释。
 - **备选方案**:
   - 仅按最后加载覆盖：顺序不稳定，排障困难。

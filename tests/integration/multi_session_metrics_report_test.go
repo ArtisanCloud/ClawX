@@ -68,9 +68,9 @@ func TestMultiSessionMetricsReportGateWithSyntheticDataset(t *testing.T) {
 }
 
 func TestMultiSessionMetricsReportFromJSONL(t *testing.T) {
-	inputPath := strings.TrimSpace(os.Getenv("SYNAPSEX_PHASE2_METRICS_JSONL"))
+	inputPath := strings.TrimSpace(os.Getenv("CLAWX_PHASE2_METRICS_JSONL"))
 	if inputPath == "" {
-		t.Skip("set SYNAPSEX_PHASE2_METRICS_JSONL to collect SC-001~SC-004 metrics from real logs")
+		t.Skip("set CLAWX_PHASE2_METRICS_JSONL to collect SC-001~SC-004 metrics from real logs")
 	}
 
 	events, err := loadMetricEventsJSONL(inputPath)
@@ -82,7 +82,7 @@ func TestMultiSessionMetricsReportFromJSONL(t *testing.T) {
 	report := evaluateMetricGate(events, now)
 	markdown := renderMetricGateMarkdown(report, now, inputPath)
 
-	outputPath := strings.TrimSpace(os.Getenv("SYNAPSEX_PHASE2_METRICS_REPORT"))
+	outputPath := strings.TrimSpace(os.Getenv("CLAWX_PHASE2_METRICS_REPORT"))
 	if outputPath == "" {
 		outputPath = filepath.Join("docs", "guides", "phase_2", "phase_2_metrics_report.md")
 	}

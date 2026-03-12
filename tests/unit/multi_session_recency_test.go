@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"synapsex/internal/application/command"
-	"synapsex/internal/application/service"
-	"synapsex/internal/domain/execution"
-	"synapsex/internal/infrastructure/config"
-	"synapsex/internal/infrastructure/persistence"
+	"clawx/internal/application/command"
+	"clawx/internal/application/service"
+	"clawx/internal/domain/execution"
+	"clawx/internal/infrastructure/config"
+	"clawx/internal/infrastructure/persistence"
 )
 
 func TestMultiSessionRecencyRefreshForNewResumeSwitchAndExecuteSuccess(t *testing.T) {

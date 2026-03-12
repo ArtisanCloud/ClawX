@@ -17,9 +17,9 @@ func promptMenu(title string, options []menuOption) (string, error) {
 	}
 
 	// Use raw TTY menu by default (openclaw-like behavior). You can force
-	// fallback line mode with SYNAPSEX_TUI=false when terminal compatibility
+	// fallback line mode with CLAWX_TUI=false when terminal compatibility
 	// is problematic.
-	if interactiveInputAvailable() && os.Getenv("SYNAPSEX_TUI") != "false" {
+	if interactiveInputAvailable() && os.Getenv("CLAWX_TUI") != "false" {
 		if selected, ok, err := promptMenuTTY(title, options); err != nil {
 			return "", err
 		} else if ok {

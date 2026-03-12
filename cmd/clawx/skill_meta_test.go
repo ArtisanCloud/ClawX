@@ -4,13 +4,13 @@ import (
 	"strings"
 	"testing"
 
-	"synapsex/internal/application/service"
+	"clawx/internal/application/service"
 )
 
-func TestHandleSynapseXSkillMetaCommand(t *testing.T) {
+func TestHandleClawXSkillMetaCommand(t *testing.T) {
 	runtime := agentRuntime{}
 
-	handled, response := handleSynapseXSkillMetaCommand(runtime, "/sx-skills")
+	handled, response := handleClawXSkillMetaCommand(runtime, "/sx-skills")
 	if !handled {
 		t.Fatalf("expected sx-skills to be handled")
 	}
@@ -18,7 +18,7 @@ func TestHandleSynapseXSkillMetaCommand(t *testing.T) {
 		t.Fatalf("expected sx-skills response")
 	}
 
-	handled, _ = handleSynapseXSkillMetaCommand(runtime, "hello")
+	handled, _ = handleClawXSkillMetaCommand(runtime, "hello")
 	if handled {
 		t.Fatalf("unexpected handled for non sx command")
 	}
@@ -26,7 +26,7 @@ func TestHandleSynapseXSkillMetaCommand(t *testing.T) {
 
 func TestApplyExecutionSourceLabel(t *testing.T) {
 	skillText := applyExecutionSourceLabel(service.Decision{Kind: service.DecisionSkill}, "result")
-	if !strings.HasPrefix(skillText, "[SynapseX Skill]") {
+	if !strings.HasPrefix(skillText, "[ClawX Skill]") {
 		t.Fatalf("expected skill prefix, got %q", skillText)
 	}
 

@@ -15,7 +15,7 @@ import (
 	"time"
 	"unicode"
 
-	"synapsex/internal/domain/session"
+	"clawx/internal/domain/session"
 )
 
 type sessionFileSnapshot struct {

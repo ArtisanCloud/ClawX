@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"synapsex/internal/infrastructure/config"
-	chatiface "synapsex/internal/interfaces/chat"
+	"clawx/internal/infrastructure/config"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 type configPlanKind string
@@ -280,7 +280,7 @@ func applyPendingConfigPlan(plan pendingConfigPlan) (string, error) {
 }
 
 func isConfigAdmin(userID string) bool {
-	allowed := strings.TrimSpace(os.Getenv("SYNAPSEX_CONFIG_ADMIN_USERS"))
+	allowed := strings.TrimSpace(os.Getenv("CLAWX_CONFIG_ADMIN_USERS"))
 	if allowed == "" {
 		return true
 	}

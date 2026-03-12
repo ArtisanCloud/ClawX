@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	skilldomain "synapsex/internal/domain/skill"
+	skilldomain "clawx/internal/domain/skill"
 )
 
 type SourceSpec struct {

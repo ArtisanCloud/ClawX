@@ -4,7 +4,7 @@
 
 - 已实现：Discord、Telegram（polling/webhook）
 - Wave 1（基线实现中）：Feishu、WeCom
-- Wave 2~4（对齐 OpenClaw 渠道矩阵）：见 `/home/ubuntu/workspace/SynapseX/specs/004-channels/openclaw-channel-parity.md`
+- Wave 2~4（对齐 OpenClaw 渠道矩阵）：见 `/home/ubuntu/workspace/ClawX/specs/004-channels/openclaw-channel-parity.md`
 
 ## Discord
 - 目标主路径：Bot Token + Gateway WebSocket。
@@ -39,10 +39,10 @@
 - 平台接入协议不统一：
   - Discord 聊天主模式：WebSocket（Gateway）
   - Telegram 聊天主模式：Long Polling 或 Webhook
-- SynapseX 自身若提供前端流式接口，可另行支持：
+- ClawX 自身若提供前端流式接口，可另行支持：
   - WebSocket
   - SSE
-- 不应把平台接入协议和 SynapseX 自身流式协议混为一层。
+- 不应把平台接入协议和 ClawX 自身流式协议混为一层。
 
 ## 通用要求
 - 统一的规范化消息结构：`{conversation_id, user_id, text, reply_to?, attachments?}`。

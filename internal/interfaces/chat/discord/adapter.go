@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	chatiface "synapsex/internal/interfaces/chat"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 const (
@@ -185,8 +185,8 @@ func (a *Adapter) listenOnce(ctx context.Context, handler InboundHandler) error 
 		Intents: intentGuildMessages | intentDirectMessages | intentMessageContent,
 		Properties: identifyProperties{
 			OS:      "linux",
-			Browser: "synapsex",
-			Device:  "synapsex",
+			Browser: "clawx",
+			Device:  "clawx",
 		},
 	}}); err != nil {
 		return err
@@ -690,12 +690,12 @@ func (a *Adapter) syncSlashCommands(ctx context.Context) error {
 		{
 			Type:        discordApplicationCommandTypeChatInput,
 			Name:        "sx-skills",
-			Description: "列出 SynapseX 技能目录",
+			Description: "列出 ClawX 技能目录",
 		},
 		{
 			Type:        discordApplicationCommandTypeChatInput,
 			Name:        "sx-skill",
-			Description: "强制使用 SynapseX 技能",
+			Description: "强制使用 ClawX 技能",
 			Options: []discordApplicationCommandOption{
 				{
 					Type:        discordApplicationCommandOptionTypeString,

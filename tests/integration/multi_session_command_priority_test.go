@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"synapsex/internal/application/service"
-	chatiface "synapsex/internal/interfaces/chat"
+	"clawx/internal/application/service"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 func TestMultiSessionCommandPriorityBuiltInControlAlwaysWins(t *testing.T) {

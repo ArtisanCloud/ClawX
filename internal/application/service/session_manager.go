@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"synapsex/internal/domain/session"
+	"clawx/internal/domain/session"
 )
 
 type Clock func() time.Time

@@ -6,11 +6,11 @@
 ## 开发前准备
 1. 确认当前分支为 `002-multi-session`。
 2. 阅读以下文档：
-   - `/home/ubuntu/workspace/SynapseX/.specify/memory/constitution.md`
-   - `/home/ubuntu/workspace/SynapseX/docs/plans/roadmap.md`
-   - `/home/ubuntu/workspace/SynapseX/docs/plans/phase_2_multi_session.md`
-   - `/home/ubuntu/workspace/SynapseX/specs/002-multi-session/spec.md`
-   - `/home/ubuntu/workspace/SynapseX/specs/002-multi-session/plan.md`
+   - `/home/ubuntu/workspace/ClawX/.specify/memory/constitution.md`
+   - `/home/ubuntu/workspace/ClawX/docs/plans/roadmap.md`
+   - `/home/ubuntu/workspace/ClawX/docs/plans/phase_2_multi_session.md`
+   - `/home/ubuntu/workspace/ClawX/specs/002-multi-session/spec.md`
+   - `/home/ubuntu/workspace/ClawX/specs/002-multi-session/plan.md`
 3. 确认实现边界：只做多窗口多会话，不提前引入 Agent Registry 或复杂 Binding。
 
 ## 推荐实现顺序
@@ -60,8 +60,8 @@ GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache go test ./...
 执行命令：
 
 ```bash
-SYNAPSEX_PHASE2_METRICS_JSONL=/path/to/phase2_metrics.jsonl \
-SYNAPSEX_PHASE2_METRICS_REPORT=docs/guides/phase_2/phase_2_metrics_report.md \
+CLAWX_PHASE2_METRICS_JSONL=/path/to/phase2_metrics.jsonl \
+CLAWX_PHASE2_METRICS_REPORT=docs/guides/phase_2/phase_2_metrics_report.md \
 GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache \
 go test ./tests/integration -run TestMultiSessionMetricsReportFromJSONL -count=1
 ```

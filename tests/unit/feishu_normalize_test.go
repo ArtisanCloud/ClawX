@@ -3,7 +3,7 @@ package unit
 import (
 	"testing"
 
-	chatiface "synapsex/internal/interfaces/chat"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 func TestNormalizeFeishuTextEvent(t *testing.T) {

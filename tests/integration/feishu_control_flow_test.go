@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"synapsex/internal/application/service"
-	feishuchat "synapsex/internal/interfaces/chat/feishu"
+	"clawx/internal/application/service"
+	feishuchat "clawx/internal/interfaces/chat/feishu"
 )
 
 func TestFeishuControlFlow(t *testing.T) {

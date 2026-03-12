@@ -2,7 +2,7 @@
 
 ## 1. 功能背景与目标
 ### 1.1 为什么要做
-- 业务背景：企业团队希望在 Feishu 内直接使用 SynapseX。
+- 业务背景：企业团队希望在 Feishu 内直接使用 ClawX。
 - 当前痛点：无 Feishu 接入时必须切换平台操作。
 - 目标收益：Feishu 可作为独立窗口入口并复用统一控制语义。
 
@@ -46,7 +46,7 @@ flowchart LR
     O1["配置 appId/appSecret/token"]
     O2["设置回调 URL"]
   end
-  subgraph L2["SynapseX"]
+  subgraph L2["ClawX"]
     S1["challenge/验签"]
     S2["控制命令处理"]
   end
@@ -83,8 +83,8 @@ curl -sS http://127.0.0.1:8080/healthz
 1. 动作：执行 Feishu 增量配置并启动。
    - 命令/入口：
 ```bash
-go run ./cmd/synapsex config channel feishu
-go run ./cmd/synapsex serve
+go run ./cmd/clawx config channel feishu
+go run ./cmd/clawx serve
 ```
    - 预期结果：可在会话内连续执行控制命令并得到一致语义。
    - 失败处理：查看签名/token 相关错误日志。
@@ -97,7 +97,7 @@ go run ./cmd/synapsex serve
 ## 9. 代码实现映射
 | 文档步骤 | 代码位置 | 说明 |
 |---|---|---|
-| Feishu 路由注册 | `cmd/synapsex/main.go` | `normalizeFeishuRoutePath` 与 handler |
+| Feishu 路由注册 | `cmd/clawx/main.go` | `normalizeFeishuRoutePath` 与 handler |
 | challenge 与签名校验 | `internal/interfaces/chat/feishu/adapter.go` | `ParseWebhookRequest` |
 | 文本归一化 | `internal/interfaces/chat/normalize.go` | `NormalizeFeishuTextEvent` |
 | 控制流集成测试 | `tests/integration/feishu_control_flow_test.go` | 命令语义回归 |
@@ -105,7 +105,7 @@ go run ./cmd/synapsex serve
 ## 10. 常见问题与排障
 ### Q1：challenge 失败
 - 现象：平台保存回调时报错。
-- 排查命令：`go run ./cmd/synapsex config get channels.feishu`
+- 排查命令：`go run ./cmd/clawx config get channels.feishu`
 - 修复建议：校验 token 和路径是否匹配。
 
 ### Q2：签名通过但消息不执行
@@ -120,4 +120,4 @@ go run ./cmd/synapsex serve
 ## 12. 变更记录
 - 版本：v1.0
 - 日期：2026-03-12
-- 责任人：SynapseX 开发协作（Codex）
+- 责任人：ClawX 开发协作（Codex）

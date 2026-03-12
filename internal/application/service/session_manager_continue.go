@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"synapsex/internal/application/command"
-	"synapsex/internal/domain/session"
+	"clawx/internal/application/command"
+	"clawx/internal/domain/session"
 )
 
 func (m *SessionManager) ContinueSession(ctx context.Context, cmd command.SessionCommand) (session.Record, error) {

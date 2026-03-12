@@ -49,7 +49,7 @@ flowchart LR
     O1["配置 wecom 渠道"]
     O2["后台填写 URL/token/aesKey"]
   end
-  subgraph L2["SynapseX"]
+  subgraph L2["ClawX"]
     S1["URL 验证 + 解密"]
     S2["控制流处理 + 回发"]
     S3["原子保存配置"]
@@ -84,13 +84,13 @@ flowchart LR
 1. 动作：执行增量配置并启动服务。
    - 命令/入口：
 ```bash
-go run ./cmd/synapsex config channel wecom
-go run ./cmd/synapsex serve
+go run ./cmd/clawx config channel wecom
+go run ./cmd/clawx serve
 ```
    - 预期结果：日志出现 `wecom webhook route registered`。
    - 失败处理：检查配置字段是否齐全、agentId 是否为数字字符串。
 2. 动作：验证非目标渠道配置保留。
-   - 命令/入口：`go run ./cmd/synapsex config get channels`
+   - 命令/入口：`go run ./cmd/clawx config get channels`
    - 预期结果：Telegram/Discord/Feishu 原值仍在。
    - 失败处理：回退到上一个配置快照并重新执行增量配置。
 
@@ -104,9 +104,9 @@ go run ./cmd/synapsex serve
 | 文档步骤 | 代码位置 | 说明 |
 |---|---|---|
 | WeCom 回调解析 | `internal/interfaces/chat/wecom/adapter.go` | GET/POST、验签、解密、回发 |
-| WeCom 路由接入 | `cmd/synapsex/main.go` | `normalizeWeComRoutePath`、`handleWeComInbound` |
+| WeCom 路由接入 | `cmd/clawx/main.go` | `normalizeWeComRoutePath`、`handleWeComInbound` |
 | WeCom 归一化 | `internal/interfaces/chat/normalize.go` | `NormalizeWeComTextEvent` |
-| 增量配置交互 | `cmd/synapsex/config_channel.go` | `runConfigChannelWeCom` |
+| 增量配置交互 | `cmd/clawx/config_channel.go` | `runConfigChannelWeCom` |
 | 配置补丁与原子保存 | `internal/infrastructure/config/config.go` | `SetValuesByDotKey`、`writeFileSnapshot` |
 | 集成验证 | `tests/integration/wecom_control_flow_test.go` | 控制命令链路 |
 | 配置保留验证 | `tests/integration/channel_config_incremental_test.go` | 非目标渠道保留 |
@@ -114,7 +114,7 @@ go run ./cmd/synapsex serve
 ## 10. 常见问题与排障
 ### Q1：URL 验证返回 403
 - 现象：企业微信后台提示验证失败。
-- 排查命令：`go run ./cmd/synapsex config get channels.wecom`
+- 排查命令：`go run ./cmd/clawx config get channels.wecom`
 - 修复建议：重核 `token`、`encodingAesKey`、`corpId`。
 
 ### Q2：消息解密失败
@@ -124,7 +124,7 @@ go run ./cmd/synapsex serve
 
 ### Q3：配置更新后其他渠道异常
 - 现象：Telegram/Discord token 丢失。
-- 排查命令：`go run ./cmd/synapsex config get channels`
+- 排查命令：`go run ./cmd/clawx config get channels`
 - 修复建议：仅用 `config channel` 流程或 `SetValuesByDotKey` 风格 patch。
 
 ## 11. 回滚与风险控制
@@ -134,4 +134,4 @@ go run ./cmd/synapsex serve
 ## 12. 变更记录
 - 版本：v1.0
 - 日期：2026-03-12
-- 责任人：SynapseX 开发协作（Codex）
+- 责任人：ClawX 开发协作（Codex）

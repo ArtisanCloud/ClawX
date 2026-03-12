@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"synapsex/internal/domain/execution"
+	"clawx/internal/domain/execution"
 )
 
 func (r *DirectRunner) withTimeout(parent context.Context, request execution.Request) (context.Context, context.CancelFunc, time.Duration) {

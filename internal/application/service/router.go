@@ -5,11 +5,11 @@ import (
 	"errors"
 	"strings"
 
-	"synapsex/internal/application/intent"
-	"synapsex/internal/domain/execution"
-	skilldomain "synapsex/internal/domain/skill"
-	"synapsex/internal/infrastructure/config"
-	"synapsex/internal/interfaces/chat"
+	"clawx/internal/application/intent"
+	"clawx/internal/domain/execution"
+	skilldomain "clawx/internal/domain/skill"
+	"clawx/internal/infrastructure/config"
+	"clawx/internal/interfaces/chat"
 )
 
 var (

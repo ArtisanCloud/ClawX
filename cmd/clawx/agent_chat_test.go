@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	chatiface "synapsex/internal/interfaces/chat"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 func TestHandleAgentChatCommandUseAndCurrent(t *testing.T) {

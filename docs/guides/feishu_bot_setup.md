@@ -13,16 +13,16 @@
    - `encryptKey`（可选）
 3. 准备公网 HTTPS 入口（例如 Nginx + 证书）。
 
-## 2. 配置 SynapseX
+## 2. 配置 ClawX
 当前 Phase 4 的 Feishu 增量向导是骨架版本，先使用 `config set` 写入：
 
 ```bash
-go run ./cmd/synapsex config set channels.feishu.enabled true
-go run ./cmd/synapsex config set channels.feishu.mode webhook
-go run ./cmd/synapsex config set channels.feishu.appId <APP_ID>
-go run ./cmd/synapsex config set channels.feishu.appSecret <APP_SECRET>
-go run ./cmd/synapsex config set channels.feishu.verificationToken <VERIFY_TOKEN>
-go run ./cmd/synapsex config set channels.feishu.encryptKey <ENCRYPT_KEY>
+go run ./cmd/clawx config set channels.feishu.enabled true
+go run ./cmd/clawx config set channels.feishu.mode webhook
+go run ./cmd/clawx config set channels.feishu.appId <APP_ID>
+go run ./cmd/clawx config set channels.feishu.appSecret <APP_SECRET>
+go run ./cmd/clawx config set channels.feishu.verificationToken <VERIFY_TOKEN>
+go run ./cmd/clawx config set channels.feishu.encryptKey <ENCRYPT_KEY>
 ```
 
 说明：
@@ -32,7 +32,7 @@ go run ./cmd/synapsex config set channels.feishu.encryptKey <ENCRYPT_KEY>
 ## 3. 启动服务
 
 ```bash
-go run ./cmd/synapsex serve
+go run ./cmd/clawx serve
 ```
 
 预期日志包含：
@@ -41,7 +41,7 @@ go run ./cmd/synapsex serve
 ## 4. 飞书回调配置
 在飞书开放平台事件订阅配置中：
 1. 请求地址填写：`https://<your-domain>/webhooks/feishu/<instance-id>`。
-2. 按 SynapseX 配置填写 `verificationToken` 与签名相关配置。
+2. 按 ClawX 配置填写 `verificationToken` 与签名相关配置。
 3. 保存后完成 challenge 校验。
 
 ## 5. 验证步骤

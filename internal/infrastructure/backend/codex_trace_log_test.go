@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"synapsex/internal/domain/execution"
+	"clawx/internal/domain/execution"
 )
 
 func TestAppendCodexTraceWritesSessionLogAndIndex(t *testing.T) {
 	logRoot := t.TempDir()
-	t.Setenv("SYNAPSEX_LOG_DIR", logRoot)
+	t.Setenv("CLAWX_LOG_DIR", logRoot)
 
 	req := execution.Request{
 		SessionID:        "sess-abc-1",

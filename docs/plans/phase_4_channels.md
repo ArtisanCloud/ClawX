@@ -11,7 +11,7 @@
 - Telegram：polling/webhook 双模式、webhook 校验、setWebhook 与重试隔离。
 - Feishu：challenge、签名校验、文本消息归一化、控制命令链路。
 - WeCom：URL 验证、签名校验、消息解密、文本消息归一化、控制命令链路。
-- 配置：`synapsex config channel telegram|feishu|wecom` 增量交互流程可用。
+- 配置：`clawx config channel telegram|feishu|wecom` 增量交互流程可用。
 - 稳定性：渠道级重试隔离（单渠道失败不退出主进程）。
 - 测试：
   - 适配器单测（Telegram/Feishu/WeCom）

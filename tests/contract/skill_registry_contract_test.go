@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"synapsex/internal/application/skillregistry"
-	skilldomain "synapsex/internal/domain/skill"
-	skillsinfra "synapsex/internal/infrastructure/skills"
+	"clawx/internal/application/skillregistry"
+	skilldomain "clawx/internal/domain/skill"
+	skillsinfra "clawx/internal/infrastructure/skills"
 )
 
 func TestSkillRegistryContractConflictAndInvalid(t *testing.T) {

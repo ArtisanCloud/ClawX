@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"synapsex/internal/application/intent"
-	skilldomain "synapsex/internal/domain/skill"
-	chatiface "synapsex/internal/interfaces/chat"
+	"clawx/internal/application/intent"
+	skilldomain "clawx/internal/domain/skill"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 func TestIntentRouterContractPriority(t *testing.T) {

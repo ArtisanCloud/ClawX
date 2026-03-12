@@ -3,7 +3,7 @@ package intent
 import (
 	"strings"
 
-	skilldomain "synapsex/internal/domain/skill"
+	skilldomain "clawx/internal/domain/skill"
 )
 
 type Candidate struct {

@@ -16,8 +16,8 @@
 1. 执行：
 
 ```bash
-SYNAPSEX_PHASE2_METRICS_JSONL=/path/to/phase2_metrics.jsonl \
-SYNAPSEX_PHASE2_METRICS_REPORT=docs/guides/phase_2/phase_2_metrics_report.md \
+CLAWX_PHASE2_METRICS_JSONL=/path/to/phase2_metrics.jsonl \
+CLAWX_PHASE2_METRICS_REPORT=docs/guides/phase_2/phase_2_metrics_report.md \
 go test ./tests/integration -run TestMultiSessionMetricsReportFromJSONL -count=1
 ```
 

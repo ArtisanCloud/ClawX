@@ -19,20 +19,20 @@ import (
 	"syscall"
 	"time"
 
-	"synapsex/internal/application/command"
-	"synapsex/internal/application/service"
-	"synapsex/internal/application/skillregistry"
-	sessiondomain "synapsex/internal/domain/session"
-	"synapsex/internal/infrastructure/backend"
-	"synapsex/internal/infrastructure/config"
-	"synapsex/internal/infrastructure/health"
-	"synapsex/internal/infrastructure/persistence"
-	adminiface "synapsex/internal/interfaces/admin"
-	chatiface "synapsex/internal/interfaces/chat"
-	discordchat "synapsex/internal/interfaces/chat/discord"
-	feishuchat "synapsex/internal/interfaces/chat/feishu"
-	telegramchat "synapsex/internal/interfaces/chat/telegram"
-	wecomchat "synapsex/internal/interfaces/chat/wecom"
+	"clawx/internal/application/command"
+	"clawx/internal/application/service"
+	"clawx/internal/application/skillregistry"
+	sessiondomain "clawx/internal/domain/session"
+	"clawx/internal/infrastructure/backend"
+	"clawx/internal/infrastructure/config"
+	"clawx/internal/infrastructure/health"
+	"clawx/internal/infrastructure/persistence"
+	adminiface "clawx/internal/interfaces/admin"
+	chatiface "clawx/internal/interfaces/chat"
+	discordchat "clawx/internal/interfaces/chat/discord"
+	feishuchat "clawx/internal/interfaces/chat/feishu"
+	telegramchat "clawx/internal/interfaces/chat/telegram"
+	wecomchat "clawx/internal/interfaces/chat/wecom"
 )
 
 type menuOption struct {
@@ -507,7 +507,7 @@ func runServe() error {
 		return nil
 	}
 
-	log.Printf("synapsex service started with %d runtime(s); default agent %q", len(runtimes), defaultRuntime.agentID)
+	log.Printf("clawx service started with %d runtime(s); default agent %q", len(runtimes), defaultRuntime.agentID)
 
 	select {
 	case err := <-fatalErrCh:
@@ -715,7 +715,7 @@ func runConfigAgentList() error {
 }
 
 func runConfigAgentAdd(args []string) error {
-	fs := flag.NewFlagSet("synapsex config agent add", flag.ContinueOnError)
+	fs := flag.NewFlagSet("clawx config agent add", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 
 	idFlag := fs.String("id", "", "agent id")
@@ -758,7 +758,7 @@ func runConfigAgentAdd(args []string) error {
 
 func runConfigAgentDefault(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("agent id is required; usage: synapsex config agent default <agent-id>")
+		return fmt.Errorf("agent id is required; usage: clawx config agent default <agent-id>")
 	}
 	agentID := strings.TrimSpace(args[0])
 	path, err := config.SetDefaultAgent(agentID)
@@ -772,22 +772,22 @@ func runConfigAgentDefault(args []string) error {
 
 func printConfigAgentUsage() {
 	fmt.Fprintln(os.Stdout, "Usage:")
-	fmt.Fprintln(os.Stdout, "  synapsex config agent list")
-	fmt.Fprintln(os.Stdout, "  synapsex config agent add --id <agent-id> [--profile codex|claude|local-smoke] [--workspace <path>] [--timeout <seconds>] [--default]")
-	fmt.Fprintln(os.Stdout, "  synapsex config agent default <agent-id>")
+	fmt.Fprintln(os.Stdout, "  clawx config agent list")
+	fmt.Fprintln(os.Stdout, "  clawx config agent add --id <agent-id> [--profile codex|claude|local-smoke] [--workspace <path>] [--timeout <seconds>] [--default]")
+	fmt.Fprintln(os.Stdout, "  clawx config agent default <agent-id>")
 }
 
 func printConfigUsage() {
 	fmt.Fprintln(os.Stdout, "Usage:")
-	fmt.Fprintln(os.Stdout, "  synapsex config")
-	fmt.Fprintln(os.Stdout, "  synapsex config show")
-	fmt.Fprintln(os.Stdout, "  synapsex config path")
-	fmt.Fprintln(os.Stdout, "  synapsex config get [dot-key]")
-	fmt.Fprintln(os.Stdout, "  synapsex config set <dot-key> <value>")
-	fmt.Fprintln(os.Stdout, "  synapsex config channel [telegram|discord|feishu|wecom]")
-	fmt.Fprintln(os.Stdout, "  synapsex config agent list")
-	fmt.Fprintln(os.Stdout, "  synapsex config agent add --id <agent-id> [--profile codex|claude|local-smoke] [--workspace <path>] [--timeout <seconds>] [--default]")
-	fmt.Fprintln(os.Stdout, "  synapsex config agent default <agent-id>")
+	fmt.Fprintln(os.Stdout, "  clawx config")
+	fmt.Fprintln(os.Stdout, "  clawx config show")
+	fmt.Fprintln(os.Stdout, "  clawx config path")
+	fmt.Fprintln(os.Stdout, "  clawx config get [dot-key]")
+	fmt.Fprintln(os.Stdout, "  clawx config set <dot-key> <value>")
+	fmt.Fprintln(os.Stdout, "  clawx config channel [telegram|discord|feishu|wecom]")
+	fmt.Fprintln(os.Stdout, "  clawx config agent list")
+	fmt.Fprintln(os.Stdout, "  clawx config agent add --id <agent-id> [--profile codex|claude|local-smoke] [--workspace <path>] [--timeout <seconds>] [--default]")
+	fmt.Fprintln(os.Stdout, "  clawx config agent default <agent-id>")
 }
 
 func runConfigGet(args []string) error {
@@ -819,7 +819,7 @@ func runConfigGet(args []string) error {
 
 func runConfigSet(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: synapsex config set <dot-key> <value>")
+		return fmt.Errorf("usage: clawx config set <dot-key> <value>")
 	}
 
 	key := strings.TrimSpace(args[0])
@@ -1068,7 +1068,7 @@ func runConfigCommand() error {
 }
 
 func printUsage() {
-	fmt.Fprintf(os.Stdout, "Usage: synapsex [serve|config|skill|help]\n")
+	fmt.Fprintf(os.Stdout, "Usage: clawx [serve|config|skill|help]\n")
 	fmt.Fprintf(os.Stdout, "  serve  Start the service. If config.json is missing, bootstrap it first.\n")
 	fmt.Fprintf(os.Stdout, "  config Launch the interactive config wizard, or run `config agent ...` for agent management.\n")
 	fmt.Fprintf(os.Stdout, "  skill  Manage skill registry (list|reload|enable|disable).\n")
@@ -1101,7 +1101,7 @@ func printConfigSummary(opts config.BootstrapOptions) {
 			firstNonEmpty(strings.TrimSpace(opts.DatabaseDriver), "postgres"),
 			firstNonEmpty(strings.TrimSpace(opts.DatabaseHost), "127.0.0.1"),
 			defaultPort(opts.DatabasePort, 5432),
-			firstNonEmpty(strings.TrimSpace(opts.DatabaseName), "synapse_x"),
+			firstNonEmpty(strings.TrimSpace(opts.DatabaseName), "claw_x"),
 			firstNonEmpty(strings.TrimSpace(opts.DatabaseUser), "postgres"),
 			boolText(opts.DatabaseAutoCreate),
 		)
@@ -1183,7 +1183,7 @@ func reportExistingConfig(path string) error {
 	} else {
 		log.Printf("config file %q is ready", path)
 	}
-	log.Printf("edit %q if needed, then run `synapsex serve`", path)
+	log.Printf("edit %q if needed, then run `clawx serve`", path)
 	return nil
 }
 
@@ -1260,7 +1260,7 @@ func promptDatabasePlan() (databasePlan, error) {
 			driver:     "postgres",
 			host:       "127.0.0.1",
 			port:       5432,
-			name:       "synapse_x",
+			name:       "claw_x",
 			user:       "postgres",
 			sslMode:    "disable",
 			autoCreate: true,
@@ -1275,7 +1275,7 @@ func promptDatabasePlan() (databasePlan, error) {
 	if err != nil {
 		return databasePlan{}, err
 	}
-	name, err := promptStringDefault("Database Name", "synapse_x")
+	name, err := promptStringDefault("Database Name", "claw_x")
 	if err != nil {
 		return databasePlan{}, err
 	}
@@ -1763,7 +1763,7 @@ func handleTelegramInbound(
 		sendTelegramDirect(ctx, adapter, envelope.Target, response)
 		return
 	}
-	if handled, response := handleSynapseXSkillMetaCommand(runtime, message.Text); handled {
+	if handled, response := handleClawXSkillMetaCommand(runtime, message.Text); handled {
 		sendTelegramDirect(ctx, adapter, envelope.Target, response)
 		return
 	}
@@ -1849,7 +1849,7 @@ func handleFeishuInbound(
 		sendFeishuDirect(ctx, adapter, envelope.Target, response)
 		return
 	}
-	if handled, response := handleSynapseXSkillMetaCommand(runtime, message.Text); handled {
+	if handled, response := handleClawXSkillMetaCommand(runtime, message.Text); handled {
 		sendFeishuDirect(ctx, adapter, envelope.Target, response)
 		return
 	}
@@ -1935,7 +1935,7 @@ func handleWeComInbound(
 		sendWeComDirect(ctx, adapter, envelope.Target, response)
 		return
 	}
-	if handled, response := handleSynapseXSkillMetaCommand(runtime, message.Text); handled {
+	if handled, response := handleClawXSkillMetaCommand(runtime, message.Text); handled {
 		sendWeComDirect(ctx, adapter, envelope.Target, response)
 		return
 	}
@@ -2021,7 +2021,7 @@ func handleDiscordInbound(
 		sendDiscordDirect(ctx, adapter, envelope.Target, response)
 		return
 	}
-	if handled, response := handleSynapseXSkillMetaCommand(runtime, message.Text); handled {
+	if handled, response := handleClawXSkillMetaCommand(runtime, message.Text); handled {
 		sendDiscordDirect(ctx, adapter, envelope.Target, response)
 		return
 	}
@@ -2092,7 +2092,7 @@ func sendDiscordDirect(ctx context.Context, adapter *discordchat.Adapter, target
 	}
 }
 
-func handleSynapseXSkillMetaCommand(runtime agentRuntime, rawText string) (bool, string) {
+func handleClawXSkillMetaCommand(runtime agentRuntime, rawText string) (bool, string) {
 	text := strings.TrimSpace(rawText)
 	if text == "" {
 		return false, ""
@@ -2106,10 +2106,10 @@ func handleSynapseXSkillMetaCommand(runtime agentRuntime, rawText string) (bool,
 		return false, ""
 	}
 	if runtime.skills == nil {
-		return true, "[SynapseX Skill Registry]\n当前运行时未加载技能注册中心"
+		return true, "[ClawX Skill Registry]\n当前运行时未加载技能注册中心"
 	}
 	body := skillregistry.FormatList(runtime.skills.List())
-	return true, "[SynapseX Skill Registry]\n" + body
+	return true, "[ClawX Skill Registry]\n" + body
 }
 
 func applyExecutionSourceLabel(decision service.Decision, output string) string {
@@ -2118,7 +2118,7 @@ func applyExecutionSourceLabel(decision service.Decision, output string) string 
 		return text
 	}
 	if decision.Kind == service.DecisionSkill {
-		prefix := "[SynapseX Skill]"
+		prefix := "[ClawX Skill]"
 		if strings.HasPrefix(text, prefix) {
 			return text
 		}

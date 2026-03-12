@@ -5,7 +5,7 @@
 - Telegram 双模式（polling/webhook）
 - Feishu webhook 接入
 - WeCom webhook 接入
-- 增量配置闭环（`synapsex config channel <name>`）
+- 增量配置闭环（`clawx config channel <name>`）
 
 ## 开发前准备
 1. 确认分支：`004-channels`
@@ -15,17 +15,17 @@
    - `specs/004-channels/contracts/*`
    - `specs/004-channels/openclaw-channel-parity.md`
 3. 基础命令可运行：
-   - `go run ./cmd/synapsex serve`
-   - `go run ./cmd/synapsex config channel telegram|feishu|wecom`
+   - `go run ./cmd/clawx serve`
+   - `go run ./cmd/clawx config channel telegram|feishu|wecom`
    - `GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache go test ./...`
 
 ## 渠道配置（增量）
 推荐全部使用交互式增量配置：
 
 ```bash
-go run ./cmd/synapsex config channel telegram
-go run ./cmd/synapsex config channel feishu
-go run ./cmd/synapsex config channel wecom
+go run ./cmd/clawx config channel telegram
+go run ./cmd/clawx config channel feishu
+go run ./cmd/clawx config channel wecom
 ```
 
 要求：
@@ -79,8 +79,8 @@ GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache \
 准备 JSONL（字段：`timestamp`、`sc_id`，以及 `success` 或 `latency_ms`）。
 
 ```bash
-export SYNAPSEX_PHASE4_METRICS_JSONL=/path/to/phase4_metrics.jsonl
-export SYNAPSEX_PHASE4_METRICS_REPORT=docs/guides/phase_4/phase_4_metrics_report.md
+export CLAWX_PHASE4_METRICS_JSONL=/path/to/phase4_metrics.jsonl
+export CLAWX_PHASE4_METRICS_REPORT=docs/guides/phase_4/phase_4_metrics_report.md
 GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache \
   go test ./tests/integration -run TestPhase4ChannelsMetricsReportFromJSONL
 ```

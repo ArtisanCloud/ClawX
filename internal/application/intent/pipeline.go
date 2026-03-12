@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	skilldomain "synapsex/internal/domain/skill"
-	chatiface "synapsex/internal/interfaces/chat"
+	skilldomain "clawx/internal/domain/skill"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 type SkillRegistry interface {

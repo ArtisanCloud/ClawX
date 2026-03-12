@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"synapsex/internal/application/command"
-	chatiface "synapsex/internal/interfaces/chat"
+	"clawx/internal/application/command"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 func TestMultiSessionCompatFallbackWithoutExplicitWindowID(t *testing.T) {

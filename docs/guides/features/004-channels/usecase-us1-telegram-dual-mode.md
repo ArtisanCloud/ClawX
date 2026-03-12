@@ -46,7 +46,7 @@ flowchart LR
     O1["config channel telegram"]
     O2["serve 启动"]
   end
-  subgraph L2["SynapseX"]
+  subgraph L2["ClawX"]
     S1["polling/webhook 处理"]
     S2["控制命令/执行"]
   end
@@ -84,8 +84,8 @@ curl -s "https://api.telegram.org/bot$BOT_TOKEN/getWebhookInfo"
 1. 动作：切换模式并启动服务。
    - 命令/入口：
 ```bash
-go run ./cmd/synapsex config channel telegram
-go run ./cmd/synapsex serve
+go run ./cmd/clawx config channel telegram
+go run ./cmd/clawx serve
 ```
    - 预期结果：日志出现 `telegram webhook route registered`（webhook）或 `telegram adapter started`（polling）。
    - 失败处理：检查 token、端口占用、网络代理。
@@ -98,7 +98,7 @@ go run ./cmd/synapsex serve
 ## 9. 代码实现映射
 | 文档步骤 | 代码位置 | 说明 |
 |---|---|---|
-| Telegram 路由注册 | `cmd/synapsex/main.go` | polling/webhook 分支与 handler 挂载 |
+| Telegram 路由注册 | `cmd/clawx/main.go` | polling/webhook 分支与 handler 挂载 |
 | webhook 解析/鉴权 | `internal/interfaces/chat/telegram/adapter.go` | `ParseWebhookRequest` |
 | setWebhook 注册 | `internal/interfaces/chat/telegram/adapter.go` | `SetWebhook` |
 | 双模式集成测试 | `tests/integration/telegram_dual_mode_test.go` | polling/webhook 回归 |
@@ -121,4 +121,4 @@ go run ./cmd/synapsex serve
 ## 12. 变更记录
 - 版本：v1.0
 - 日期：2026-03-12
-- 责任人：SynapseX 开发协作（Codex）
+- 责任人：ClawX 开发协作（Codex）

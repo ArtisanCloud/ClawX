@@ -1429,7 +1429,7 @@ func WriteBootstrapFile(opts BootstrapOptions) (string, error) {
 	}
 	dbName := strings.TrimSpace(opts.DatabaseName)
 	if dbName == "" {
-		dbName = "synapse_x"
+		dbName = "claw_x"
 	}
 	dbUser := strings.TrimSpace(opts.DatabaseUser)
 	if dbUser == "" {
@@ -1593,7 +1593,7 @@ func defaultFileSnapshot() fileSnapshot {
 			Driver:     "postgres",
 			Host:       "127.0.0.1",
 			Port:       5432,
-			Name:       "synapse_x",
+			Name:       "claw_x",
 			User:       "postgres",
 			Password:   "",
 			SSLMode:    "disable",
@@ -1603,7 +1603,7 @@ func defaultFileSnapshot() fileSnapshot {
 			Enabled: true,
 			Sources: fileSkillSources{
 				UserDir:        defaultSkillsRoot(),
-				WorkspaceDir:   ".synapsex/skills",
+				WorkspaceDir:   ".clawx/skills",
 				BuiltinEnabled: true,
 				BuiltinDir:     "internal/skills/builtin",
 			},
@@ -1757,7 +1757,7 @@ func normalizeFileSnapshot(file *fileSnapshot) {
 	}
 	file.Database.Name = strings.TrimSpace(file.Database.Name)
 	if file.Database.Name == "" {
-		file.Database.Name = "synapse_x"
+		file.Database.Name = "claw_x"
 	}
 	file.Database.User = strings.TrimSpace(file.Database.User)
 	if file.Database.User == "" {
@@ -1774,7 +1774,7 @@ func normalizeFileSnapshot(file *fileSnapshot) {
 	}
 	file.Skills.Sources.WorkspaceDir = strings.TrimSpace(file.Skills.Sources.WorkspaceDir)
 	if file.Skills.Sources.WorkspaceDir == "" {
-		file.Skills.Sources.WorkspaceDir = ".synapsex/skills"
+		file.Skills.Sources.WorkspaceDir = ".clawx/skills"
 	}
 	file.Skills.Sources.BuiltinDir = strings.TrimSpace(file.Skills.Sources.BuiltinDir)
 	if file.Skills.Sources.BuiltinDir == "" {
@@ -1872,7 +1872,7 @@ func defaultSnapshot() Snapshot {
 			Driver:     "postgres",
 			Host:       "127.0.0.1",
 			Port:       5432,
-			Name:       "synapse_x",
+			Name:       "claw_x",
 			User:       "postgres",
 			Password:   "",
 			SSLMode:    "disable",
@@ -1882,7 +1882,7 @@ func defaultSnapshot() Snapshot {
 			Enabled: true,
 			Sources: SkillSources{
 				UserDir:        defaultSkillsRoot(),
-				WorkspaceDir:   ".synapsex/skills",
+				WorkspaceDir:   ".clawx/skills",
 				BuiltinEnabled: true,
 				BuiltinDir:     "internal/skills/builtin",
 			},
@@ -1907,7 +1907,7 @@ func defaultSnapshot() Snapshot {
 }
 
 func configPath() string {
-	if explicit := strings.TrimSpace(os.Getenv("SYNAPSEX_CONFIG")); explicit != "" {
+	if explicit := strings.TrimSpace(os.Getenv("CLAWX_CONFIG")); explicit != "" {
 		return explicit
 	}
 	return filepath.Join(stateDir(), "config.json")
@@ -1920,13 +1920,13 @@ func configDotEnvPath(configPath string) string {
 func stateDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
-		return filepath.Join(".synapsex")
+		return filepath.Join(".clawx")
 	}
-	return filepath.Join(home, ".synapsex")
+	return filepath.Join(home, ".clawx")
 }
 
 func shouldLoadDotEnv(path string) bool {
-	if parseBoolOrDefault(os.Getenv("SYNAPSEX_LOAD_DOTENV"), false) {
+	if parseBoolOrDefault(os.Getenv("CLAWX_LOAD_DOTENV"), false) {
 		return true
 	}
 	_, err := os.Stat(path)
@@ -2496,118 +2496,118 @@ func (s *Snapshot) resolveActiveAgent() error {
 }
 
 func applyEnvOverrides(cfg *Snapshot) error {
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_ALLOWED_ROOTS")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_ALLOWED_ROOTS")); raw != "" {
 		cfg.AllowedRoots = splitList(raw)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DEFAULT_CWD")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DEFAULT_CWD")); raw != "" {
 		cfg.DefaultCWD = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TIMEOUT_SECONDS")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TIMEOUT_SECONDS")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil {
-			return fmt.Errorf("parse SYNAPSEX_TIMEOUT_SECONDS: %w", err)
+			return fmt.Errorf("parse CLAWX_TIMEOUT_SECONDS: %w", err)
 		}
 		cfg.Timeout = time.Duration(parsed) * time.Second
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_EXEC_COMMAND")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_EXEC_COMMAND")); raw != "" {
 		cfg.ExecCommand = raw
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_EXEC_ARGS"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_EXEC_ARGS"); ok {
 		cfg.ExecArgs = splitShellWords(raw)
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_EXEC_HEALTH_ARGS"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_EXEC_HEALTH_ARGS"); ok {
 		cfg.ExecHealthArgs = splitShellWords(raw)
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_DISCORD_ENABLED"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_DISCORD_ENABLED"); ok {
 		cfg.DiscordEnabled = parseBoolOrDefault(raw, cfg.DiscordEnabled)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DISCORD_BOT_TOKEN")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DISCORD_BOT_TOKEN")); raw != "" {
 		cfg.DiscordBotToken = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DISCORD_API_BASE_URL")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DISCORD_API_BASE_URL")); raw != "" {
 		cfg.DiscordAPIBaseURL = strings.TrimRight(raw, "/")
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DISCORD_GATEWAY_URL")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DISCORD_GATEWAY_URL")); raw != "" {
 		cfg.DiscordGatewayURL = raw
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_DISCORD_ALLOWED_CHANNEL_IDS"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_DISCORD_ALLOWED_CHANNEL_IDS"); ok {
 		cfg.DiscordAllowedChannelIDs = splitList(raw)
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_DISCORD_REQUIRE_MENTION"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_DISCORD_REQUIRE_MENTION"); ok {
 		cfg.DiscordRequireMention = parseBoolOrDefault(raw, cfg.DiscordRequireMention)
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_TELEGRAM_ENABLED"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_TELEGRAM_ENABLED"); ok {
 		cfg.TelegramEnabled = parseBoolOrDefault(raw, cfg.TelegramEnabled)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TELEGRAM_MODE")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TELEGRAM_MODE")); raw != "" {
 		cfg.TelegramMode = strings.ToLower(raw)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TELEGRAM_TOKEN")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TELEGRAM_TOKEN")); raw != "" {
 		cfg.TelegramToken = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TELEGRAM_BOT_USERNAME")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TELEGRAM_BOT_USERNAME")); raw != "" {
 		cfg.TelegramBotUsername = normalizeTelegramUsername(raw)
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_TELEGRAM_ALLOWED_CHAT_IDS"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_TELEGRAM_ALLOWED_CHAT_IDS"); ok {
 		cfg.TelegramAllowedChatIDs = splitList(raw)
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_TELEGRAM_REQUIRE_COMMAND_OR_MENTION"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_TELEGRAM_REQUIRE_COMMAND_OR_MENTION"); ok {
 		cfg.TelegramRequireCommandMention = parseBoolOrDefault(raw, cfg.TelegramRequireCommandMention)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TELEGRAM_POLLING_SECONDS")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TELEGRAM_POLLING_SECONDS")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil {
-			return fmt.Errorf("parse SYNAPSEX_TELEGRAM_POLLING_SECONDS: %w", err)
+			return fmt.Errorf("parse CLAWX_TELEGRAM_POLLING_SECONDS: %w", err)
 		}
 		cfg.TelegramPollingTimeout = time.Duration(parsed) * time.Second
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TELEGRAM_WEBHOOK_URL")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TELEGRAM_WEBHOOK_URL")); raw != "" {
 		cfg.TelegramWebhookURL = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TELEGRAM_WEBHOOK_PATH")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TELEGRAM_WEBHOOK_PATH")); raw != "" {
 		cfg.TelegramWebhookPath = normalizeWebhookPath(raw)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TELEGRAM_WEBHOOK_SECRET")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TELEGRAM_WEBHOOK_SECRET")); raw != "" {
 		cfg.TelegramWebhookSecret = raw
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_HEALTH_PROBE_ENABLED"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_HEALTH_PROBE_ENABLED"); ok {
 		cfg.HealthProbeEnabled = parseBoolOrDefault(raw, cfg.HealthProbeEnabled)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_HTTP_LISTEN_ADDR")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_HTTP_LISTEN_ADDR")); raw != "" {
 		cfg.HTTPListenAddr = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_HEALTH_PATH")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_HEALTH_PATH")); raw != "" {
 		cfg.HealthProbePath = normalizeHealthPath(raw)
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_DATABASE_ENABLED"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_DATABASE_ENABLED"); ok {
 		cfg.Database.Enabled = parseBoolOrDefault(raw, cfg.Database.Enabled)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DATABASE_DRIVER")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DATABASE_DRIVER")); raw != "" {
 		cfg.Database.Driver = strings.ToLower(raw)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DATABASE_HOST")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DATABASE_HOST")); raw != "" {
 		cfg.Database.Host = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DATABASE_PORT")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DATABASE_PORT")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil {
-			return fmt.Errorf("parse SYNAPSEX_DATABASE_PORT: %w", err)
+			return fmt.Errorf("parse CLAWX_DATABASE_PORT: %w", err)
 		}
 		cfg.Database.Port = parsed
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DATABASE_NAME")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DATABASE_NAME")); raw != "" {
 		cfg.Database.Name = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DATABASE_USER")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DATABASE_USER")); raw != "" {
 		cfg.Database.User = raw
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_DATABASE_PASSWORD"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_DATABASE_PASSWORD"); ok {
 		cfg.Database.Password = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DATABASE_SSLMODE")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DATABASE_SSLMODE")); raw != "" {
 		cfg.Database.SSLMode = raw
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_DATABASE_AUTO_CREATE"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_DATABASE_AUTO_CREATE"); ok {
 		cfg.Database.AutoCreate = parseBoolOrDefault(raw, cfg.Database.AutoCreate)
 	}
 	return nil
@@ -2743,7 +2743,7 @@ func (s *Snapshot) normalizeDatabase() {
 
 	s.Database.Name = strings.TrimSpace(s.Database.Name)
 	if s.Database.Name == "" {
-		s.Database.Name = "synapse_x"
+		s.Database.Name = "claw_x"
 	}
 
 	s.Database.User = strings.TrimSpace(s.Database.User)
@@ -2764,7 +2764,7 @@ func (s *Snapshot) normalizeSkills() {
 	}
 	s.Skills.Sources.WorkspaceDir = strings.TrimSpace(s.Skills.Sources.WorkspaceDir)
 	if s.Skills.Sources.WorkspaceDir == "" {
-		s.Skills.Sources.WorkspaceDir = ".synapsex/skills"
+		s.Skills.Sources.WorkspaceDir = ".clawx/skills"
 	}
 	s.Skills.Sources.BuiltinDir = strings.TrimSpace(s.Skills.Sources.BuiltinDir)
 	if s.Skills.Sources.BuiltinDir == "" {
@@ -3383,7 +3383,7 @@ func (s Snapshot) WorkspaceSkillDir(workspace string) string {
 	}
 	relative := strings.TrimSpace(s.Skills.Sources.WorkspaceDir)
 	if relative == "" {
-		relative = ".synapsex/skills"
+		relative = ".clawx/skills"
 	}
 	if filepath.IsAbs(relative) {
 		return filepath.Clean(relative)

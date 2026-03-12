@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"synapsex/internal/infrastructure/config"
+	"clawx/internal/infrastructure/config"
 )
 
 func TestEnsureWorkspacesReadyCreatesMissingDirectories(t *testing.T) {

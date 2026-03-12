@@ -18,8 +18,8 @@
 
 ## 预期
 1. 第 1/7 步均为控制命令响应。
-2. 第 2 步返回 SynapseX Skill 列表。
+2. 第 2 步返回 ClawX Skill 列表。
 3. 第 3/4/5 步命中 Skill 路径，返回可识别输出。
 4. 第 6 步回退普通任务路径。
-5. Skill 路径回复前缀为 `[SynapseX Skill]`，普通任务前缀为 `[Agent Direct]`。
+5. Skill 路径回复前缀为 `[ClawX Skill]`，普通任务前缀为 `[Agent Direct]`。
 4. 日志可追踪 `intent.kind/reason/skill/confidence`。

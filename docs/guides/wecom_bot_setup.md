@@ -13,23 +13,23 @@
    - `encodingAesKey`
 2. 准备公网 HTTPS 回调入口。
 
-## 2. 配置 SynapseX
+## 2. 配置 ClawX
 推荐交互式增量配置：
 
 ```bash
-go run ./cmd/synapsex config channel wecom
+go run ./cmd/clawx config channel wecom
 ```
 
 也可用 `config set`：
 
 ```bash
-go run ./cmd/synapsex config set channels.wecom.enabled true
-go run ./cmd/synapsex config set channels.wecom.mode webhook
-go run ./cmd/synapsex config set channels.wecom.corpId <CORP_ID>
-go run ./cmd/synapsex config set channels.wecom.agentId <AGENT_ID>
-go run ./cmd/synapsex config set channels.wecom.secret <SECRET>
-go run ./cmd/synapsex config set channels.wecom.token <TOKEN>
-go run ./cmd/synapsex config set channels.wecom.encodingAesKey <ENCODING_AES_KEY>
+go run ./cmd/clawx config set channels.wecom.enabled true
+go run ./cmd/clawx config set channels.wecom.mode webhook
+go run ./cmd/clawx config set channels.wecom.corpId <CORP_ID>
+go run ./cmd/clawx config set channels.wecom.agentId <AGENT_ID>
+go run ./cmd/clawx config set channels.wecom.secret <SECRET>
+go run ./cmd/clawx config set channels.wecom.token <TOKEN>
+go run ./cmd/clawx config set channels.wecom.encodingAesKey <ENCODING_AES_KEY>
 ```
 
 默认单实例路由：`/webhooks/wecom/wecom-default`。
@@ -37,7 +37,7 @@ go run ./cmd/synapsex config set channels.wecom.encodingAesKey <ENCODING_AES_KEY
 ## 3. 启动服务
 
 ```bash
-go run ./cmd/synapsex serve
+go run ./cmd/clawx serve
 ```
 
 预期日志：
