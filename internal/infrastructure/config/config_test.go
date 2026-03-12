@@ -597,6 +597,49 @@ func TestSetValueByDotKeyUpdatesTelegramIncrementally(t *testing.T) {
 	}
 }
 
+func TestSetValuesByDotKeyAppliesSingleChannelPatchWithoutOverwritingOthers(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	if _, _, err := EnsureDefaultFile(); err != nil {
+		t.Fatalf("ensure default file: %v", err)
+	}
+	if _, err := SetValuesByDotKey(map[string]string{
+		"channels.telegram.enabled": "true",
+		"channels.telegram.token":   "telegram-token-old",
+		"channels.discord.enabled":  "true",
+		"channels.discord.botToken": "discord-token-old",
+	}); err != nil {
+		t.Fatalf("seed channel values: %v", err)
+	}
+
+	if _, err := SetValuesByDotKey(map[string]string{
+		"channels.wecom.enabled":        "true",
+		"channels.wecom.mode":           "webhook",
+		"channels.wecom.corpId":         "ww_new",
+		"channels.wecom.agentId":        "1000002",
+		"channels.wecom.secret":         "secret_new",
+		"channels.wecom.token":          "token_new",
+		"channels.wecom.encodingAesKey": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG",
+	}); err != nil {
+		t.Fatalf("set wecom values: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.TelegramToken != "telegram-token-old" {
+		t.Fatalf("telegram token should be preserved, got %q", cfg.TelegramToken)
+	}
+	if cfg.DiscordBotToken != "discord-token-old" {
+		t.Fatalf("discord token should be preserved, got %q", cfg.DiscordBotToken)
+	}
+	if cfg.WeComCorpID != "ww_new" {
+		t.Fatalf("wecom corp id should be updated, got %q", cfg.WeComCorpID)
+	}
+}
+
 func TestGetValueByDotKeySupportsNestedAndRoot(t *testing.T) {
 	tempDir := t.TempDir()
 	chdirForTest(t, tempDir)

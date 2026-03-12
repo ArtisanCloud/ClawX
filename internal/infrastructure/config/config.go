@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -1154,9 +1155,12 @@ func GetValueByDotKey(key string) (any, error) {
 }
 
 func SetValueByDotKey(key, rawValue string) (string, error) {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return "", fmt.Errorf("config key is required")
+	return SetValuesByDotKey(map[string]string{key: rawValue})
+}
+
+func SetValuesByDotKey(updates map[string]string) (string, error) {
+	if len(updates) == 0 {
+		return "", fmt.Errorf("config updates are required")
 	}
 
 	path := configPath()
@@ -1170,8 +1174,20 @@ func SetValueByDotKey(key, rawValue string) (string, error) {
 		return "", err
 	}
 
-	if err := setNestedMapValue(root, key, coerceDotKeyValue(rawValue)); err != nil {
-		return "", err
+	keys := make([]string, 0, len(updates))
+	for key := range updates {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			return "", fmt.Errorf("config key is required")
+		}
+		keys = append(keys, trimmed)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		if err := setNestedMapValue(root, key, coerceDotKeyValueForKey(key, updates[key])); err != nil {
+			return "", err
+		}
 	}
 
 	updated, err := mapToFileSnapshot(root)
@@ -1273,7 +1289,8 @@ func setNestedMapValue(root map[string]any, key string, value any) error {
 	return nil
 }
 
-func coerceDotKeyValue(rawValue string) any {
+func coerceDotKeyValueForKey(key, rawValue string) any {
+	key = strings.ToLower(strings.TrimSpace(key))
 	trimmed := strings.TrimSpace(rawValue)
 	if trimmed == "" {
 		return ""
@@ -1294,15 +1311,38 @@ func coerceDotKeyValue(rawValue string) any {
 		return false
 	}
 
-	if value, err := strconv.Atoi(trimmed); err == nil {
-		return value
+	if shouldParseIntegerByKey(key) {
+		if value, err := strconv.Atoi(trimmed); err == nil {
+			return value
+		}
 	}
-	if strings.ContainsAny(trimmed, ".eE") {
+	if shouldParseFloatByKey(key) && strings.ContainsAny(trimmed, ".eE") {
 		if value, err := strconv.ParseFloat(trimmed, 64); err == nil {
 			return value
 		}
 	}
 	return rawValue
+}
+
+func shouldParseIntegerByKey(key string) bool {
+	switch key {
+	case "runtime.timeoutseconds",
+		"channels.telegram.pollingseconds",
+		"database.port",
+		"skills.pairingttlseconds":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldParseFloatByKey(key string) bool {
+	switch key {
+	case "intentrouter.llmfallback.confidencethreshold":
+		return true
+	default:
+		return false
+	}
 }
 
 func SetSkillDisabledNames(names []string) (string, error) {
@@ -1599,7 +1639,41 @@ func writeFileSnapshot(path string, file fileSnapshot) error {
 			return fmt.Errorf("create config directory: %w", err)
 		}
 	}
-	if err := os.WriteFile(path, buffer.Bytes(), 0o644); err != nil {
+	tempFile, err := os.CreateTemp(dir, ".config-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp config file: %w", err)
+	}
+	tempName := tempFile.Name()
+	cleanupTemp := func() {
+		_ = tempFile.Close()
+		_ = os.Remove(tempName)
+	}
+	if _, err := tempFile.Write(buffer.Bytes()); err != nil {
+		cleanupTemp()
+		return fmt.Errorf("write temp config file: %w", err)
+	}
+	if err := tempFile.Chmod(0o644); err != nil {
+		cleanupTemp()
+		return fmt.Errorf("chmod temp config file: %w", err)
+	}
+	if err := tempFile.Sync(); err != nil {
+		cleanupTemp()
+		return fmt.Errorf("sync temp config file: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempName)
+		return fmt.Errorf("close temp config file: %w", err)
+	}
+	if err := os.Rename(tempName, path); err != nil {
+		_ = os.Remove(tempName)
+		return fmt.Errorf("replace config file: %w", err)
+	}
+	dirHandle, err := os.Open(dir)
+	if err != nil {
+		return nil
+	}
+	defer dirHandle.Close()
+	if err := dirHandle.Sync(); err != nil {
 		return err
 	}
 	return nil

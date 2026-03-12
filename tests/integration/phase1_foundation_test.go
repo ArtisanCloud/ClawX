@@ -202,6 +202,7 @@ func newTestRuntime(t *testing.T) testRuntime {
 		ExecCommand:     "cat",
 		TelegramEnabled: true,
 		FeishuEnabled:   true,
+		WeComEnabled:    true,
 	}
 
 	repository := persistence.NewSessionMemoryRepository()

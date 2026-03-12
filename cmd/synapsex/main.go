@@ -32,6 +32,7 @@ import (
 	discordchat "synapsex/internal/interfaces/chat/discord"
 	feishuchat "synapsex/internal/interfaces/chat/feishu"
 	telegramchat "synapsex/internal/interfaces/chat/telegram"
+	wecomchat "synapsex/internal/interfaces/chat/wecom"
 )
 
 type menuOption struct {
@@ -360,6 +361,88 @@ func runServe() error {
 		log.Printf("feishu webhook route registered: instance=%s path=%s", instanceCopy.ID, path)
 	}
 
+	for _, instance := range cfg.WeComInstances {
+		if !instance.Enabled {
+			continue
+		}
+		started = true
+		httpRuntimeNeeded = true
+
+		wecomAdapter, err := wecomchat.NewAdapter(wecomchat.Options{
+			CorpID:         instance.CorpID,
+			AgentID:        instance.AgentID,
+			Secret:         instance.Secret,
+			Token:          instance.Token,
+			EncodingAESKey: instance.EncodingAESKey,
+		})
+		if err != nil {
+			return fmt.Errorf("init wecom adapter[%s]: %w", instance.ID, err)
+		}
+
+		instanceCopy := instance
+		wecomAdapterCopy := wecomAdapter
+		path := normalizeWeComRoutePath(instanceCopy.ID)
+		if _, exists := webhookPaths[path]; exists {
+			return fmt.Errorf("duplicate wecom webhook path %q", path)
+		}
+		webhookPaths[path] = struct{}{}
+
+		wecomInboundHandler := func(messageCtx context.Context, envelope wecomchat.InboundEnvelope) error {
+			scopeKey := routingScopeKey("wecom", instanceCopy.ID, envelope.Message.ConversationID)
+			if handled, response, err := handleAgentChatCommand(envelope.Message, scopeKey, agentOverrides, runtimes, defaultRuntimeID); handled {
+				if err != nil {
+					sendWeComDirect(messageCtx, wecomAdapterCopy, envelope.Target, chatiface.FormatError(err))
+				} else {
+					sendWeComDirect(messageCtx, wecomAdapterCopy, envelope.Target, response)
+				}
+				return nil
+			}
+
+			requestedAgentID := resolveWeComAgentID(cfg, instanceCopy, envelope)
+			if forcedAgentID, ok := agentOverrides.Get(scopeKey); ok {
+				requestedAgentID = forcedAgentID
+			}
+			runtime := selectRuntime(runtimes, defaultRuntimeID, requestedAgentID)
+			scopedConversationID := scopeConversationID(envelope.Message.ConversationID, "wecom", instanceCopy.ID, runtime.agentID)
+			handleWeComInbound(messageCtx, runtime, delivery, wecomAdapterCopy, envelope, scopedConversationID, instanceCopy.ID)
+			return nil
+		}
+
+		httpMux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			result, err := wecomAdapterCopy.ParseWebhookRequest(r)
+			if err != nil {
+				status := http.StatusBadRequest
+				if errors.Is(err, wecomchat.ErrWebhookUnauthorized) || errors.Is(err, wecomchat.ErrWebhookDecryptFailed) || errors.Is(err, wecomchat.ErrWebhookReplayRejected) || errors.Is(err, wecomchat.ErrWebhookCorpIDMismatch) {
+					status = http.StatusForbidden
+				}
+				if errors.Is(err, wecomchat.ErrWebhookMethod) {
+					status = http.StatusMethodNotAllowed
+				}
+				http.Error(w, http.StatusText(status), status)
+				log.Printf("wecom webhook rejected: instance=%s path=%s err=%v", instanceCopy.ID, path, err)
+				return
+			}
+
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			if result.IsURLVerification {
+				_, _ = io.WriteString(w, result.URLVerification)
+				return
+			}
+			_, _ = io.WriteString(w, "success")
+			if !result.HasMessage {
+				return
+			}
+			go func() {
+				if err := wecomInboundHandler(ctx, result.Envelope); err != nil {
+					log.Printf("wecom webhook handler error: instance=%s path=%s err=%v", instanceCopy.ID, path, err)
+				}
+			}()
+		})
+
+		log.Printf("wecom webhook route registered: instance=%s path=%s", instanceCopy.ID, path)
+	}
+
 	var httpServer *http.Server
 	if httpRuntimeNeeded {
 		httpServer = startHTTPServer(ctx, cfg, httpMux, fatalErrCh)
@@ -420,7 +503,7 @@ func runServe() error {
 	}
 
 	if !started {
-		log.Println("no runtime integrations enabled; enable health probe, telegram, or discord to start the service")
+		log.Println("no runtime integrations enabled; enable health probe, telegram, feishu, wecom, or discord to start the service")
 		return nil
 	}
 
@@ -511,6 +594,11 @@ func normalizeWebhookRoutePath(rawPath, rawURL, instanceID string) string {
 func normalizeFeishuRoutePath(instanceID string) string {
 	segment := sanitizeConversationSegment(instanceID, "default")
 	return "/webhooks/feishu/" + segment
+}
+
+func normalizeWeComRoutePath(instanceID string) string {
+	segment := sanitizeConversationSegment(instanceID, "default")
+	return "/webhooks/wecom/" + segment
 }
 
 type sessionStore interface {
@@ -793,10 +881,8 @@ func runConfigChannelDiscord() error {
 		updates["channels.discord.allowedChannelIds"] = string(payload)
 	}
 
-	for key, value := range updates {
-		if _, err := config.SetValueByDotKey(key, value); err != nil {
-			return err
-		}
+	if _, err := config.SetValuesByDotKey(updates); err != nil {
+		return err
 	}
 
 	fmt.Fprintln(os.Stdout, "Discord channel config updated.")
@@ -1546,6 +1632,23 @@ func resolveFeishuAgentID(cfg config.Snapshot, instance config.FeishuInstance, e
 	return strings.TrimSpace(cfg.DefaultAgentID)
 }
 
+func resolveWeComAgentID(cfg config.Snapshot, instance config.WeComInstance, envelope wecomchat.InboundEnvelope) string {
+	targetUserID := strings.TrimSpace(envelope.Target.ToUser)
+	if agentID := resolveAgentBinding(instance.AgentBindings, "user", targetUserID, envelope.Message); agentID != "" {
+		return agentID
+	}
+	if agentID := resolveAgentBinding(cfg.WeComAgentBindings, "user", targetUserID, envelope.Message); agentID != "" {
+		return agentID
+	}
+	if strings.TrimSpace(instance.DefaultAgentID) != "" {
+		return strings.TrimSpace(instance.DefaultAgentID)
+	}
+	if strings.TrimSpace(cfg.WeComDefaultAgentID) != "" {
+		return strings.TrimSpace(cfg.WeComDefaultAgentID)
+	}
+	return strings.TrimSpace(cfg.DefaultAgentID)
+}
+
 func resolveAgentBinding(bindings map[string]string, targetKind, targetID string, message chatiface.Message) string {
 	if len(bindings) == 0 {
 		return ""
@@ -1810,6 +1913,92 @@ func handleFeishuInbound(
 func sendFeishuDirect(ctx context.Context, adapter *feishuchat.Adapter, target feishuchat.Target, message string) {
 	if err := adapter.SendDirect(ctx, target, message); err != nil {
 		log.Printf("send feishu message: %v", err)
+	}
+}
+
+func handleWeComInbound(
+	ctx context.Context,
+	runtime agentRuntime,
+	delivery *service.OutputDelivery,
+	adapter *wecomchat.Adapter,
+	envelope wecomchat.InboundEnvelope,
+	scopedConversationID string,
+	instanceID string,
+) {
+	message := envelope.Message
+	message.ConversationID = scopedConversationID
+	if handled, response, err := handleConfigChatCommand(message); handled {
+		if err != nil {
+			sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+			return
+		}
+		sendWeComDirect(ctx, adapter, envelope.Target, response)
+		return
+	}
+	if handled, response := handleSynapseXSkillMetaCommand(runtime, message.Text); handled {
+		sendWeComDirect(ctx, adapter, envelope.Target, response)
+		return
+	}
+
+	decision, err := runtime.router.Route(ctx, message)
+	if err != nil {
+		sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+		return
+	}
+	sendWeComDirect(ctx, adapter, envelope.Target, "正在思考...")
+
+	switch decision.Kind {
+	case service.DecisionControl:
+		result, err := runtime.router.HandleControlCommand(ctx, decision.Command, decision.ConversationID, decision.WindowID)
+		if err != nil {
+			sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+			return
+		}
+
+		if result.CreatedSessionID != "" {
+			adapter.BindSession(result.CreatedSessionID, envelope.Target)
+		}
+		if result.ResumedSessionID != "" {
+			adapter.BindSession(result.ResumedSessionID, envelope.Target)
+		}
+		if result.CancelledSessionID != "" {
+			adapter.BindSession(result.CancelledSessionID, envelope.Target)
+		}
+
+		sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatControlResponse(toControlResponse(result)))
+	case service.DecisionSkill, service.DecisionExecute:
+		started := time.Now()
+		executeInput := buildExecutionInput(decision)
+		log.Printf("wecom execute begin: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, runtime.cwd, decision.ConversationID, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
+		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
+			Mode:           command.ModeContinue,
+			ConversationID: decision.ConversationID,
+			WindowID:       decision.WindowID,
+			Input:          executeInput,
+			Backend:        runtime.backendName,
+			CWD:            runtime.cwd,
+		})
+		if err != nil {
+			log.Printf("wecom execute failed: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
+			sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+			return
+		}
+		log.Printf("wecom execute done: instance=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s session_id=%s backend_session_id=%s state=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
+
+		adapter.BindSession(flowResult.Session.ID, envelope.Target)
+
+		output := flowResult.Execution.Output
+		if output == "" {
+			output = "执行完成，无可见输出"
+		}
+		output = applyExecutionSourceLabel(decision, output)
+		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, wecomchat.MaxMessageLength, 1)
+	}
+}
+
+func sendWeComDirect(ctx context.Context, adapter *wecomchat.Adapter, target wecomchat.Target, message string) {
+	if err := adapter.SendDirect(ctx, target, message); err != nil {
+		log.Printf("send wecom message: %v", err)
 	}
 }
 

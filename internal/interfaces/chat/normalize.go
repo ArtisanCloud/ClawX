@@ -34,6 +34,12 @@ type FeishuNormalizeInput struct {
 	Text     string
 }
 
+type WeComNormalizeInput struct {
+	FromUserID string
+	ChatID     string
+	Text       string
+}
+
 func NormalizeInboundMessage(input NormalizeInput) (Message, error) {
 	conversationID, err := conversation.BuildID(conversation.Parts{
 		Channel:  input.Channel,
@@ -79,6 +85,28 @@ func NormalizeFeishuTextEvent(input FeishuNormalizeInput) (Message, error) {
 	return NormalizeInboundMessage(NormalizeInput{
 		Channel:         "feishu",
 		UserID:          strings.TrimSpace(input.UserID),
+		GuildID:         guildID,
+		ThreadID:        "",
+		Text:            strings.TrimSpace(input.Text),
+		IsDirectMessage: isDirect,
+		IsThread:        false,
+		IsAllowed:       true,
+	})
+}
+
+func NormalizeWeComTextEvent(input WeComNormalizeInput) (Message, error) {
+	fromUserID := strings.TrimSpace(input.FromUserID)
+	chatID := strings.TrimSpace(input.ChatID)
+	isDirect := chatID == ""
+
+	guildID := ""
+	if !isDirect {
+		guildID = chatID
+	}
+
+	return NormalizeInboundMessage(NormalizeInput{
+		Channel:         "wecom",
+		UserID:          fromUserID,
 		GuildID:         guildID,
 		ThreadID:        "",
 		Text:            strings.TrimSpace(input.Text),

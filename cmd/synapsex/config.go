@@ -137,10 +137,8 @@ func runConfigChannelTelegram() error {
 		updates["channels.telegram.allowedChatIds"] = string(payload)
 	}
 
-	for key, value := range updates {
-		if _, err := config.SetValueByDotKey(key, value); err != nil {
-			return err
-		}
+	if _, err := config.SetValuesByDotKey(updates); err != nil {
+		return err
 	}
 
 	fmt.Fprintln(os.Stdout, "Telegram channel config updated.")

@@ -103,20 +103,20 @@
 
 ### 测试任务（US3）
 
-- [ ] T027 [P] [US3] 增加 WeCom URL 验证与签名解密单元测试于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/wecom/adapter_test.go
-- [ ] T028 [P] [US3] 增加 WeCom 控制命令全集集成测试（`/new`、`/resume`、`/list`、`/current`、`/switch`、`/cancel`）于 /home/ubuntu/workspace/SynapseX/tests/integration/wecom_control_flow_test.go
-- [ ] T029 [P] [US3] 增加增量配置“非目标渠道不覆盖”集成测试于 /home/ubuntu/workspace/SynapseX/tests/integration/channel_config_incremental_test.go
-- [ ] T030 [P] [US3] 增加跨渠道命令语义一致性契约测试（对齐 `/new`、`/resume`、`/list`、`/current`、`/switch`、`/cancel`）于 /home/ubuntu/workspace/SynapseX/tests/contract/channel_control_semantics_contract_test.go
+- [X] T027 [P] [US3] 增加 WeCom URL 验证与签名解密单元测试于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/wecom/adapter_test.go
+- [X] T028 [P] [US3] 增加 WeCom 控制命令全集集成测试（`/new`、`/resume`、`/list`、`/current`、`/switch`、`/cancel`）于 /home/ubuntu/workspace/SynapseX/tests/integration/wecom_control_flow_test.go
+- [X] T029 [P] [US3] 增加增量配置“非目标渠道不覆盖”集成测试于 /home/ubuntu/workspace/SynapseX/tests/integration/channel_config_incremental_test.go
+- [X] T030 [P] [US3] 增加跨渠道命令语义一致性契约测试（对齐 `/new`、`/resume`、`/list`、`/current`、`/switch`、`/cancel`）于 /home/ubuntu/workspace/SynapseX/tests/contract/channel_control_semantics_contract_test.go
 
 ### 实现任务（US3）
 
-- [ ] T031 [US3] 新增 WeCom 适配器核心实现于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/wecom/adapter.go
-- [ ] T032 [US3] 新增 WeCom URL 验证与回调处理路由于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/main.go
-- [ ] T033 [US3] 将 WeCom 文本消息映射到统一消息模型于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/normalize.go
-- [ ] T034 [US3] 完成 `config channel telegram|feishu|wecom` 增量交互流程于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/config_channel.go
-- [ ] T035 [US3] 完成配置补丁写入与原子保存于 /home/ubuntu/workspace/SynapseX/internal/infrastructure/config/config.go
-- [ ] T036 [US3] 新增 WeCom 接入指南于 /home/ubuntu/workspace/SynapseX/docs/guides/wecom_bot_setup.md
-- [ ] T037 [US3] 精简 Telegram 增量配置文档于 /home/ubuntu/workspace/SynapseX/docs/guides/telegram_config_incremental.md
+- [X] T031 [US3] 新增 WeCom 适配器核心实现于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/wecom/adapter.go
+- [X] T032 [US3] 新增 WeCom URL 验证与回调处理路由于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/main.go
+- [X] T033 [US3] 将 WeCom 文本消息映射到统一消息模型于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/normalize.go
+- [X] T034 [US3] 完成 `config channel telegram|feishu|wecom` 增量交互流程于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/config_channel.go
+- [X] T035 [US3] 完成配置补丁写入与原子保存于 /home/ubuntu/workspace/SynapseX/internal/infrastructure/config/config.go
+- [X] T036 [US3] 新增 WeCom 接入指南于 /home/ubuntu/workspace/SynapseX/docs/guides/wecom_bot_setup.md
+- [X] T037 [US3] 精简 Telegram 增量配置文档于 /home/ubuntu/workspace/SynapseX/docs/guides/telegram_config_incremental.md
 
 **检查点**: 三个用户故事都可独立验收并演示
 
