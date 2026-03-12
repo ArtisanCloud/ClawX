@@ -25,6 +25,9 @@ const (
 	sendMessageRetries  = 3
 	sendMessageBackoff  = 300 * time.Millisecond
 	sendMessageMaxDelay = 2 * time.Second
+	setWebhookRetries   = 3
+	setWebhookBackoff   = 300 * time.Millisecond
+	setWebhookMaxDelay  = 2 * time.Second
 )
 
 var (
@@ -32,6 +35,7 @@ var (
 	ErrMissingToken        = errors.New("telegram bot token is required")
 	ErrUnknownSessionRoute = errors.New("telegram session target is not bound")
 	ErrInvalidWebhook      = errors.New("invalid telegram webhook request")
+	ErrWebhookMethod       = errors.New("telegram webhook method is not allowed")
 	ErrWebhookUnauthorized = errors.New("telegram webhook secret mismatch")
 )
 
@@ -150,6 +154,29 @@ func (a *Adapter) SetWebhook(ctx context.Context, webhookURL string) error {
 		return fmt.Errorf("telegram webhook url is required")
 	}
 
+	backoff := setWebhookBackoff
+	var lastErr error
+	for attempt := 0; attempt < setWebhookRetries; attempt++ {
+		err := a.setWebhookOnce(ctx, webhookURL)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !isRetryableSetWebhookError(err) || attempt == setWebhookRetries-1 {
+			return err
+		}
+		if sleepErr := sleepWithContext(ctx, backoff); sleepErr != nil {
+			return sleepErr
+		}
+		backoff *= 2
+		if backoff > setWebhookMaxDelay {
+			backoff = setWebhookMaxDelay
+		}
+	}
+	return lastErr
+}
+
+func (a *Adapter) setWebhookOnce(ctx context.Context, webhookURL string) error {
 	payload := setWebhookRequest{
 		URL: webhookURL,
 	}
@@ -174,6 +201,10 @@ func (a *Adapter) SetWebhook(ctx context.Context, webhookURL string) error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= http.StatusInternalServerError {
+		return fmt.Errorf("telegram setWebhook http status %d", resp.StatusCode)
+	}
+
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
@@ -193,7 +224,7 @@ func (a *Adapter) ParseWebhookRequest(r *http.Request) (InboundEnvelope, bool, e
 		return InboundEnvelope{}, false, ErrInvalidWebhook
 	}
 	if r.Method != http.MethodPost {
-		return InboundEnvelope{}, false, fmt.Errorf("%w: unsupported method %s", ErrInvalidWebhook, r.Method)
+		return InboundEnvelope{}, false, ErrWebhookMethod
 	}
 
 	expectedSecret := strings.TrimSpace(a.webhookSecretToken)
@@ -488,6 +519,30 @@ func isRetryableSendMessageError(err error) bool {
 		strings.Contains(text, "broken pipe") ||
 		strings.Contains(text, "eof") ||
 		strings.Contains(text, "timeout")
+}
+
+func isRetryableSetWebhookError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(err.Error())), "telegram setwebhook failed:") {
+		return false
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "connection reset by peer") ||
+		strings.Contains(text, "broken pipe") ||
+		strings.Contains(text, "eof") ||
+		strings.Contains(text, "timeout") ||
+		strings.Contains(text, "http status 5")
 }
 
 func sleepWithContext(ctx context.Context, d time.Duration) error {

@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"sort"
@@ -213,22 +214,21 @@ func runServe() error {
 		}
 		if mode == "webhook" {
 			httpRuntimeNeeded = true
-			path := normalizeWebhookRoutePath(instanceCopy.WebhookPath, instanceCopy.ID)
+			path := normalizeWebhookRoutePath(instanceCopy.WebhookPath, instanceCopy.WebhookURL, instanceCopy.ID)
 			if _, exists := webhookPaths[path]; exists {
 				return fmt.Errorf("duplicate telegram webhook path %q", path)
 			}
 			webhookPaths[path] = struct{}{}
 
 			httpMux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != http.MethodPost {
-					w.WriteHeader(http.StatusMethodNotAllowed)
-					return
-				}
 				envelope, ok, err := telegramAdapter.ParseWebhookRequest(r)
 				if err != nil {
 					status := http.StatusBadRequest
 					if errors.Is(err, telegramchat.ErrWebhookUnauthorized) {
 						status = http.StatusForbidden
+					}
+					if errors.Is(err, telegramchat.ErrWebhookMethod) {
+						status = http.StatusMethodNotAllowed
 					}
 					http.Error(w, http.StatusText(status), status)
 					log.Printf("telegram webhook rejected: instance=%s path=%s err=%v", instanceCopy.ID, path, err)
@@ -405,15 +405,25 @@ func runAdapterWithRetry(ctx context.Context, scope adapterRetryScope, listen fu
 	}
 }
 
-func normalizeWebhookRoutePath(raw, instanceID string) string {
-	path := strings.TrimSpace(raw)
+func normalizeWebhookRoutePath(rawPath, rawURL, instanceID string) string {
+	path := strings.TrimSpace(rawPath)
+	if path == "" {
+		if parsed, err := url.Parse(strings.TrimSpace(rawURL)); err == nil {
+			path = strings.TrimSpace(parsed.Path)
+		}
+	}
 	if path == "" {
 		path = "/webhooks/telegram/" + sanitizeConversationSegment(instanceID, "default")
 	}
-	if strings.HasPrefix(path, "/") {
-		return path
+
+	path = strings.TrimSpace(path)
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
 	}
-	return "/" + path
+	if path != "/" {
+		path = strings.TrimRight(path, "/")
+	}
+	return path
 }
 
 type sessionStore interface {
@@ -644,134 +654,6 @@ func runConfigSet(args []string) error {
 		return err
 	}
 	fmt.Fprintf(os.Stdout, "config updated: %s\n", path)
-	return nil
-}
-
-func runConfigChannelTelegram() error {
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-
-	fmt.Fprintln(os.Stdout, "")
-	fmt.Fprintln(os.Stdout, "Telegram 增量配置（回车保持原值）")
-
-	enabled, err := promptBool("启用 Telegram?", cfg.TelegramEnabled)
-	if err != nil {
-		return err
-	}
-
-	token, err := promptString("Telegram Bot Token (留空保持): ")
-	if err != nil {
-		return err
-	}
-	botUsername, err := promptString("Telegram Bot Username (留空保持): ")
-	if err != nil {
-		return err
-	}
-	defaultAgent, err := promptString(fmt.Sprintf("Telegram defaultAgent (留空保持，当前 %s): ", firstNonEmpty(cfg.TelegramDefaultAgentID, cfg.DefaultAgentID, "main")))
-	if err != nil {
-		return err
-	}
-	requireMention, err := promptBool("群聊要求命令或@提及?", cfg.TelegramRequireCommandMention)
-	if err != nil {
-		return err
-	}
-	currentMode := strings.ToLower(strings.TrimSpace(cfg.TelegramMode))
-	if currentMode == "" {
-		currentMode = "polling"
-	}
-	mode, err := promptMenu(
-		fmt.Sprintf("Telegram mode (当前 %s):", currentMode),
-		[]menuOption{
-			{key: "polling", label: "Polling (默认)", aliases: []string{"1", "polling"}, selected: currentMode == "polling"},
-			{key: "webhook", label: "Webhook", aliases: []string{"2", "webhook"}, selected: currentMode == "webhook"},
-		},
-	)
-	if err != nil {
-		return err
-	}
-	if mode == "" {
-		mode = currentMode
-	}
-
-	pollingSeconds := int(defaultDurationSeconds(cfg.TelegramPollingTimeout, 30*time.Second))
-	webhookURL := ""
-	webhookPath := ""
-	webhookSecret := ""
-	if mode == "polling" {
-		pollingSeconds, err = promptIntDefault("pollingSeconds", pollingSeconds)
-		if err != nil {
-			return err
-		}
-	} else {
-		webhookURL, err = promptString(fmt.Sprintf("webhookUrl (当前 %s): ", firstNonEmpty(cfg.TelegramWebhookURL, "空")))
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(webhookURL) == "" {
-			webhookURL = strings.TrimSpace(cfg.TelegramWebhookURL)
-		}
-		if strings.TrimSpace(webhookURL) == "" {
-			return fmt.Errorf("webhook mode requires webhookUrl")
-		}
-		webhookPath, err = promptString(fmt.Sprintf("webhookPath (当前 %s): ", firstNonEmpty(cfg.TelegramWebhookPath, "/webhooks/telegram")))
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(webhookPath) == "" {
-			webhookPath = firstNonEmpty(cfg.TelegramWebhookPath, "/webhooks/telegram")
-		}
-		webhookSecret, err = promptString("webhookSecret (留空保持): ")
-		if err != nil {
-			return err
-		}
-	}
-
-	chatIDsRaw, err := promptString(fmt.Sprintf("allowedChatIds 逗号分隔 (留空保持，当前 %s): ", summarizeList(cfg.TelegramAllowedChatIDs)))
-	if err != nil {
-		return err
-	}
-
-	updates := map[string]string{
-		"channels.telegram.enabled":                 strconv.FormatBool(enabled),
-		"channels.telegram.mode":                    mode,
-		"channels.telegram.requireCommandOrMention": strconv.FormatBool(requireMention),
-	}
-	if mode == "polling" {
-		updates["channels.telegram.pollingSeconds"] = strconv.Itoa(pollingSeconds)
-	} else {
-		updates["channels.telegram.webhookUrl"] = strings.TrimSpace(webhookURL)
-		updates["channels.telegram.webhookPath"] = strings.TrimSpace(webhookPath)
-		if strings.TrimSpace(webhookSecret) != "" {
-			updates["channels.telegram.webhookSecret"] = strings.TrimSpace(webhookSecret)
-		}
-	}
-	if strings.TrimSpace(token) != "" {
-		updates["channels.telegram.token"] = strings.TrimSpace(token)
-	}
-	if strings.TrimSpace(botUsername) != "" {
-		updates["channels.telegram.botUsername"] = strings.TrimSpace(botUsername)
-	}
-	if strings.TrimSpace(defaultAgent) != "" {
-		updates["channels.telegram.defaultAgent"] = strings.TrimSpace(defaultAgent)
-	}
-	if strings.TrimSpace(chatIDsRaw) != "" {
-		values := splitCSV(strings.TrimSpace(chatIDsRaw))
-		payload, err := json.Marshal(values)
-		if err != nil {
-			return err
-		}
-		updates["channels.telegram.allowedChatIds"] = string(payload)
-	}
-
-	for key, value := range updates {
-		if _, err := config.SetValueByDotKey(key, value); err != nil {
-			return err
-		}
-	}
-
-	fmt.Fprintln(os.Stdout, "Telegram channel config updated.")
 	return nil
 }
 

@@ -55,17 +55,17 @@
 
 ### 测试任务（US1）
 
-- [ ] T011 [P] [US1] 增加 Telegram webhook 请求校验单元测试于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/telegram/adapter_test.go
-- [ ] T012 [P] [US1] 增加 Telegram 双模式路由集成测试于 /home/ubuntu/workspace/SynapseX/tests/integration/telegram_dual_mode_test.go
-- [ ] T013 [P] [US1] 增加 Telegram 适配器重试与隔离测试于 /home/ubuntu/workspace/SynapseX/tests/integration/telegram_runtime_retry_test.go
+- [X] T011 [P] [US1] 增加 Telegram webhook 请求校验单元测试于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/telegram/adapter_test.go
+- [X] T012 [P] [US1] 增加 Telegram 双模式路由集成测试于 /home/ubuntu/workspace/SynapseX/tests/integration/telegram_dual_mode_test.go
+- [X] T013 [P] [US1] 增加 Telegram 适配器重试与隔离测试于 /home/ubuntu/workspace/SynapseX/tests/integration/telegram_runtime_retry_test.go
 
 ### 实现任务（US1）
 
-- [ ] T014 [US1] 完善 Telegram `webhookPath` 路由挂载与解析于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/main.go
-- [ ] T015 [US1] 完善 Telegram webhook 鉴权与非法方法拒绝于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/telegram/adapter.go
-- [ ] T016 [US1] 完善 Telegram setWebhook 启动注册与错误重试于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/telegram/adapter.go
-- [ ] T017 [US1] 对齐 Telegram 配置向导模式选择与字段提示于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/config.go
-- [ ] T018 [US1] 同步 Telegram 接入文档（polling/webhook 双模式）于 /home/ubuntu/workspace/SynapseX/docs/guides/telegram_bot_setup.md
+- [X] T014 [US1] 完善 Telegram `webhookPath` 路由挂载与解析于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/main.go
+- [X] T015 [US1] 完善 Telegram webhook 鉴权与非法方法拒绝于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/telegram/adapter.go
+- [X] T016 [US1] 完善 Telegram setWebhook 启动注册与错误重试于 /home/ubuntu/workspace/SynapseX/internal/interfaces/chat/telegram/adapter.go
+- [X] T017 [US1] 对齐 Telegram 配置向导模式选择与字段提示于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/config.go
+- [X] T018 [US1] 同步 Telegram 接入文档（polling/webhook 双模式）于 /home/ubuntu/workspace/SynapseX/docs/guides/telegram_bot_setup.md
 
 **检查点**: US1 完成后，应可独立发布 Telegram 双模式能力
 

@@ -2,6 +2,7 @@
 
 ## 目标
 - 用一份文档完成：创建 Bot、引导式增量配置、启动服务、最小验收。
+- 覆盖 Telegram 双模式：`polling` 与 `webhook`。
 
 ## 1. 创建 Telegram Bot
 1. 在 Telegram 找到 `@BotFather`。
@@ -29,14 +30,14 @@ go run ./cmd/synapsex config channel telegram
 go run ./cmd/synapsex config path
 ```
 
-当提示 `Telegram mode` 时，选择 `Webhook`，然后填写：
-- `webhookUrl`: 例如 `https://<your-domain>/webhooks/telegram`
-- `webhookPath`: 建议 `/webhooks/telegram`
-- `webhookSecret`: 可选，建议填写
+当提示 `Telegram mode` 时：
+- 选择 `Polling`：只需填写 `pollingSeconds`，不依赖公网回调。
+- 选择 `Webhook`：填写 `webhookUrl`、`webhookPath`、`webhookSecret`。
 
-关键约束：
+Webhook 关键约束：
 - `webhookUrl` 必须是 Telegram 可访问的公网 HTTPS 地址。
 - `webhookUrl` 里的 path 必须和 `webhookPath` 一致。
+- `webhookPath` 必须以 `/` 开头（例如 `/webhooks/telegram`）。
 
 ### webhook 到底在哪配？
 
@@ -57,6 +58,9 @@ go run ./cmd/synapsex config get channels.telegram
 go run ./cmd/synapsex serve
 ```
 
+Polling 模式下，预期日志包含：
+- `telegram adapter started: instance=... mode=polling`
+
 Webhook 模式下，预期日志包含：
 - `telegram webhook route registered`
 - `telegram webhook configured`
@@ -69,11 +73,22 @@ export TG_BOT_TOKEN=<YOUR_BOT_TOKEN>
 curl -s "https://api.telegram.org/bot$TG_BOT_TOKEN/getWebhookInfo"
 ```
 
-## 4. Webhook 配通验证（必须做）
+## 4. 模式验证
+
+### 4.1 Polling 最小验证
+
+1. 配置模式为 `polling` 后启动服务。
+2. 在 Telegram 私聊发送 `/new`、`hello`、`/list`。
+
+预期：
+- 消息可直接处理，不依赖 webhook 回调。
+- 服务日志持续出现 `telegram adapter started ... mode=polling`。
+
+### 4.2 Webhook 配通验证（必须做）
 
 按下面 3 组检查，全部通过才算 webhook 配通。
 
-### 4.1 入口连通检查（Nginx + HTTPS）
+### 4.2.1 入口连通检查（Nginx + HTTPS）
 
 ```bash
 curl --noproxy '*' -i https://<your-domain>/webhooks/telegram
@@ -94,7 +109,7 @@ curl --noproxy '*' -i -X POST https://<your-domain>/webhooks/telegram \
 - 返回 `200 OK`
 - body 为 `{"ok":true}`
 
-### 4.2 Telegram 侧注册检查（setWebhook 是否生效）
+### 4.2.2 Telegram 侧注册检查（setWebhook 是否生效）
 
 ```bash
 export BOT_TOKEN=<YOUR_BOT_TOKEN>
@@ -105,7 +120,7 @@ curl -s "https://api.telegram.org/bot$BOT_TOKEN/getWebhookInfo"
 - `ok=true`
 - `result.url` 等于 `https://<your-domain>/webhooks/telegram`
 
-### 4.3 端到端消息检查
+### 4.2.3 端到端消息检查
 
 在 Telegram 私聊 bot 发送：
 1. `/new`
