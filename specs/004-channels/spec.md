@@ -3,7 +3,7 @@
 **功能分支**: `004-channels`  
 **创建时间**: 2026-03-10  
 **状态**: 草稿  
-**输入**: 用户描述: “按 docs/plans/phase_4_channels.md 落地第四阶段规格，覆盖 Telegram webhook、Feishu、WeCom，并保证多渠道命令语义一致与接入稳定。”
+**输入**: 用户描述: “按 docs/plans/phase_4_channels.md 落地第四阶段规格，覆盖 Telegram webhook、Feishu、WeCom，并同步外部基线渠道对齐清单，补齐未实现渠道的技术规范与实施路线。”
 
 ## Clarifications
 
@@ -13,6 +13,21 @@
 - Q: 单个渠道故障是否允许导致主进程退出？ → A: 不允许，必须通道级隔离并自动重试。
 - Q: 增量配置命令是否纳入本阶段？ → A: 纳入，支持 `synapsex config channel <name>`。
 - Q: 多渠道是否要求控制命令语义完全一致？ → A: 要求一致，至少覆盖 `/new`、`/resume`、`/list`、`/current`、`/switch`、`/cancel`。
+
+### Session 2026-03-11
+
+- Q: Phase 4 是否只覆盖 Telegram/Feishu/WeCom？ → A: 不是。它们是 Wave 1 基线，其他外部基线渠道必须纳入同一规格的对齐路线。
+- Q: 未实现渠道是否需要进入技术规范？ → A: 需要，至少明确分波次、统一适配模板、契约与测试要求。
+
+## 渠道对齐范围（外部基线映射，2026-03-11）
+
+对齐矩阵见：`/home/ubuntu/workspace/SynapseX/specs/004-channels/openclaw-channel-parity.md`
+
+- 已实现：Discord、Telegram（polling/webhook）
+- Wave 1（Phase 4 基线）：Feishu、WeCom
+- Wave 2（主流通用）：Slack、WhatsApp、Signal、Google Chat、IRC
+- Wave 3（插件/企业扩展）：Matrix、Mattermost、Microsoft Teams、Nextcloud Talk、LINE、Nostr、Synology Chat、Twitch、Zalo、Zalo Personal
+- Wave 4（可选）：BlueBubbles、iMessage legacy、Tlon、WebChat
 
 ## 用户场景与测试（必填）
 
@@ -64,6 +79,22 @@
 
 ---
 
+### 用户故事 4 - 补齐未实现外部基线渠道的技术规范与分波次执行（优先级：P4）
+
+作为架构负责人，我希望把外部基线已支持但 SynapseX 未实现的渠道全部纳入统一对齐规范，这样后续扩展不会反复重做架构或安全策略。
+
+**为什么是这个优先级**: 这不阻塞 Wave 1 上线，但它直接决定后续 Wave 2~4 的交付速度和一致性。
+
+**独立测试方式**: 检查 `spec/plan/tasks/contracts/data-model` 是否包含 Wave 2~4 渠道的实现模板、契约落点和回归要求。
+
+**验收场景**:
+
+1. **假如** 需要新增 Slack 或 WhatsApp，**当** 开发者阅读规格与任务清单时，**那么** 应能直接找到该渠道的实现模板与测试门禁。
+2. **假如** 需要接入 Matrix 或 Teams 等插件型渠道，**当** 开发者执行设计评审时，**那么** 应有明确的插件化落位与主仓边界说明。
+3. **假如** 计划声明“对齐外部基线渠道能力”，**当** 进行文档审计时，**那么** 未实现渠道必须出现在对齐矩阵与任务波次中，而不是口头描述。
+
+---
+
 ### 边界场景
 
 - Telegram webhook 与健康检查共用 HTTP 服务时，如何避免端口冲突与路径冲突。
@@ -71,6 +102,8 @@
 - 渠道消息缺失用户 ID 或会话上下文字段时，如何生成稳定兼容窗口。
 - 某渠道连续失败并指数退避时，如何保证其他渠道响应不受影响。
 - 渠道配置被部分更新时，如何确保未涉及渠道配置保持原值。
+- Wave 2/3/4 渠道接入时，如何避免复制粘贴式实现导致安全与命令语义漂移。
+- 插件型渠道（Matrix/Mattermost/Teams 等）如何在不污染主仓的情况下共享统一契约。
 
 ## 需求（必填）
 
@@ -79,14 +112,14 @@
 - **FR-001**: 系统必须支持 Telegram `polling` 与 `webhook` 两种模式，且可通过配置切换。
 - **FR-002**: 当 Telegram 为 `webhook` 模式时，系统必须支持自动注册 webhook（setWebhook）并处理回调请求。
 - **FR-003**: Telegram webhook 回调必须支持鉴权（secret token）与非法方法拒绝。
-- **FR-004**: 任一渠道适配器运行失败时，系统必须仅重启该适配器，不得导致主进程退出。
+- **FR-004**: 任一渠道适配器运行失败时，系统必须仅重启该适配器并保持其他渠道继续运行，不得导致主进程退出。
 - **FR-005**: 系统必须支持 Feishu 事件回调 challenge 验证。
 - **FR-006**: 系统必须支持 Feishu 回调签名校验，验签失败必须拒绝。
 - **FR-007**: 系统必须支持 WeCom 回调 URL 验证（echostr）流程。
 - **FR-008**: 系统必须支持 WeCom 回调签名校验与消息解密，失败必须拒绝。
 - **FR-009**: Feishu 与 WeCom 文本消息必须归一化到统一消息模型，并复用既有 Session/Router 链路。
-- **FR-010**: Discord、Telegram、Feishu、WeCom 的控制命令语义必须一致。
-- **FR-011**: 渠道故障重试必须带退避策略并输出可观测日志。
+- **FR-010**: Discord、Telegram、Feishu、WeCom 的控制命令语义必须一致，且至少覆盖 `/new`、`/resume`、`/list`、`/current`、`/switch`、`/cancel`。
+- **FR-011**: 渠道适配器重启必须使用指数退避（初始 2s、最大 60s），并输出结构化日志字段（`channel`、`instance`、`retry_count`、`last_error`）。
 - **FR-012**: 系统必须提供 `synapsex config channel <name>` 增量配置入口。
 - **FR-013**: 增量配置必须仅更新目标渠道字段，不得覆盖其他渠道已有配置。
 - **FR-014**: 渠道配置必须支持实例化（至少 `id`、`enabled`、`mode`、`token/secret`、`agent`）。
@@ -94,6 +127,14 @@
 - **FR-016**: 系统必须记录渠道维度审计字段（`channel`、`instance`、`event_id`、`intent.kind`、`duration_ms`）。
 - **FR-017**: 对验签失败、重放、解密失败等安全异常，系统必须返回明确拒绝且可追踪日志。
 - **FR-018**: 新渠道接入不得要求改造 Backend Adapter 接口。
+- **FR-019**: 系统必须维护渠道对齐矩阵，至少覆盖“已实现/未实现/波次/来源基线”字段。
+- **FR-020**: Wave 2 渠道（Slack/WhatsApp/Signal/Google Chat/IRC）必须复用统一适配模板，并继承控制命令契约。
+- **FR-021**: Wave 3 渠道（Matrix/Mattermost/Teams/Nextcloud Talk/LINE/Nostr/Synology Chat/Twitch/Zalo/Zalo Personal）在满足任一条件时必须采用插件优先策略：`需要私有化/内网部署`、`需要企业身份系统集成`、`预计维护成本 > 2 人日/月`。
+- **FR-022**: Wave 4 渠道（BlueBubbles/iMessage legacy/Tlon/WebChat）仅在满足至少一项业务门槛时接入：`至少 1 个付费客户明确需求并确认上线窗口`、`内部月活预测 >= 50`、`存在明确合规/法务要求`；未满足则保持 backlog，不阻塞 Wave 1 发布。
+- **FR-023**: 每个新增渠道在进入实现前，必须新增对应契约文档（事件协议/鉴权/幂等/错误语义）或复用已有模板并显式声明差异。
+- **FR-024**: 每个新增渠道必须至少具备 1 个适配器单测、1 个控制命令集成测试、1 个跨渠道语义契约测试。
+- **FR-025**: 渠道配置模型必须支持新增渠道的最小字段集（`enabled/defaultAgent/instances`）且兼容增量配置命令。
+- **FR-026**: 技术规范更新顺序必须一致：`openclaw-channel-parity.md -> spec.md -> plan.md -> tasks.md`，并在 PR 中标注波次范围。
 
 ### 关键实体
 
@@ -109,6 +150,7 @@
 - 当前优先接入文本消息，不在本阶段处理复杂卡片或富媒体交互。
 - 渠道鉴权所需密钥由部署方以配置文件或环境变量提供。
 - 本阶段不引入统一渠道管理 UI，仅提供 CLI 与文档流程。
+- Wave 2/3/4 可拆分为后续子阶段实现，但本规格先定义统一边界与门禁。
 
 ## 成功标准（必填）
 
@@ -120,6 +162,8 @@
 - **SC-004**: 验签失败/解密失败/重放请求拦截率 100%，并产出可检索日志。
 - **SC-005**: `synapsex config channel <name>` 增量配置场景下，非目标渠道配置保留率 100%。
 - **SC-006**: 渠道路由判定（不含后端执行）p95 < 120ms。
+- **SC-007**: 对齐矩阵中的未实现渠道 100% 出现在任务波次（Wave 2~4）中，不得遗漏。
+- **SC-008**: 新增任一渠道的技术方案评审输入文档完整率 100%（至少含契约、数据模型映射、测试计划）。
 
 ### 统计口径
 

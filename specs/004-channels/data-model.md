@@ -6,7 +6,7 @@
 描述一个渠道运行单元及其静态配置。
 
 ### 字段
-- `channel`: `discord` / `telegram` / `feishu` / `wecom`
+- `channel`: 统一渠道标识（当前实现 `discord`/`telegram`/`feishu`/`wecom`；保留扩展到 `slack`/`whatsapp`/`signal`/`googlechat`/`irc`/`matrix`/`mattermost`/`msteams`/`nextcloud-talk`/`line`/`nostr`/`synology-chat`/`twitch`/`zalo`/`zalouser`/`bluebubbles`/`imessage`/`tlon`/`webchat`）
 - `instance_id`: 实例唯一标识
 - `enabled`: 是否启用
 - `mode`: 渠道模式（Telegram 为 `polling|webhook`，其他渠道可留空或固定）

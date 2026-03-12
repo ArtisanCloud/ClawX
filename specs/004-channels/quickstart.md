@@ -2,6 +2,7 @@
 
 ## 目标
 在保持现有多会话与路由链路稳定的前提下，完成 Telegram webhook、Feishu、WeCom 渠道扩展与增量配置闭环。
+并将 OpenClaw 未实现渠道同步到统一技术规范与任务波次（Wave 2~4）。
 
 ## 开发前准备
 
@@ -10,6 +11,7 @@
    - `/home/ubuntu/workspace/SynapseX/docs/plans/phase_4_channels.md`
    - `/home/ubuntu/workspace/SynapseX/specs/004-channels/spec.md`
    - `/home/ubuntu/workspace/SynapseX/specs/004-channels/plan.md`
+   - `/home/ubuntu/workspace/SynapseX/specs/004-channels/openclaw-channel-parity.md`
 3. 确保本地可运行命令：
    - `go run ./cmd/synapsex`
    - `go test ./...`
@@ -22,6 +24,7 @@
 4. 接入 WeCom（URL 验证 + 签名/解密 + 文本消息）。
 5. 实现 `synapsex config channel <name>` 增量配置。
 6. 补齐跨渠道契约测试与回归文档。
+7. 按 Phase 7 任务补齐 Wave 2~4 未实现渠道实现卡。
 
 ## 最小验收步骤（MVP: Telegram）
 

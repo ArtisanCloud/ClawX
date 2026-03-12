@@ -11,7 +11,8 @@
 - Remote control of the supported CLI backend through chat-driven interaction.
 - Session creation, resume, switching, cancellation, and isolation.
 - Streaming or chunked output return with ordering guarantees.
-- Discord Bot and Telegram Bot as the primary channels.
+- Discord Bot and Telegram Bot as baseline channels.
+- Additional channels are allowed only when explicitly scoped by `docs/plans/` and backed by aligned `spec/plan/tasks`.
 - Linux deployment, configuration, logging, and basic health checks.
 - Scoped Skill Registry + Intent Router for Claude Code compatible skills, with explicit governance and bounded routing behavior.
 
@@ -169,8 +170,11 @@
 ## Channel Rules
 
 ### Supported Channels
-- Discord Bot
-- Telegram Bot
+- Baseline:
+  - Discord Bot
+  - Telegram Bot
+- Expansion rule:
+  - New channels may be introduced by approved phase plan and aligned specification artifacts.
 
 ### Shared Channel Semantics
 - Each channel must normalize inbound messages into a unified internal shape:
@@ -328,7 +332,8 @@
   - the direct source for generated specs
   - the only source used to justify implementation behavior
 - If reference materials influence a design, the resulting rule must be restated in SynapseX-owned documentation before implementation is considered aligned.
-- Official docs must not rely on external project names, external file paths, or reference-specific terminology unless the document is explicitly marked as research.
+- Official docs may mention external products only as comparative context.
+- Normative requirements must be restated in SynapseX-native terms and must not depend on external project naming or paths for correctness.
 - `docs/reference/` should remain excluded from normal product governance and should not be treated as part of the versioned product specification surface.
 
 ### Change Workflow
