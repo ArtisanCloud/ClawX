@@ -80,6 +80,31 @@ type TelegramInstance struct {
 	AgentBindings           map[string]string
 }
 
+type FeishuInstance struct {
+	ID                string
+	Enabled           bool
+	Mode              string
+	AppID             string
+	AppSecret         string
+	VerificationToken string
+	EncryptKey        string
+	DefaultAgentID    string
+	AgentBindings     map[string]string
+}
+
+type WeComInstance struct {
+	ID             string
+	Enabled        bool
+	Mode           string
+	CorpID         string
+	AgentID        string
+	Secret         string
+	Token          string
+	EncodingAESKey string
+	DefaultAgentID string
+	AgentBindings  map[string]string
+}
+
 type SkillSources struct {
 	UserDir        string
 	WorkspaceDir   string
@@ -134,6 +159,19 @@ type Snapshot struct {
 	TelegramWebhookURL            string
 	TelegramWebhookPath           string
 	TelegramWebhookSecret         string
+	FeishuEnabled                 bool
+	FeishuMode                    string
+	FeishuAppID                   string
+	FeishuAppSecret               string
+	FeishuVerificationToken       string
+	FeishuEncryptKey              string
+	WeComEnabled                  bool
+	WeComMode                     string
+	WeComCorpID                   string
+	WeComAgentID                  string
+	WeComSecret                   string
+	WeComToken                    string
+	WeComEncodingAESKey           string
 	HealthProbeEnabled            bool
 	HTTPListenAddr                string
 	HealthProbePath               string
@@ -151,6 +189,12 @@ type Snapshot struct {
 	DiscordAgentBindings   map[string]string
 	TelegramDefaultAgentID string
 	TelegramAgentBindings  map[string]string
+	FeishuInstances        []FeishuInstance
+	FeishuDefaultAgentID   string
+	FeishuAgentBindings    map[string]string
+	WeComInstances         []WeComInstance
+	WeComDefaultAgentID    string
+	WeComAgentBindings     map[string]string
 	Skills                 SkillConfig
 	IntentRouter           IntentRouterConfig
 }
@@ -238,6 +282,8 @@ type jsonAgent struct {
 type jsonChannels struct {
 	Discord  *jsonDiscordChannel  `json:"discord"`
 	Telegram *jsonTelegramChannel `json:"telegram"`
+	Feishu   *jsonFeishuChannel   `json:"feishu"`
+	WeCom    *jsonWeComChannel    `json:"wecom"`
 }
 
 type jsonDiscordChannel struct {
@@ -294,6 +340,56 @@ type jsonTelegramInstance struct {
 	WebhookSecret           string            `json:"webhookSecret"`
 	DefaultAgent            string            `json:"defaultAgent"`
 	AgentBindings           map[string]string `json:"agentBindings"`
+}
+
+type jsonFeishuChannel struct {
+	Enabled           *bool                `json:"enabled"`
+	Mode              string               `json:"mode"`
+	AppID             string               `json:"appId"`
+	AppSecret         string               `json:"appSecret"`
+	VerificationToken string               `json:"verificationToken"`
+	EncryptKey        string               `json:"encryptKey"`
+	DefaultAgent      string               `json:"defaultAgent"`
+	AgentBindings     map[string]string    `json:"agentBindings"`
+	Instances         []jsonFeishuInstance `json:"instances"`
+}
+
+type jsonFeishuInstance struct {
+	ID                string            `json:"id"`
+	Enabled           *bool             `json:"enabled"`
+	Mode              string            `json:"mode"`
+	AppID             string            `json:"appId"`
+	AppSecret         string            `json:"appSecret"`
+	VerificationToken string            `json:"verificationToken"`
+	EncryptKey        string            `json:"encryptKey"`
+	DefaultAgent      string            `json:"defaultAgent"`
+	AgentBindings     map[string]string `json:"agentBindings"`
+}
+
+type jsonWeComChannel struct {
+	Enabled        *bool               `json:"enabled"`
+	Mode           string              `json:"mode"`
+	CorpID         string              `json:"corpId"`
+	AgentID        string              `json:"agentId"`
+	Secret         string              `json:"secret"`
+	Token          string              `json:"token"`
+	EncodingAESKey string              `json:"encodingAesKey"`
+	DefaultAgent   string              `json:"defaultAgent"`
+	AgentBindings  map[string]string   `json:"agentBindings"`
+	Instances      []jsonWeComInstance `json:"instances"`
+}
+
+type jsonWeComInstance struct {
+	ID             string            `json:"id"`
+	Enabled        *bool             `json:"enabled"`
+	Mode           string            `json:"mode"`
+	CorpID         string            `json:"corpId"`
+	AgentID        string            `json:"agentId"`
+	Secret         string            `json:"secret"`
+	Token          string            `json:"token"`
+	EncodingAESKey string            `json:"encodingAesKey"`
+	DefaultAgent   string            `json:"defaultAgent"`
+	AgentBindings  map[string]string `json:"agentBindings"`
 }
 
 type jsonGateway struct {
@@ -430,6 +526,8 @@ type fileExecution struct {
 type fileChannels struct {
 	Discord  fileDiscordChannel  `json:"discord"`
 	Telegram fileTelegramChannel `json:"telegram"`
+	Feishu   fileFeishuChannel   `json:"feishu"`
+	WeCom    fileWeComChannel    `json:"wecom"`
 }
 
 type fileDiscordChannel struct {
@@ -486,6 +584,56 @@ type fileTelegramInstance struct {
 	WebhookSecret           string            `json:"webhookSecret,omitempty"`
 	DefaultAgent            string            `json:"defaultAgent,omitempty"`
 	AgentBindings           map[string]string `json:"agentBindings,omitempty"`
+}
+
+type fileFeishuChannel struct {
+	Enabled           bool                 `json:"enabled"`
+	Mode              string               `json:"mode"`
+	AppID             string               `json:"appId"`
+	AppSecret         string               `json:"appSecret"`
+	VerificationToken string               `json:"verificationToken"`
+	EncryptKey        string               `json:"encryptKey,omitempty"`
+	DefaultAgent      string               `json:"defaultAgent,omitempty"`
+	AgentBindings     map[string]string    `json:"agentBindings,omitempty"`
+	Instances         []fileFeishuInstance `json:"instances,omitempty"`
+}
+
+type fileFeishuInstance struct {
+	ID                string            `json:"id"`
+	Enabled           bool              `json:"enabled"`
+	Mode              string            `json:"mode"`
+	AppID             string            `json:"appId"`
+	AppSecret         string            `json:"appSecret"`
+	VerificationToken string            `json:"verificationToken"`
+	EncryptKey        string            `json:"encryptKey,omitempty"`
+	DefaultAgent      string            `json:"defaultAgent,omitempty"`
+	AgentBindings     map[string]string `json:"agentBindings,omitempty"`
+}
+
+type fileWeComChannel struct {
+	Enabled        bool                `json:"enabled"`
+	Mode           string              `json:"mode"`
+	CorpID         string              `json:"corpId"`
+	AgentID        string              `json:"agentId"`
+	Secret         string              `json:"secret"`
+	Token          string              `json:"token"`
+	EncodingAESKey string              `json:"encodingAesKey"`
+	DefaultAgent   string              `json:"defaultAgent,omitempty"`
+	AgentBindings  map[string]string   `json:"agentBindings,omitempty"`
+	Instances      []fileWeComInstance `json:"instances,omitempty"`
+}
+
+type fileWeComInstance struct {
+	ID             string            `json:"id"`
+	Enabled        bool              `json:"enabled"`
+	Mode           string            `json:"mode"`
+	CorpID         string            `json:"corpId"`
+	AgentID        string            `json:"agentId"`
+	Secret         string            `json:"secret"`
+	Token          string            `json:"token"`
+	EncodingAESKey string            `json:"encodingAesKey"`
+	DefaultAgent   string            `json:"defaultAgent,omitempty"`
+	AgentBindings  map[string]string `json:"agentBindings,omitempty"`
 }
 
 type fileGateway struct {
@@ -1373,6 +1521,25 @@ func defaultFileSnapshot() fileSnapshot {
 				WebhookSecret:           "",
 				DefaultAgent:            "main",
 			},
+			Feishu: fileFeishuChannel{
+				Enabled:           false,
+				Mode:              "webhook",
+				AppID:             "",
+				AppSecret:         "",
+				VerificationToken: "",
+				EncryptKey:        "",
+				DefaultAgent:      "main",
+			},
+			WeCom: fileWeComChannel{
+				Enabled:        false,
+				Mode:           "webhook",
+				CorpID:         "",
+				AgentID:        "",
+				Secret:         "",
+				Token:          "",
+				EncodingAESKey: "",
+				DefaultAgent:   "main",
+			},
 		},
 		Gateway: fileGateway{
 			ListenAddr: ":8080",
@@ -1465,6 +1632,43 @@ func normalizeFileSnapshot(file *fileSnapshot) {
 	if file == nil {
 		return
 	}
+
+	file.Channels.Telegram.Mode = strings.ToLower(strings.TrimSpace(file.Channels.Telegram.Mode))
+	if file.Channels.Telegram.Mode == "" {
+		file.Channels.Telegram.Mode = "polling"
+	}
+	if file.Channels.Telegram.PollingSeconds <= 0 {
+		file.Channels.Telegram.PollingSeconds = 30
+	}
+	file.Channels.Telegram.WebhookPath = normalizeWebhookPath(file.Channels.Telegram.WebhookPath)
+	if file.Channels.Telegram.WebhookPath == "" {
+		file.Channels.Telegram.WebhookPath = "/webhooks/telegram"
+	}
+	file.Channels.Telegram.DefaultAgent = strings.TrimSpace(file.Channels.Telegram.DefaultAgent)
+	if file.Channels.Telegram.DefaultAgent == "" {
+		file.Channels.Telegram.DefaultAgent = "main"
+	}
+	file.Channels.Telegram.AgentBindings = filterBindingMap(file.Channels.Telegram.AgentBindings)
+
+	file.Channels.Feishu.Mode = strings.ToLower(strings.TrimSpace(file.Channels.Feishu.Mode))
+	if file.Channels.Feishu.Mode == "" {
+		file.Channels.Feishu.Mode = "webhook"
+	}
+	file.Channels.Feishu.DefaultAgent = strings.TrimSpace(file.Channels.Feishu.DefaultAgent)
+	if file.Channels.Feishu.DefaultAgent == "" {
+		file.Channels.Feishu.DefaultAgent = "main"
+	}
+	file.Channels.Feishu.AgentBindings = filterBindingMap(file.Channels.Feishu.AgentBindings)
+
+	file.Channels.WeCom.Mode = strings.ToLower(strings.TrimSpace(file.Channels.WeCom.Mode))
+	if file.Channels.WeCom.Mode == "" {
+		file.Channels.WeCom.Mode = "webhook"
+	}
+	file.Channels.WeCom.DefaultAgent = strings.TrimSpace(file.Channels.WeCom.DefaultAgent)
+	if file.Channels.WeCom.DefaultAgent == "" {
+		file.Channels.WeCom.DefaultAgent = "main"
+	}
+	file.Channels.WeCom.AgentBindings = filterBindingMap(file.Channels.WeCom.AgentBindings)
 
 	file.Database.Driver = strings.ToLower(strings.TrimSpace(file.Database.Driver))
 	if file.Database.Driver == "" {
@@ -1582,6 +1786,10 @@ func defaultSnapshot() Snapshot {
 		TelegramRequireCommandMention: true,
 		TelegramPollingTimeout:        30 * time.Second,
 		TelegramWebhookPath:           "/webhooks/telegram",
+		FeishuEnabled:                 false,
+		FeishuMode:                    "webhook",
+		WeComEnabled:                  false,
+		WeComMode:                     "webhook",
 		HealthProbeEnabled:            true,
 		HTTPListenAddr:                ":8080",
 		HealthProbePath:               "/healthz",
@@ -1911,6 +2119,110 @@ func applyStructuredJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 				}
 			}
 		}
+		if raw.Channels.Feishu != nil {
+			feishu := raw.Channels.Feishu
+			if feishu.Enabled != nil {
+				cfg.FeishuEnabled = *feishu.Enabled
+			}
+			if strings.TrimSpace(feishu.Mode) != "" {
+				cfg.FeishuMode = strings.ToLower(strings.TrimSpace(feishu.Mode))
+			}
+			if strings.TrimSpace(feishu.AppID) != "" {
+				cfg.FeishuAppID = strings.TrimSpace(feishu.AppID)
+			}
+			if strings.TrimSpace(feishu.AppSecret) != "" {
+				cfg.FeishuAppSecret = strings.TrimSpace(feishu.AppSecret)
+			}
+			if strings.TrimSpace(feishu.VerificationToken) != "" {
+				cfg.FeishuVerificationToken = strings.TrimSpace(feishu.VerificationToken)
+			}
+			if strings.TrimSpace(feishu.EncryptKey) != "" {
+				cfg.FeishuEncryptKey = strings.TrimSpace(feishu.EncryptKey)
+			}
+			if strings.TrimSpace(feishu.DefaultAgent) != "" {
+				cfg.FeishuDefaultAgentID = strings.TrimSpace(feishu.DefaultAgent)
+			}
+			if feishu.AgentBindings != nil {
+				cfg.FeishuAgentBindings = filterBindingMap(feishu.AgentBindings)
+			}
+			if len(feishu.Instances) > 0 {
+				cfg.FeishuInstances = make([]FeishuInstance, 0, len(feishu.Instances))
+				for _, item := range feishu.Instances {
+					instance := FeishuInstance{
+						ID:                strings.TrimSpace(item.ID),
+						Enabled:           valueOrDefaultBool(item.Enabled, true),
+						Mode:              strings.ToLower(strings.TrimSpace(item.Mode)),
+						AppID:             strings.TrimSpace(item.AppID),
+						AppSecret:         strings.TrimSpace(item.AppSecret),
+						VerificationToken: strings.TrimSpace(item.VerificationToken),
+						EncryptKey:        strings.TrimSpace(item.EncryptKey),
+						DefaultAgentID:    strings.TrimSpace(item.DefaultAgent),
+						AgentBindings:     filterBindingMap(item.AgentBindings),
+					}
+					if instance.ID == "" {
+						instance.ID = fmt.Sprintf("feishu-%d", len(cfg.FeishuInstances)+1)
+					}
+					if instance.Mode == "" {
+						instance.Mode = "webhook"
+					}
+					cfg.FeishuInstances = append(cfg.FeishuInstances, instance)
+				}
+			}
+		}
+		if raw.Channels.WeCom != nil {
+			wecom := raw.Channels.WeCom
+			if wecom.Enabled != nil {
+				cfg.WeComEnabled = *wecom.Enabled
+			}
+			if strings.TrimSpace(wecom.Mode) != "" {
+				cfg.WeComMode = strings.ToLower(strings.TrimSpace(wecom.Mode))
+			}
+			if strings.TrimSpace(wecom.CorpID) != "" {
+				cfg.WeComCorpID = strings.TrimSpace(wecom.CorpID)
+			}
+			if strings.TrimSpace(wecom.AgentID) != "" {
+				cfg.WeComAgentID = strings.TrimSpace(wecom.AgentID)
+			}
+			if strings.TrimSpace(wecom.Secret) != "" {
+				cfg.WeComSecret = strings.TrimSpace(wecom.Secret)
+			}
+			if strings.TrimSpace(wecom.Token) != "" {
+				cfg.WeComToken = strings.TrimSpace(wecom.Token)
+			}
+			if strings.TrimSpace(wecom.EncodingAESKey) != "" {
+				cfg.WeComEncodingAESKey = strings.TrimSpace(wecom.EncodingAESKey)
+			}
+			if strings.TrimSpace(wecom.DefaultAgent) != "" {
+				cfg.WeComDefaultAgentID = strings.TrimSpace(wecom.DefaultAgent)
+			}
+			if wecom.AgentBindings != nil {
+				cfg.WeComAgentBindings = filterBindingMap(wecom.AgentBindings)
+			}
+			if len(wecom.Instances) > 0 {
+				cfg.WeComInstances = make([]WeComInstance, 0, len(wecom.Instances))
+				for _, item := range wecom.Instances {
+					instance := WeComInstance{
+						ID:             strings.TrimSpace(item.ID),
+						Enabled:        valueOrDefaultBool(item.Enabled, true),
+						Mode:           strings.ToLower(strings.TrimSpace(item.Mode)),
+						CorpID:         strings.TrimSpace(item.CorpID),
+						AgentID:        strings.TrimSpace(item.AgentID),
+						Secret:         strings.TrimSpace(item.Secret),
+						Token:          strings.TrimSpace(item.Token),
+						EncodingAESKey: strings.TrimSpace(item.EncodingAESKey),
+						DefaultAgentID: strings.TrimSpace(item.DefaultAgent),
+						AgentBindings:  filterBindingMap(item.AgentBindings),
+					}
+					if instance.ID == "" {
+						instance.ID = fmt.Sprintf("wecom-%d", len(cfg.WeComInstances)+1)
+					}
+					if instance.Mode == "" {
+						instance.Mode = "webhook"
+					}
+					cfg.WeComInstances = append(cfg.WeComInstances, instance)
+				}
+			}
+		}
 	}
 
 	if raw.Gateway != nil {
@@ -2232,6 +2544,10 @@ func (s *Snapshot) normalizeChannelInstances() {
 	s.DiscordAgentBindings = filterBindingMap(s.DiscordAgentBindings)
 	s.TelegramDefaultAgentID = strings.TrimSpace(s.TelegramDefaultAgentID)
 	s.TelegramAgentBindings = filterBindingMap(s.TelegramAgentBindings)
+	s.FeishuDefaultAgentID = strings.TrimSpace(s.FeishuDefaultAgentID)
+	s.FeishuAgentBindings = filterBindingMap(s.FeishuAgentBindings)
+	s.WeComDefaultAgentID = strings.TrimSpace(s.WeComDefaultAgentID)
+	s.WeComAgentBindings = filterBindingMap(s.WeComAgentBindings)
 
 	if len(s.DiscordInstances) == 0 && hasAnyDiscordLegacyConfig(*s) {
 		s.DiscordInstances = []DiscordInstance{{
@@ -2263,12 +2579,43 @@ func (s *Snapshot) normalizeChannelInstances() {
 			AgentBindings:           filterBindingMap(s.TelegramAgentBindings),
 		}}
 	}
+	if len(s.FeishuInstances) == 0 && hasAnyFeishuLegacyConfig(*s) {
+		s.FeishuInstances = []FeishuInstance{{
+			ID:                "feishu-default",
+			Enabled:           s.FeishuEnabled,
+			Mode:              strings.ToLower(strings.TrimSpace(s.FeishuMode)),
+			AppID:             strings.TrimSpace(s.FeishuAppID),
+			AppSecret:         strings.TrimSpace(s.FeishuAppSecret),
+			VerificationToken: strings.TrimSpace(s.FeishuVerificationToken),
+			EncryptKey:        strings.TrimSpace(s.FeishuEncryptKey),
+			DefaultAgentID:    strings.TrimSpace(s.FeishuDefaultAgentID),
+			AgentBindings:     filterBindingMap(s.FeishuAgentBindings),
+		}}
+	}
+	if len(s.WeComInstances) == 0 && hasAnyWeComLegacyConfig(*s) {
+		s.WeComInstances = []WeComInstance{{
+			ID:             "wecom-default",
+			Enabled:        s.WeComEnabled,
+			Mode:           strings.ToLower(strings.TrimSpace(s.WeComMode)),
+			CorpID:         strings.TrimSpace(s.WeComCorpID),
+			AgentID:        strings.TrimSpace(s.WeComAgentID),
+			Secret:         strings.TrimSpace(s.WeComSecret),
+			Token:          strings.TrimSpace(s.WeComToken),
+			EncodingAESKey: strings.TrimSpace(s.WeComEncodingAESKey),
+			DefaultAgentID: strings.TrimSpace(s.WeComDefaultAgentID),
+			AgentBindings:  filterBindingMap(s.WeComAgentBindings),
+		}}
+	}
 
 	s.DiscordInstances = normalizeDiscordInstances(s.DiscordInstances, s.DiscordDefaultAgentID)
 	s.TelegramInstances = normalizeTelegramInstances(s.TelegramInstances, s.TelegramDefaultAgentID, s.TelegramPollingTimeout, s.TelegramWebhookPath)
+	s.FeishuInstances = normalizeFeishuInstances(s.FeishuInstances, s.FeishuDefaultAgentID)
+	s.WeComInstances = normalizeWeComInstances(s.WeComInstances, s.WeComDefaultAgentID)
 
 	s.DiscordEnabled = hasEnabledDiscordInstance(s.DiscordInstances)
 	s.TelegramEnabled = hasEnabledTelegramInstance(s.TelegramInstances)
+	s.FeishuEnabled = hasEnabledFeishuInstance(s.FeishuInstances)
+	s.WeComEnabled = hasEnabledWeComInstance(s.WeComInstances)
 
 	if first, ok := firstDiscordInstance(s.DiscordInstances); ok {
 		s.DiscordBotToken = strings.TrimSpace(first.BotToken)
@@ -2287,6 +2634,21 @@ func (s *Snapshot) normalizeChannelInstances() {
 		s.TelegramWebhookURL = strings.TrimSpace(first.WebhookURL)
 		s.TelegramWebhookPath = normalizeWebhookPath(first.WebhookPath)
 		s.TelegramWebhookSecret = strings.TrimSpace(first.WebhookSecret)
+	}
+	if first, ok := firstFeishuInstance(s.FeishuInstances); ok {
+		s.FeishuMode = strings.ToLower(strings.TrimSpace(first.Mode))
+		s.FeishuAppID = strings.TrimSpace(first.AppID)
+		s.FeishuAppSecret = strings.TrimSpace(first.AppSecret)
+		s.FeishuVerificationToken = strings.TrimSpace(first.VerificationToken)
+		s.FeishuEncryptKey = strings.TrimSpace(first.EncryptKey)
+	}
+	if first, ok := firstWeComInstance(s.WeComInstances); ok {
+		s.WeComMode = strings.ToLower(strings.TrimSpace(first.Mode))
+		s.WeComCorpID = strings.TrimSpace(first.CorpID)
+		s.WeComAgentID = strings.TrimSpace(first.AgentID)
+		s.WeComSecret = strings.TrimSpace(first.Secret)
+		s.WeComToken = strings.TrimSpace(first.Token)
+		s.WeComEncodingAESKey = strings.TrimSpace(first.EncodingAESKey)
 	}
 }
 
@@ -2452,6 +2814,83 @@ func normalizeTelegramInstances(values []TelegramInstance, fallbackAgent string,
 	return result
 }
 
+func normalizeFeishuInstances(values []FeishuInstance, fallbackAgent string) []FeishuInstance {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]FeishuInstance, 0, len(values))
+	seen := make(map[string]int, len(values))
+
+	for idx, raw := range values {
+		item := raw
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = fmt.Sprintf("feishu-%d", idx+1)
+		}
+		seen[id]++
+		if seen[id] > 1 {
+			id = fmt.Sprintf("%s-%d", id, seen[id])
+		}
+
+		item.ID = id
+		item.Mode = strings.ToLower(strings.TrimSpace(item.Mode))
+		item.AppID = strings.TrimSpace(item.AppID)
+		item.AppSecret = strings.TrimSpace(item.AppSecret)
+		item.VerificationToken = strings.TrimSpace(item.VerificationToken)
+		item.EncryptKey = strings.TrimSpace(item.EncryptKey)
+		item.DefaultAgentID = strings.TrimSpace(item.DefaultAgentID)
+		item.AgentBindings = filterBindingMap(item.AgentBindings)
+		if item.DefaultAgentID == "" {
+			item.DefaultAgentID = strings.TrimSpace(fallbackAgent)
+		}
+		if item.Mode == "" {
+			item.Mode = "webhook"
+		}
+		result = append(result, item)
+	}
+
+	return result
+}
+
+func normalizeWeComInstances(values []WeComInstance, fallbackAgent string) []WeComInstance {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]WeComInstance, 0, len(values))
+	seen := make(map[string]int, len(values))
+
+	for idx, raw := range values {
+		item := raw
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = fmt.Sprintf("wecom-%d", idx+1)
+		}
+		seen[id]++
+		if seen[id] > 1 {
+			id = fmt.Sprintf("%s-%d", id, seen[id])
+		}
+
+		item.ID = id
+		item.Mode = strings.ToLower(strings.TrimSpace(item.Mode))
+		item.CorpID = strings.TrimSpace(item.CorpID)
+		item.AgentID = strings.TrimSpace(item.AgentID)
+		item.Secret = strings.TrimSpace(item.Secret)
+		item.Token = strings.TrimSpace(item.Token)
+		item.EncodingAESKey = strings.TrimSpace(item.EncodingAESKey)
+		item.DefaultAgentID = strings.TrimSpace(item.DefaultAgentID)
+		item.AgentBindings = filterBindingMap(item.AgentBindings)
+		if item.DefaultAgentID == "" {
+			item.DefaultAgentID = strings.TrimSpace(fallbackAgent)
+		}
+		if item.Mode == "" {
+			item.Mode = "webhook"
+		}
+		result = append(result, item)
+	}
+
+	return result
+}
+
 func hasEnabledDiscordInstance(values []DiscordInstance) bool {
 	for _, item := range values {
 		if item.Enabled {
@@ -2462,6 +2901,24 @@ func hasEnabledDiscordInstance(values []DiscordInstance) bool {
 }
 
 func hasEnabledTelegramInstance(values []TelegramInstance) bool {
+	for _, item := range values {
+		if item.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEnabledFeishuInstance(values []FeishuInstance) bool {
+	for _, item := range values {
+		if item.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEnabledWeComInstance(values []WeComInstance) bool {
 	for _, item := range values {
 		if item.Enabled {
 			return true
@@ -2491,6 +2948,27 @@ func hasAnyTelegramLegacyConfig(s Snapshot) bool {
 		len(s.TelegramAgentBindings) > 0
 }
 
+func hasAnyFeishuLegacyConfig(s Snapshot) bool {
+	return s.FeishuEnabled ||
+		strings.TrimSpace(s.FeishuAppID) != "" ||
+		strings.TrimSpace(s.FeishuAppSecret) != "" ||
+		strings.TrimSpace(s.FeishuVerificationToken) != "" ||
+		strings.TrimSpace(s.FeishuEncryptKey) != "" ||
+		strings.TrimSpace(s.FeishuDefaultAgentID) != "" ||
+		len(s.FeishuAgentBindings) > 0
+}
+
+func hasAnyWeComLegacyConfig(s Snapshot) bool {
+	return s.WeComEnabled ||
+		strings.TrimSpace(s.WeComCorpID) != "" ||
+		strings.TrimSpace(s.WeComAgentID) != "" ||
+		strings.TrimSpace(s.WeComSecret) != "" ||
+		strings.TrimSpace(s.WeComToken) != "" ||
+		strings.TrimSpace(s.WeComEncodingAESKey) != "" ||
+		strings.TrimSpace(s.WeComDefaultAgentID) != "" ||
+		len(s.WeComAgentBindings) > 0
+}
+
 func firstDiscordInstance(values []DiscordInstance) (DiscordInstance, bool) {
 	for _, item := range values {
 		if item.Enabled {
@@ -2511,6 +2989,30 @@ func firstTelegramInstance(values []TelegramInstance) (TelegramInstance, bool) {
 	}
 	if len(values) == 0 {
 		return TelegramInstance{}, false
+	}
+	return values[0], true
+}
+
+func firstFeishuInstance(values []FeishuInstance) (FeishuInstance, bool) {
+	for _, item := range values {
+		if item.Enabled {
+			return item, true
+		}
+	}
+	if len(values) == 0 {
+		return FeishuInstance{}, false
+	}
+	return values[0], true
+}
+
+func firstWeComInstance(values []WeComInstance) (WeComInstance, bool) {
+	for _, item := range values {
+		if item.Enabled {
+			return item, true
+		}
+	}
+	if len(values) == 0 {
+		return WeComInstance{}, false
 	}
 	return values[0], true
 }
@@ -2630,6 +3132,74 @@ func (s Snapshot) Validate() error {
 		}
 	}
 
+	if err := s.validateChannelAgentReference(s.FeishuDefaultAgentID); err != nil {
+		return err
+	}
+	for _, agentID := range s.FeishuAgentBindings {
+		if err := s.validateChannelAgentReference(agentID); err != nil {
+			return err
+		}
+	}
+	for _, instance := range s.FeishuInstances {
+		if strings.TrimSpace(instance.ID) == "" {
+			return ErrInvalidConfig
+		}
+		if instance.Enabled {
+			mode := strings.ToLower(strings.TrimSpace(instance.Mode))
+			if mode != "webhook" {
+				return ErrInvalidConfig
+			}
+			if strings.TrimSpace(instance.AppID) == "" ||
+				strings.TrimSpace(instance.AppSecret) == "" ||
+				strings.TrimSpace(instance.VerificationToken) == "" {
+				return ErrInvalidConfig
+			}
+		}
+		if err := s.validateChannelAgentReference(instance.DefaultAgentID); err != nil {
+			return err
+		}
+		for _, agentID := range instance.AgentBindings {
+			if err := s.validateChannelAgentReference(agentID); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := s.validateChannelAgentReference(s.WeComDefaultAgentID); err != nil {
+		return err
+	}
+	for _, agentID := range s.WeComAgentBindings {
+		if err := s.validateChannelAgentReference(agentID); err != nil {
+			return err
+		}
+	}
+	for _, instance := range s.WeComInstances {
+		if strings.TrimSpace(instance.ID) == "" {
+			return ErrInvalidConfig
+		}
+		if instance.Enabled {
+			mode := strings.ToLower(strings.TrimSpace(instance.Mode))
+			if mode != "webhook" {
+				return ErrInvalidConfig
+			}
+			if strings.TrimSpace(instance.CorpID) == "" ||
+				strings.TrimSpace(instance.AgentID) == "" ||
+				strings.TrimSpace(instance.Secret) == "" ||
+				strings.TrimSpace(instance.Token) == "" ||
+				strings.TrimSpace(instance.EncodingAESKey) == "" {
+				return ErrInvalidConfig
+			}
+		}
+		if err := s.validateChannelAgentReference(instance.DefaultAgentID); err != nil {
+			return err
+		}
+		for _, agentID := range instance.AgentBindings {
+			if err := s.validateChannelAgentReference(agentID); err != nil {
+				return err
+			}
+		}
+	}
+
 	if s.Database.Enabled {
 		if strings.TrimSpace(s.Database.Driver) == "" {
 			return ErrInvalidConfig
@@ -2713,6 +3283,16 @@ func (s Snapshot) IsChannelEnabled(channel string) bool {
 			return hasEnabledTelegramInstance(s.TelegramInstances)
 		}
 		return s.TelegramEnabled
+	case "feishu":
+		if len(s.FeishuInstances) > 0 {
+			return hasEnabledFeishuInstance(s.FeishuInstances)
+		}
+		return s.FeishuEnabled
+	case "wecom":
+		if len(s.WeComInstances) > 0 {
+			return hasEnabledWeComInstance(s.WeComInstances)
+		}
+		return s.WeComEnabled
 	default:
 		return false
 	}

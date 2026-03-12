@@ -67,6 +67,12 @@ type agentRuntime struct {
 	skills      *skillregistry.Service
 }
 
+type adapterRetryScope struct {
+	channel   string
+	instance  string
+	component string
+}
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		log.Fatalf("%v", err)
@@ -244,7 +250,11 @@ func runServe() error {
 			log.Printf("telegram webhook route registered: instance=%s path=%s", instanceCopy.ID, path)
 
 			go func() {
-				runAdapterWithRetry(ctx, fmt.Sprintf("telegram webhook registrar[%s]", instanceCopy.ID), func(listenCtx context.Context) error {
+				runAdapterWithRetry(ctx, adapterRetryScope{
+					channel:   "telegram",
+					instance:  instanceCopy.ID,
+					component: "webhook_registrar",
+				}, func(listenCtx context.Context) error {
 					if err := telegramAdapter.SetWebhook(listenCtx, instanceCopy.WebhookURL); err != nil {
 						return err
 					}
@@ -257,7 +267,11 @@ func runServe() error {
 		}
 
 		go func() {
-			runAdapterWithRetry(ctx, fmt.Sprintf("telegram adapter[%s]", instanceCopy.ID), func(listenCtx context.Context) error {
+			runAdapterWithRetry(ctx, adapterRetryScope{
+				channel:   "telegram",
+				instance:  instanceCopy.ID,
+				component: "adapter",
+			}, func(listenCtx context.Context) error {
 				log.Printf("telegram adapter started: instance=%s mode=%s", instanceCopy.ID, instanceCopy.Mode)
 				return telegramAdapter.Listen(listenCtx, telegramInboundHandler)
 			})
@@ -293,7 +307,11 @@ func runServe() error {
 
 		instanceCopy := instance
 		go func() {
-			runAdapterWithRetry(ctx, fmt.Sprintf("discord adapter[%s]", instanceCopy.ID), func(listenCtx context.Context) error {
+			runAdapterWithRetry(ctx, adapterRetryScope{
+				channel:   "discord",
+				instance:  instanceCopy.ID,
+				component: "adapter",
+			}, func(listenCtx context.Context) error {
 				log.Printf("discord gateway adapter started: instance=%s", instanceCopy.ID)
 				return discordAdapter.Listen(listenCtx, func(messageCtx context.Context, envelope discordchat.InboundEnvelope) error {
 					scopeKey := routingScopeKey("discord", instanceCopy.ID, envelope.Message.ConversationID)
@@ -335,9 +353,22 @@ func runServe() error {
 	}
 }
 
-func runAdapterWithRetry(ctx context.Context, component string, listen func(context.Context) error) {
+func runAdapterWithRetry(ctx context.Context, scope adapterRetryScope, listen func(context.Context) error) {
 	backoff := 2 * time.Second
-	const maxBackoff = 30 * time.Second
+	const maxBackoff = 60 * time.Second
+	retryCount := 0
+	channel := strings.TrimSpace(scope.channel)
+	if channel == "" {
+		channel = "unknown"
+	}
+	instance := strings.TrimSpace(scope.instance)
+	if instance == "" {
+		instance = "default"
+	}
+	component := strings.TrimSpace(scope.component)
+	if component == "" {
+		component = "adapter"
+	}
 
 	for {
 		if ctx.Err() != nil {
@@ -348,7 +379,16 @@ func runAdapterWithRetry(ctx context.Context, component string, listen func(cont
 			return
 		}
 
-		log.Printf("%s stopped: %v; retrying in %s", component, err, backoff)
+		retryCount++
+		log.Printf(
+			"channel adapter stopped: channel=%s instance=%s component=%s retry_count=%d last_error=%q retry_in=%s",
+			channel,
+			instance,
+			component,
+			retryCount,
+			err.Error(),
+			backoff,
+		)
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
@@ -559,7 +599,7 @@ func printConfigUsage() {
 	fmt.Fprintln(os.Stdout, "  synapsex config path")
 	fmt.Fprintln(os.Stdout, "  synapsex config get [dot-key]")
 	fmt.Fprintln(os.Stdout, "  synapsex config set <dot-key> <value>")
-	fmt.Fprintln(os.Stdout, "  synapsex config channel [telegram|discord]")
+	fmt.Fprintln(os.Stdout, "  synapsex config channel [telegram|discord|feishu|wecom]")
 	fmt.Fprintln(os.Stdout, "  synapsex config agent list")
 	fmt.Fprintln(os.Stdout, "  synapsex config agent add --id <agent-id> [--profile codex|claude|local-smoke] [--workspace <path>] [--timeout <seconds>] [--default]")
 	fmt.Fprintln(os.Stdout, "  synapsex config agent default <agent-id>")
@@ -605,45 +645,6 @@ func runConfigSet(args []string) error {
 	}
 	fmt.Fprintf(os.Stdout, "config updated: %s\n", path)
 	return nil
-}
-
-func runConfigChannelCommand(args []string) error {
-	if _, _, err := config.EnsureDefaultFile(); err != nil {
-		return fmt.Errorf("prepare config: %w", err)
-	}
-
-	channel := ""
-	if len(args) > 0 {
-		channel = strings.ToLower(strings.TrimSpace(args[0]))
-	}
-	if channel == "" {
-		if !interactiveInputAvailable() {
-			return fmt.Errorf("channel is required in non-interactive mode; use `synapsex config channel telegram` or `synapsex config channel discord`")
-		}
-		selected, err := promptMenu(
-			"选择要增量配置的 Channel:",
-			[]menuOption{
-				{key: "telegram", label: "Telegram", aliases: []string{"1", "telegram", "tg"}, selected: true},
-				{key: "discord", label: "Discord", aliases: []string{"2", "discord", "dc"}},
-			},
-		)
-		if err != nil {
-			return err
-		}
-		channel = selected
-	}
-
-	switch channel {
-	case "telegram", "tg":
-		return runConfigChannelTelegram()
-	case "discord", "dc":
-		return runConfigChannelDiscord()
-	case "help", "-h", "--help":
-		fmt.Fprintln(os.Stdout, "Usage: synapsex config channel [telegram|discord]")
-		return nil
-	default:
-		return fmt.Errorf("unknown channel %q; expected telegram or discord", channel)
-	}
 }
 
 func runConfigChannelTelegram() error {

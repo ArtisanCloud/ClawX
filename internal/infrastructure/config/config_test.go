@@ -352,6 +352,93 @@ func TestLoadParsesChannelInstancesAndAgentBindings(t *testing.T) {
 	}
 }
 
+func TestLoadParsesFeishuAndWeComInstances(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	content := `{
+  "providers": {
+    "profiles": {
+      "codex": {
+        "kind": "codex-cli",
+        "command": "codex"
+      }
+    }
+  },
+  "agents": {
+    "default": "main",
+    "list": [
+      {
+        "id": "main",
+        "profile": "codex",
+        "workspace": ".",
+        "default": true
+      }
+    ]
+  },
+  "runtime": {
+    "allowedRoots": ["."],
+    "defaultCwd": "."
+  },
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "defaultAgent": "main",
+      "instances": [
+        {
+          "id": "feishu-default",
+          "enabled": true,
+          "mode": "webhook",
+          "appId": "app-id",
+          "appSecret": "app-secret",
+          "verificationToken": "verify-token",
+          "encryptKey": "encrypt-key",
+          "defaultAgent": "main"
+        }
+      ]
+    },
+    "wecom": {
+      "enabled": true,
+      "defaultAgent": "main",
+      "instances": [
+        {
+          "id": "wecom-default",
+          "enabled": true,
+          "mode": "webhook",
+          "corpId": "corp-id",
+          "agentId": "agent-id",
+          "secret": "secret-value",
+          "token": "token-value",
+          "encodingAesKey": "encoding-key",
+          "defaultAgent": "main"
+        }
+      ]
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if !cfg.FeishuEnabled || len(cfg.FeishuInstances) != 1 {
+		t.Fatalf("unexpected feishu config: enabled=%v instances=%d", cfg.FeishuEnabled, len(cfg.FeishuInstances))
+	}
+	if cfg.FeishuInstances[0].ID != "feishu-default" {
+		t.Fatalf("unexpected feishu instance id: %q", cfg.FeishuInstances[0].ID)
+	}
+	if !cfg.WeComEnabled || len(cfg.WeComInstances) != 1 {
+		t.Fatalf("unexpected wecom config: enabled=%v instances=%d", cfg.WeComEnabled, len(cfg.WeComInstances))
+	}
+	if cfg.WeComInstances[0].ID != "wecom-default" {
+		t.Fatalf("unexpected wecom instance id: %q", cfg.WeComInstances[0].ID)
+	}
+}
+
 func TestLoadRejectsUnknownChannelAgentBinding(t *testing.T) {
 	tempDir := t.TempDir()
 	chdirForTest(t, tempDir)
@@ -587,6 +674,42 @@ func TestValidateRejectsTelegramWebhookWithoutURL(t *testing.T) {
 			RequireCommandOrMention: true,
 			PollingTimeout:          30,
 			DefaultAgentID:          "main",
+		},
+	}
+	cfg.normalizeChannelInstances()
+
+	err := cfg.Validate()
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got %v", err)
+	}
+}
+
+func TestValidateRejectsFeishuWebhookWithoutCredentials(t *testing.T) {
+	cfg := defaultSnapshot()
+	cfg.FeishuInstances = []FeishuInstance{
+		{
+			ID:             "feishu-default",
+			Enabled:        true,
+			Mode:           "webhook",
+			DefaultAgentID: "main",
+		},
+	}
+	cfg.normalizeChannelInstances()
+
+	err := cfg.Validate()
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got %v", err)
+	}
+}
+
+func TestValidateRejectsWeComWebhookWithoutCredentials(t *testing.T) {
+	cfg := defaultSnapshot()
+	cfg.WeComInstances = []WeComInstance{
+		{
+			ID:             "wecom-default",
+			Enabled:        true,
+			Mode:           "webhook",
+			DefaultAgentID: "main",
 		},
 	}
 	cfg.normalizeChannelInstances()

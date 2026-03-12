@@ -35,13 +35,13 @@
 
 **⚠️ 关键说明**: 本阶段完成前不得进入用户故事实现
 
-- [ ] T004 扩展渠道实例配置模型支持 `feishu` 与 `wecom` 于 /home/ubuntu/workspace/SynapseX/internal/infrastructure/config/config.go
-- [ ] T005 [P] 扩展配置校验支持多渠道必填项与模式检查于 /home/ubuntu/workspace/SynapseX/internal/infrastructure/config/config.go
-- [ ] T006 [P] 增加多渠道配置单元测试于 /home/ubuntu/workspace/SynapseX/internal/infrastructure/config/config_test.go
-- [ ] T007 实现统一渠道适配器错误重试编排（通道级隔离）于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/main.go
-- [ ] T008 [P] 增加“单渠道失败不退出主进程”集成测试于 /home/ubuntu/workspace/SynapseX/tests/integration/channels_runtime_isolation_test.go
-- [ ] T009 实现 `synapsex config channel <name>` 命令骨架于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/config_channel.go
-- [ ] T010 [P] 增加增量配置回写测试骨架于 /home/ubuntu/workspace/SynapseX/tests/integration/channel_config_incremental_test.go
+- [X] T004 扩展渠道实例配置模型支持 `feishu` 与 `wecom` 于 /home/ubuntu/workspace/SynapseX/internal/infrastructure/config/config.go
+- [X] T005 [P] 扩展配置校验支持多渠道必填项与模式检查于 /home/ubuntu/workspace/SynapseX/internal/infrastructure/config/config.go
+- [X] T006 [P] 增加多渠道配置单元测试于 /home/ubuntu/workspace/SynapseX/internal/infrastructure/config/config_test.go
+- [X] T007 实现统一渠道适配器错误重试编排（通道级隔离）于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/main.go
+- [X] T008 [P] 增加“单渠道失败不退出主进程”集成测试于 /home/ubuntu/workspace/SynapseX/tests/integration/channels_runtime_isolation_test.go
+- [X] T009 实现 `synapsex config channel <name>` 命令骨架于 /home/ubuntu/workspace/SynapseX/cmd/synapsex/config_channel.go
+- [X] T010 [P] 增加增量配置回写测试骨架于 /home/ubuntu/workspace/SynapseX/tests/integration/channel_config_incremental_test.go
 
 **检查点**: 基础能力完成后，用户故事实现可以开始
 
