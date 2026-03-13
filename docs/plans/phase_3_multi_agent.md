@@ -87,6 +87,6 @@
 ## 交付物
 - 计划文档：`docs/plans/phase_3_multi_agent.md`（本文件）
 - 规格与任务（下一步）：
-  - `specs/005-multi-agent-orchestration/spec.md`
-  - `specs/005-multi-agent-orchestration/plan.md`
-  - `specs/005-multi-agent-orchestration/tasks.md`
+  - `specs/006-multi-agent-orchestration/spec.md`
+  - `specs/006-multi-agent-orchestration/plan.md`
+  - `specs/006-multi-agent-orchestration/tasks.md`
