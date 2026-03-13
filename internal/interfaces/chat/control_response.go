@@ -11,6 +11,7 @@ type ControlSessionSummary struct {
 }
 
 type ControlResponse struct {
+	Message            string
 	CreatedSessionID   string
 	ResumedSessionID   string
 	SwitchedSessionID  string
@@ -24,6 +25,8 @@ type ControlResponse struct {
 
 func FormatControlResponse(result ControlResponse) string {
 	switch {
+	case strings.TrimSpace(result.Message) != "":
+		return strings.TrimSpace(result.Message)
 	case result.CreatedSessionID != "":
 		return fmt.Sprintf("已创建新会话: %s", result.CreatedSessionID)
 	case result.ResumedSessionID != "":

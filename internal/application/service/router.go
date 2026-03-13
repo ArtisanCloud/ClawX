@@ -7,6 +7,7 @@ import (
 
 	"clawx/internal/application/intent"
 	"clawx/internal/domain/execution"
+	projectdomain "clawx/internal/domain/project"
 	skilldomain "clawx/internal/domain/skill"
 	"clawx/internal/infrastructure/config"
 	"clawx/internal/interfaces/chat"
@@ -45,12 +46,21 @@ type ProjectResolver interface {
 	ResolveProject(ctx context.Context, routeKey string) (projectID string, routingMode string, err error)
 }
 
+type ProjectCommandService interface {
+	ProjectResolver
+	CreateProject(ctx context.Context, projectID, name, workspacePath string) (projectdomain.Record, error)
+	ListProjects(ctx context.Context) ([]projectdomain.Record, error)
+	UseProject(ctx context.Context, routeKey, projectID, updatedBy string) (projectdomain.RouteBinding, error)
+	GetProject(ctx context.Context, projectID string) (projectdomain.Record, error)
+}
+
 type Router struct {
 	cfg            config.Snapshot
 	sessionManager *SessionManager
 	backend        execution.Backend
 	intentPipeline *intent.Pipeline
 	project        ProjectResolver
+	projectControl ProjectCommandService
 }
 
 type RouterOption func(*Router)
@@ -64,6 +74,9 @@ func WithIntentPipeline(pipeline *intent.Pipeline) RouterOption {
 func WithProjectResolver(resolver ProjectResolver) RouterOption {
 	return func(r *Router) {
 		r.project = resolver
+		if control, ok := resolver.(ProjectCommandService); ok {
+			r.projectControl = control
+		}
 	}
 }
 
@@ -193,7 +206,7 @@ func isBuiltInControlCommand(text string) bool {
 	}
 	name := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fields[0])), "/")
 	switch name {
-	case "new", "resume", "switch", "list", "cancel", "current":
+	case "new", "resume", "switch", "list", "cancel", "current", "project":
 		return true
 	default:
 		return false

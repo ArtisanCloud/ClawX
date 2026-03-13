@@ -1449,6 +1449,10 @@ func sanitizePromptInput(value string) string {
 
 func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionManager) (map[string]agentRuntime, string, error) {
 	runtimes := make(map[string]agentRuntime)
+	projectService, err := newProjectCommandService(cfg)
+	if err != nil {
+		return nil, "", fmt.Errorf("init project service: %w", err)
+	}
 
 	if len(cfg.Agents) > 0 && len(cfg.ProviderProfiles) > 0 {
 		agentIDs := sortedAgentIDs(cfg.Agents)
@@ -1484,7 +1488,13 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			if err != nil {
 				return nil, "", fmt.Errorf("init skill runtime for agent %q: %w", agent.ID, err)
 			}
-			router := service.NewRouter(runtimeCfg, sessionManager, runner, service.WithIntentPipeline(pipeline))
+			router := service.NewRouter(
+				runtimeCfg,
+				sessionManager,
+				runner,
+				service.WithIntentPipeline(pipeline),
+				service.WithProjectResolver(projectService),
+			)
 			profileCommand := strings.TrimSpace(profile.Command)
 			if profileCommand == "" {
 				switch strings.ToLower(strings.TrimSpace(profile.Kind)) {
@@ -1542,10 +1552,16 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 	primaryRouter := func() *service.Router {
 		registry, pipeline, err := buildSkillRuntimeComponents(cfg, primaryID, cfg.DefaultCWD)
 		if err != nil {
-			return service.NewRouter(cfg, sessionManager, runner)
+			return service.NewRouter(cfg, sessionManager, runner, service.WithProjectResolver(projectService))
 		}
 		primaryRegistry = registry
-		return service.NewRouter(cfg, sessionManager, runner, service.WithIntentPipeline(pipeline))
+		return service.NewRouter(
+			cfg,
+			sessionManager,
+			runner,
+			service.WithIntentPipeline(pipeline),
+			service.WithProjectResolver(projectService),
+		)
 	}()
 
 	runtimes[primaryID] = agentRuntime{
@@ -1785,7 +1801,7 @@ func handleTelegramInbound(
 
 	switch decision.Kind {
 	case service.DecisionControl:
-		result, err := runtime.router.HandleControlCommand(ctx, decision.Command, decision.ConversationID, decision.WindowID)
+		result, err := runtime.router.HandleControlCommand(ctx, decision.Command, decision.ConversationID, decision.WindowID, decision.RouteKey)
 		if err != nil {
 			sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
@@ -1874,7 +1890,7 @@ func handleFeishuInbound(
 
 	switch decision.Kind {
 	case service.DecisionControl:
-		result, err := runtime.router.HandleControlCommand(ctx, decision.Command, decision.ConversationID, decision.WindowID)
+		result, err := runtime.router.HandleControlCommand(ctx, decision.Command, decision.ConversationID, decision.WindowID, decision.RouteKey)
 		if err != nil {
 			sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
@@ -1963,7 +1979,7 @@ func handleWeComInbound(
 
 	switch decision.Kind {
 	case service.DecisionControl:
-		result, err := runtime.router.HandleControlCommand(ctx, decision.Command, decision.ConversationID, decision.WindowID)
+		result, err := runtime.router.HandleControlCommand(ctx, decision.Command, decision.ConversationID, decision.WindowID, decision.RouteKey)
 		if err != nil {
 			sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
@@ -2053,7 +2069,7 @@ func handleDiscordInbound(
 
 	switch decision.Kind {
 	case service.DecisionControl:
-		result, err := runtime.router.HandleControlCommand(ctx, decision.Command, decision.ConversationID, decision.WindowID)
+		result, err := runtime.router.HandleControlCommand(ctx, decision.Command, decision.ConversationID, decision.WindowID, decision.RouteKey)
 		if err != nil {
 			sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
@@ -2207,6 +2223,7 @@ func startDiscordTypingLoop(ctx context.Context, adapter *discordchat.Adapter, t
 
 func toControlResponse(result service.ControlFlowResult) chatiface.ControlResponse {
 	response := chatiface.ControlResponse{
+		Message:            result.Message,
 		CreatedSessionID:   result.CreatedSessionID,
 		ResumedSessionID:   result.ResumedSessionID,
 		SwitchedSessionID:  result.SwitchedSessionID,

@@ -62,17 +62,17 @@
 
 ### 测试任务（US1）
 
-- [ ] T018 [P] [US1] 增加 `/project create/list/current` 命令单测于 /home/ubuntu/workspace/ClawX/tests/unit/project_command_create_list_current_test.go
-- [ ] T019 [P] [US1] 增加 `/project use` 切换集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_use_switch_test.go
-- [ ] T020 [P] [US1] 增加 workspace 自动创建与状态校验测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_workspace_bootstrap_test.go
+- [X] T018 [P] [US1] 增加 `/project create/list/current` 命令单测于 /home/ubuntu/workspace/ClawX/tests/unit/project_command_create_list_current_test.go
+- [X] T019 [P] [US1] 增加 `/project use` 切换集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_use_switch_test.go
+- [X] T020 [P] [US1] 增加 workspace 自动创建与状态校验测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_workspace_bootstrap_test.go
 
 ### 实现任务（US1）
 
-- [ ] T021 [US1] 新增 `/project` CLI 命令入口于 /home/ubuntu/workspace/ClawX/cmd/clawx/project.go
-- [ ] T022 [US1] 接入 `/project create` 与项目目录初始化于 /home/ubuntu/workspace/ClawX/internal/application/project/service_create.go
-- [ ] T023 [US1] 接入 `/project list` 与状态聚合于 /home/ubuntu/workspace/ClawX/internal/application/project/service_list.go
-- [ ] T024 [US1] 接入 `/project use` 与当前 route key 绑定于 /home/ubuntu/workspace/ClawX/internal/application/project/service_use.go
-- [ ] T025 [US1] 接入 `/project current` 查询于 /home/ubuntu/workspace/ClawX/internal/application/project/service_current.go
+- [X] T021 [US1] 新增 `/project` CLI 命令入口于 /home/ubuntu/workspace/ClawX/cmd/clawx/project.go
+- [X] T022 [US1] 接入 `/project create` 与项目目录初始化于 /home/ubuntu/workspace/ClawX/internal/application/project/service_create.go
+- [X] T023 [US1] 接入 `/project list` 与状态聚合于 /home/ubuntu/workspace/ClawX/internal/application/project/service_list.go
+- [X] T024 [US1] 接入 `/project use` 与当前 route key 绑定于 /home/ubuntu/workspace/ClawX/internal/application/project/service_use.go
+- [X] T025 [US1] 接入 `/project current` 查询于 /home/ubuntu/workspace/ClawX/internal/application/project/service_current.go
 
 **检查点**: US1 完成后，应可独立演示项目管理主路径
 

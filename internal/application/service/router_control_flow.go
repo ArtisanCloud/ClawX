@@ -3,8 +3,11 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"clawx/internal/application/command"
+	projectdomain "clawx/internal/domain/project"
 	"clawx/internal/domain/session"
 )
 
@@ -17,9 +20,33 @@ type ControlFlowResult struct {
 	Sessions           []SessionSummary
 	CurrentSession     *SessionSummary
 	CurrentChecked     bool
+	Message            string
 }
 
 func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversationID string, windowID ...string) (ControlFlowResult, error) {
+	window := ""
+	if len(windowID) > 0 {
+		window = strings.TrimSpace(windowID[0])
+	}
+	routeKey := ""
+	if len(windowID) > 1 {
+		routeKey = strings.TrimSpace(windowID[1])
+	}
+	if routeKey == "" {
+		routeKey = window
+	}
+	if routeKey == "" {
+		routeKey = "compat:" + strings.TrimSpace(conversationID)
+	}
+
+	projectCommand, err := command.ParseProjectControlCommand(rawCommand)
+	if err == nil {
+		return r.handleProjectControlCommand(ctx, projectCommand, routeKey)
+	}
+	if !errors.Is(err, command.ErrNotProjectControlCommand) {
+		return ControlFlowResult{}, err
+	}
+
 	parsed, err := command.ParseControlCommand(rawCommand, conversationID, windowID...)
 	if err != nil {
 		return ControlFlowResult{}, err
@@ -110,4 +137,65 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 	default:
 		return ControlFlowResult{}, command.ErrInvalidControlCommand
 	}
+}
+
+func (r *Router) handleProjectControlCommand(ctx context.Context, cmd command.ProjectControlCommand, routeKey string) (ControlFlowResult, error) {
+	if r.projectControl == nil {
+		return ControlFlowResult{}, command.ErrInvalidControlCommand
+	}
+
+	switch cmd.Kind {
+	case command.ProjectControlCreate:
+		record, err := r.projectControl.CreateProject(ctx, cmd.ProjectID, cmd.ProjectName, "")
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{
+			Message: fmt.Sprintf("已创建项目: %s (%s)", record.ID, record.WorkspacePath),
+		}, nil
+	case command.ProjectControlList:
+		projects, err := r.projectControl.ListProjects(ctx)
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		if len(projects) == 0 {
+			return ControlFlowResult{Message: "当前没有可用项目"}, nil
+		}
+		lines := make([]string, 0, len(projects)+1)
+		lines = append(lines, "项目列表:")
+		for _, item := range projects {
+			lines = append(lines, fmt.Sprintf("- %s [%s] %s", item.ID, normalizeProjectStatus(item.Status), item.WorkspacePath))
+		}
+		return ControlFlowResult{Message: strings.Join(lines, "\n")}, nil
+	case command.ProjectControlUse:
+		binding, err := r.projectControl.UseProject(ctx, routeKey, cmd.ProjectID, "chat-control")
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{
+			Message: fmt.Sprintf("已切换当前项目: %s (route=%s)", binding.ProjectID, binding.RouteKey),
+		}, nil
+	case command.ProjectControlCurrent:
+		projectID, mode, err := r.projectControl.ResolveProject(ctx, routeKey)
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		record, err := r.projectControl.GetProject(ctx, projectID)
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{
+			Message: fmt.Sprintf("当前项目: %s [%s] %s (mode=%s)", record.ID, normalizeProjectStatus(record.Status), record.WorkspacePath, mode),
+		}, nil
+	default:
+		return ControlFlowResult{}, command.ErrInvalidControlCommand
+	}
+}
+
+func normalizeProjectStatus(status projectdomain.Status) string {
+	value := strings.TrimSpace(strings.ToLower(string(status)))
+	if value == "" {
+		return string(projectdomain.StatusActive)
+	}
+	return value
 }
