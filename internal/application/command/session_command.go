@@ -19,6 +19,7 @@ type SessionCommand struct {
 	Mode            SessionMode
 	ConversationID  string
 	WindowID        string
+	ProjectID       string
 	ResumeSessionID string
 	Input           string
 	Backend         string
@@ -29,6 +30,7 @@ func (c SessionCommand) Normalize() (SessionCommand, error) {
 	normalized := c
 	normalized.ConversationID = strings.TrimSpace(normalized.ConversationID)
 	normalized.WindowID = strings.TrimSpace(normalized.WindowID)
+	normalized.ProjectID = strings.TrimSpace(normalized.ProjectID)
 	normalized.ResumeSessionID = strings.TrimSpace(normalized.ResumeSessionID)
 	normalized.Input = strings.TrimSpace(normalized.Input)
 	normalized.Backend = strings.TrimSpace(normalized.Backend)

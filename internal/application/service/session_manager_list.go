@@ -45,23 +45,31 @@ func (m *SessionManager) ListSessionSummariesByWindow(ctx context.Context, conve
 	if err != nil {
 		return nil, nil, err
 	}
+	projectID := projectIDFromScopedWindow(windowID)
+	filtered := make([]SessionSummary, 0, len(summaries))
+	for _, summary := range summaries {
+		if !sessionBelongsToProject(summary.ID, projectID) {
+			continue
+		}
+		filtered = append(filtered, summary)
+	}
 
 	currentRecord, err := m.GetCurrentSessionByWindow(ctx, conversationID, windowID)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionNotFound) || errors.Is(err, session.ErrWindowBindingNotFound) {
-			return summaries, nil, nil
+			return filtered, nil, nil
 		}
 		return nil, nil, err
 	}
 
-	for _, summary := range summaries {
+	for _, summary := range filtered {
 		if summary.ID != currentRecord.ID {
 			continue
 		}
 		current := summary
-		return summaries, &current, nil
+		return filtered, &current, nil
 	}
-	return summaries, nil, nil
+	return filtered, nil, nil
 }
 
 func (m *SessionManager) GetCurrentSessionByWindow(ctx context.Context, conversationID, windowID string) (session.Record, error) {
@@ -86,6 +94,9 @@ func (m *SessionManager) GetCurrentSessionByWindow(ctx context.Context, conversa
 	if strings.TrimSpace(record.ConversationID) != conversationID {
 		return session.Record{}, session.ErrSessionNotFound
 	}
+	if !sessionBelongsToProject(record.ID, projectIDFromScopedWindow(windowID)) {
+		return session.Record{}, session.ErrSessionNotFound
+	}
 	return record, nil
 }
 
@@ -103,6 +114,9 @@ func (m *SessionManager) SwitchSession(ctx context.Context, conversationID, wind
 	}
 	if strings.TrimSpace(record.ConversationID) != conversationID {
 		return session.Record{}, ErrConversationMismatch
+	}
+	if !sessionBelongsToProject(record.ID, projectIDFromScopedWindow(windowID)) {
+		return session.Record{}, session.ErrSessionNotFound
 	}
 
 	record.WindowID = windowID

@@ -61,7 +61,29 @@ func (m *SessionManager) GetWindowBinding(ctx context.Context, windowID string) 
 	if m.windowBindings == nil {
 		return session.WindowBinding{}, session.ErrWindowBindingNotFound
 	}
-	return m.windowBindings.GetWindowBinding(ctx, strings.TrimSpace(windowID))
+	windowID = strings.TrimSpace(windowID)
+	if windowID == "" {
+		return session.WindowBinding{}, session.ErrWindowBindingNotFound
+	}
+
+	binding, err := m.windowBindings.GetWindowBinding(ctx, windowID)
+	if err == nil {
+		return binding, nil
+	}
+	if !errors.Is(err, session.ErrWindowBindingNotFound) {
+		return session.WindowBinding{}, err
+	}
+	if strings.Contains(windowID, "|project:") {
+		return session.WindowBinding{}, err
+	}
+
+	scopedWindowID := buildSessionScopeWindowID(windowID, "main")
+	scopedBinding, scopedErr := m.windowBindings.GetWindowBinding(ctx, scopedWindowID)
+	if scopedErr != nil {
+		return session.WindowBinding{}, scopedErr
+	}
+	scopedBinding.WindowID = windowID
+	return scopedBinding, nil
 }
 
 func (m *SessionManager) SetWindowBinding(ctx context.Context, binding session.WindowBinding) error {
@@ -81,6 +103,7 @@ func (m *SessionManager) SetWindowBinding(ctx context.Context, binding session.W
 }
 
 func (m *SessionManager) BindWindowToSession(ctx context.Context, windowID, conversationID, sessionID string) (session.WindowBinding, error) {
+	windowID = buildSessionScopeWindowID(windowID, projectIDFromSessionID(sessionID))
 	now := m.clock()
 	binding := session.WindowBinding{
 		WindowID:         strings.TrimSpace(windowID),
@@ -99,7 +122,14 @@ func (m *SessionManager) ListWindowBindingsByConversation(ctx context.Context, c
 	if m.windowBindings == nil {
 		return nil, nil
 	}
-	return m.windowBindings.ListWindowBindingsByConversation(ctx, strings.TrimSpace(conversationID))
+	bindings, err := m.windowBindings.ListWindowBindingsByConversation(ctx, strings.TrimSpace(conversationID))
+	if err != nil {
+		return nil, err
+	}
+	for idx := range bindings {
+		bindings[idx].WindowID = compatWindowID(bindings[idx].WindowID)
+	}
+	return bindings, nil
 }
 
 func (m *SessionManager) AcquireExecution(ctx context.Context, sessionID string) (session.Record, string, error) {
@@ -193,4 +223,16 @@ func (m *SessionManager) MarkError(ctx context.Context, sessionID, lockToken, fa
 		return err
 	}
 	return m.locker.Release(ctx, sessionID, lockToken)
+}
+
+func compatWindowID(windowID string) string {
+	windowID = strings.TrimSpace(windowID)
+	idx := strings.LastIndex(windowID, "|project:")
+	if idx < 0 {
+		return windowID
+	}
+	if projectIDFromScopedWindow(windowID) != "main" {
+		return windowID
+	}
+	return strings.TrimSpace(windowID[:idx])
 }

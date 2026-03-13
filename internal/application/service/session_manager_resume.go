@@ -15,6 +15,8 @@ func (m *SessionManager) ResumeSession(ctx context.Context, cmd command.SessionC
 	if err != nil {
 		return session.Record{}, err
 	}
+	cmd.ProjectID = normalizeSessionProjectID(cmd.ProjectID)
+	cmd.WindowID = buildSessionScopeWindowID(cmd.WindowID, cmd.ProjectID)
 
 	record, err := m.repository.GetByID(ctx, trimSessionID(cmd.ResumeSessionID))
 	if err != nil {
@@ -22,6 +24,9 @@ func (m *SessionManager) ResumeSession(ctx context.Context, cmd command.SessionC
 	}
 	if record.ConversationID != cmd.ConversationID {
 		return session.Record{}, ErrConversationMismatch
+	}
+	if !sessionBelongsToProject(record.ID, cmd.ProjectID) {
+		return session.Record{}, session.ErrSessionNotFound
 	}
 
 	record.WindowID = cmd.WindowID

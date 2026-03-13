@@ -86,16 +86,16 @@
 
 ### 测试任务（US2）
 
-- [ ] T026 [P] [US2] 增加跨 route key 项目隔离集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_route_isolation_test.go
-- [ ] T027 [P] [US2] 增加 `/new` 不切项目回归测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_new_semantics_test.go
-- [ ] T028 [P] [US2] 增加会话键含 `project_id` 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/project_session_key_contract_test.go
+- [X] T026 [P] [US2] 增加跨 route key 项目隔离集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_route_isolation_test.go
+- [X] T027 [P] [US2] 增加 `/new` 不切项目回归测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_new_semantics_test.go
+- [X] T028 [P] [US2] 增加会话键含 `project_id` 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/project_session_key_contract_test.go
 
 ### 实现任务（US2）
 
-- [ ] T029 [US2] 扩展会话键生成加入 `project_id` 于 /home/ubuntu/workspace/ClawX/internal/application/service/session_manager_create.go
-- [ ] T030 [US2] 在继续会话链路透传 `project_id` 于 /home/ubuntu/workspace/ClawX/internal/application/service/session_manager_continue.go
-- [ ] T031 [US2] 在控制流中锁定 `/new` 不触发项目切换于 /home/ubuntu/workspace/ClawX/internal/application/service/router_control_flow.go
-- [ ] T032 [US2] 增加项目维度审计字段输出于 /home/ubuntu/workspace/ClawX/cmd/clawx/main.go
+- [X] T029 [US2] 扩展会话键生成加入 `project_id` 于 /home/ubuntu/workspace/ClawX/internal/application/service/session_manager_create.go
+- [X] T030 [US2] 在继续会话链路透传 `project_id` 于 /home/ubuntu/workspace/ClawX/internal/application/service/session_manager_continue.go
+- [X] T031 [US2] 在控制流中锁定 `/new` 不触发项目切换于 /home/ubuntu/workspace/ClawX/internal/application/service/router_control_flow.go
+- [X] T032 [US2] 增加项目维度审计字段输出于 /home/ubuntu/workspace/ClawX/cmd/clawx/main.go
 
 **检查点**: US1+US2 完成后，应满足“同 bot 多项目并发可用”
 

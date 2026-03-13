@@ -20,6 +20,8 @@ func (r *Router) HandleSessionFlow(ctx context.Context, cmd command.SessionComma
 	if err != nil {
 		return SessionFlowResult{}, err
 	}
+	cmd.ProjectID = normalizeSessionProjectID(cmd.ProjectID)
+	cmd.WindowID = buildSessionScopeWindowID(cmd.WindowID, cmd.ProjectID)
 
 	record, err := r.resolveSession(ctx, cmd)
 	if err != nil {
@@ -89,6 +91,7 @@ func (r *Router) resolveSession(ctx context.Context, cmd command.SessionCommand)
 				Mode:           command.ModeNew,
 				ConversationID: cmd.ConversationID,
 				WindowID:       cmd.WindowID,
+				ProjectID:      cmd.ProjectID,
 				Input:          cmd.Input,
 				Backend:        cmd.Backend,
 				CWD:            cmd.CWD,

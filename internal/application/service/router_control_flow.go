@@ -51,13 +51,19 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 	if err != nil {
 		return ControlFlowResult{}, err
 	}
+	activeProjectID, _, err := r.resolveControlProject(ctx, routeKey)
+	if err != nil {
+		return ControlFlowResult{}, err
+	}
+	scopedWindowID := buildSessionScopeWindowID(parsed.WindowID, activeProjectID)
 
 	switch parsed.Kind {
 	case command.ControlNew:
 		record, err := r.sessionManager.CreateSession(ctx, command.SessionCommand{
 			Mode:           command.ModeNew,
 			ConversationID: parsed.ConversationID,
-			WindowID:       parsed.WindowID,
+			WindowID:       scopedWindowID,
+			ProjectID:      activeProjectID,
 			Backend:        r.backend.Name(),
 			CWD:            r.cfg.DefaultCWD,
 		})
@@ -69,7 +75,8 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 		record, err := r.sessionManager.ResumeSession(ctx, command.SessionCommand{
 			Mode:            command.ModeResume,
 			ConversationID:  parsed.ConversationID,
-			WindowID:        parsed.WindowID,
+			WindowID:        scopedWindowID,
+			ProjectID:       activeProjectID,
 			ResumeSessionID: parsed.TargetSessionID,
 			Backend:         r.backend.Name(),
 			CWD:             r.cfg.DefaultCWD,
@@ -79,7 +86,7 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 		}
 		return ControlFlowResult{ResumedSessionID: record.ID}, nil
 	case command.ControlSwitch:
-		record, err := r.sessionManager.SwitchSession(ctx, parsed.ConversationID, parsed.WindowID, parsed.TargetSessionID)
+		record, err := r.sessionManager.SwitchSession(ctx, parsed.ConversationID, scopedWindowID, parsed.TargetSessionID)
 		if err != nil {
 			return ControlFlowResult{}, err
 		}
@@ -94,7 +101,7 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 			},
 		}, nil
 	case command.ControlList:
-		summaries, current, err := r.sessionManager.ListSessionSummariesByWindow(ctx, parsed.ConversationID, parsed.WindowID)
+		summaries, current, err := r.sessionManager.ListSessionSummariesByWindow(ctx, parsed.ConversationID, scopedWindowID)
 		if err != nil {
 			return ControlFlowResult{}, err
 		}
@@ -102,7 +109,7 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 		result.CurrentSession = current
 		return result, nil
 	case command.ControlCancel:
-		record, err := r.sessionManager.GetCurrentSessionByWindow(ctx, parsed.ConversationID, parsed.WindowID)
+		record, err := r.sessionManager.GetCurrentSessionByWindow(ctx, parsed.ConversationID, scopedWindowID)
 		if err != nil {
 			return ControlFlowResult{}, err
 		}
@@ -118,7 +125,7 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 		}
 		return ControlFlowResult{CancelledSessionID: cancelled.ID}, nil
 	case command.ControlCurrent:
-		record, err := r.sessionManager.GetCurrentSessionByWindow(ctx, parsed.ConversationID, parsed.WindowID)
+		record, err := r.sessionManager.GetCurrentSessionByWindow(ctx, parsed.ConversationID, scopedWindowID)
 		if err != nil {
 			if errors.Is(err, session.ErrSessionNotFound) || errors.Is(err, session.ErrWindowBindingNotFound) {
 				return ControlFlowResult{CurrentChecked: true}, nil
@@ -137,6 +144,27 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 	default:
 		return ControlFlowResult{}, command.ErrInvalidControlCommand
 	}
+}
+
+func (r *Router) resolveControlProject(ctx context.Context, routeKey string) (string, string, error) {
+	projectID := strings.TrimSpace(r.cfg.Projects.DefaultProjectID)
+	if projectID == "" {
+		projectID = "main"
+	}
+	mode := "fallback"
+	if r.project != nil {
+		resolvedID, resolvedMode, err := r.project.ResolveProject(ctx, routeKey)
+		if err != nil {
+			return "", "", err
+		}
+		if strings.TrimSpace(resolvedID) != "" {
+			projectID = strings.TrimSpace(resolvedID)
+		}
+		if strings.TrimSpace(resolvedMode) != "" {
+			mode = strings.TrimSpace(resolvedMode)
+		}
+	}
+	return normalizeSessionProjectID(projectID), mode, nil
 }
 
 func (r *Router) handleProjectControlCommand(ctx context.Context, cmd command.ProjectControlCommand, routeKey string) (ControlFlowResult, error) {
