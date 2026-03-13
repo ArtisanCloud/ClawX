@@ -203,6 +203,21 @@ func (r *Router) handleProjectControlCommand(ctx context.Context, cmd command.Pr
 		return ControlFlowResult{
 			Message: fmt.Sprintf("已切换当前项目: %s (route=%s)", binding.ProjectID, binding.RouteKey),
 		}, nil
+	case command.ProjectControlBind:
+		binding, err := r.projectControl.BindRoute(ctx, cmd.RouteKey, cmd.ProjectID, "chat-control")
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{
+			Message: fmt.Sprintf("已绑定路由: %s -> %s", binding.RouteKey, binding.ProjectID),
+		}, nil
+	case command.ProjectControlUnbind:
+		if err := r.projectControl.UnbindRoute(ctx, cmd.RouteKey); err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{
+			Message: fmt.Sprintf("已解绑路由: %s", strings.TrimSpace(cmd.RouteKey)),
+		}, nil
 	case command.ProjectControlCurrent:
 		projectID, mode, err := r.projectControl.ResolveProject(ctx, routeKey)
 		if err != nil {
@@ -214,6 +229,35 @@ func (r *Router) handleProjectControlCommand(ctx context.Context, cmd command.Pr
 		}
 		return ControlFlowResult{
 			Message: fmt.Sprintf("当前项目: %s [%s] %s (mode=%s)", record.ID, normalizeProjectStatus(record.Status), record.WorkspacePath, mode),
+		}, nil
+	case command.ProjectControlAudit:
+		report, err := r.projectControl.AuditProjects(ctx)
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		lines := []string{
+			fmt.Sprintf("项目审计: projects=%d active=%d broken=%d bindings=%d broken_bindings=%d", report.TotalProjects, report.ActiveProjects, report.BrokenProjects, report.TotalBindings, report.BrokenBindings),
+		}
+		for _, issue := range report.BindingIssues {
+			lines = append(lines, fmt.Sprintf("- binding_issue route=%s project=%s reason=%s", issue.RouteKey, issue.ProjectID, issue.Reason))
+		}
+		return ControlFlowResult{Message: strings.Join(lines, "\n")}, nil
+	case command.ProjectControlDelete:
+		record, err := r.projectControl.DeleteProject(ctx, cmd.ProjectID, cmd.Force)
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		if cmd.Force {
+			return ControlFlowResult{Message: fmt.Sprintf("已删除项目: %s (force)", record.ID)}, nil
+		}
+		return ControlFlowResult{Message: fmt.Sprintf("已删除项目: %s", record.ID)}, nil
+	case command.ProjectControlRepair:
+		record, err := r.projectControl.RepairProject(ctx, cmd.ProjectID)
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{
+			Message: fmt.Sprintf("已修复项目: %s [%s] %s", record.ID, normalizeProjectStatus(record.Status), record.WorkspacePath),
 		}, nil
 	case command.ProjectControlSuggest:
 		fromProjectID, _, err := r.resolveControlProject(ctx, routeKey)

@@ -13,6 +13,8 @@ var (
 	ErrProposalNotFound = errors.New("project proposal not found")
 	ErrProposalExpired  = errors.New("project proposal expired")
 	ErrProposalInvalid  = errors.New("project proposal is invalid")
+	ErrProjectInUse     = errors.New("project has active bindings")
+	ErrProjectBusy      = errors.New("project has active sessions")
 )
 
 type Status string
@@ -129,6 +131,23 @@ type Proposal struct {
 	CreatedAt     time.Time
 	ExpiresAt     time.Time
 	Status        ProposalStatus
+}
+
+type BindingIssue struct {
+	RouteKey  string
+	ProjectID string
+	Reason    string
+}
+
+type AuditReport struct {
+	TotalProjects    int
+	ActiveProjects   int
+	BrokenProjects   int
+	TotalBindings    int
+	BrokenBindings   int
+	BindingIssues    []BindingIssue
+	CheckedAt        time.Time
+	ChangedProjectID []string
 }
 
 func (p Proposal) Validate() error {

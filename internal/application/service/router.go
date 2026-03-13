@@ -52,7 +52,12 @@ type ProjectCommandService interface {
 	CreateProject(ctx context.Context, projectID, name, workspacePath string) (projectdomain.Record, error)
 	ListProjects(ctx context.Context) ([]projectdomain.Record, error)
 	UseProject(ctx context.Context, routeKey, projectID, updatedBy string) (projectdomain.RouteBinding, error)
+	BindRoute(ctx context.Context, routeKey, projectID, updatedBy string) (projectdomain.RouteBinding, error)
+	UnbindRoute(ctx context.Context, routeKey string) error
 	GetProject(ctx context.Context, projectID string) (projectdomain.Record, error)
+	AuditProjects(ctx context.Context) (projectdomain.AuditReport, error)
+	DeleteProject(ctx context.Context, projectID string, force bool) (projectdomain.Record, error)
+	RepairProject(ctx context.Context, projectID string) (projectdomain.Record, error)
 	SuggestProjectSwitch(ctx context.Context, routeKey, fromProjectID, toProjectID, reason string, confidence float64, createdBy string) (projectdomain.Proposal, error)
 	ConfirmProjectSwitch(ctx context.Context, proposalID, updatedBy string) (projectdomain.RouteBinding, error)
 }

@@ -28,9 +28,12 @@ type Service struct {
 	workspaceRoot  string
 	defaultProject string
 	proposalTTL    time.Duration
+	sessionChecker ActiveSessionChecker
 }
 
 type Option func(*Service)
+
+type ActiveSessionChecker func(ctx context.Context, projectID string) (bool, error)
 
 func WithClock(clock Clock) Option {
 	return func(s *Service) {
@@ -53,6 +56,12 @@ func WithDefaultProjectID(projectID string) Option {
 func WithProposalTTL(ttl time.Duration) Option {
 	return func(s *Service) {
 		s.proposalTTL = ttl
+	}
+}
+
+func WithActiveSessionChecker(checker ActiveSessionChecker) Option {
+	return func(s *Service) {
+		s.sessionChecker = checker
 	}
 }
 
@@ -159,6 +168,14 @@ func (s *Service) loadAndEnsureRegistry(ctx context.Context) (projectdomain.Regi
 		registry.UpdatedAt = now
 		changed = true
 	}
+	var brokenChanged bool
+	registry, brokenChanged, err = s.markMissingWorkspaceProjects(ctx, registry)
+	if err != nil {
+		return projectdomain.Registry{}, false, err
+	}
+	if brokenChanged {
+		changed = true
+	}
 
 	if changed {
 		if err := s.registryRepo.Save(ctx, registry); err != nil {
@@ -166,6 +183,51 @@ func (s *Service) loadAndEnsureRegistry(ctx context.Context) (projectdomain.Regi
 		}
 	}
 	return registry, changed, nil
+}
+
+func (s *Service) markMissingWorkspaceProjects(_ context.Context, registry projectdomain.Registry) (projectdomain.Registry, bool, error) {
+	if len(registry.Projects) == 0 {
+		return registry, false, nil
+	}
+
+	changed := false
+	updated := registry
+	for projectID, record := range updated.Projects {
+		if strings.TrimSpace(record.WorkspacePath) == "" {
+			if record.Status != projectdomain.StatusBroken {
+				record.Status = projectdomain.StatusBroken
+				record.UpdatedAt = s.clock()
+				updated.Projects[projectID] = record
+				changed = true
+			}
+			continue
+		}
+
+		info, err := os.Stat(record.WorkspacePath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				if record.Status != projectdomain.StatusBroken {
+					record.Status = projectdomain.StatusBroken
+					record.UpdatedAt = s.clock()
+					updated.Projects[projectID] = record
+					changed = true
+				}
+				continue
+			}
+			return projectdomain.Registry{}, false, fmt.Errorf("stat project workspace %q: %w", record.WorkspacePath, err)
+		}
+		if !info.IsDir() && record.Status != projectdomain.StatusBroken {
+			record.Status = projectdomain.StatusBroken
+			record.UpdatedAt = s.clock()
+			updated.Projects[projectID] = record
+			changed = true
+		}
+	}
+
+	if changed {
+		updated.UpdatedAt = s.clock()
+	}
+	return updated, changed, nil
 }
 
 func normalizeProjectID(raw string) string {

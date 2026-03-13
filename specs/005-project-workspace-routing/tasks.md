@@ -132,16 +132,16 @@
 
 ### 测试任务（US4）
 
-- [ ] T040 [P] [US4] 增加损坏 registry 检测测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_registry_broken_state_test.go
-- [ ] T041 [P] [US4] 增加绑定修复命令集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_binding_repair_test.go
-- [ ] T042 [P] [US4] 增加项目删除保护测试（活动绑定/会话）于 /home/ubuntu/workspace/ClawX/tests/integration/project_delete_guard_test.go
+- [X] T040 [P] [US4] 增加损坏 registry 检测测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_registry_broken_state_test.go
+- [X] T041 [P] [US4] 增加绑定修复命令集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_binding_repair_test.go
+- [X] T042 [P] [US4] 增加项目删除保护测试（活动绑定/会话）于 /home/ubuntu/workspace/ClawX/tests/integration/project_delete_guard_test.go
 
 ### 实现任务（US4）
 
-- [ ] T043 [US4] 实现 `/project bind` 与 `/project unbind` 于 /home/ubuntu/workspace/ClawX/cmd/clawx/project.go
-- [ ] T044 [US4] 实现 `/project audit` 汇总命令于 /home/ubuntu/workspace/ClawX/internal/application/project/service_audit.go
-- [ ] T045 [US4] 实现 `/project delete` 安全检查逻辑于 /home/ubuntu/workspace/ClawX/internal/application/project/service_delete.go
-- [ ] T046 [US4] 增加 broken 状态修复逻辑于 /home/ubuntu/workspace/ClawX/internal/application/project/service_repair.go
+- [X] T043 [US4] 实现 `/project bind` 与 `/project unbind` 于 /home/ubuntu/workspace/ClawX/cmd/clawx/project.go
+- [X] T044 [US4] 实现 `/project audit` 汇总命令于 /home/ubuntu/workspace/ClawX/internal/application/project/service_audit.go
+- [X] T045 [US4] 实现 `/project delete` 安全检查逻辑于 /home/ubuntu/workspace/ClawX/internal/application/project/service_delete.go
+- [X] T046 [US4] 增加 broken 状态修复逻辑于 /home/ubuntu/workspace/ClawX/internal/application/project/service_repair.go
 
 **检查点**: US4 完成后，运维治理闭环可独立验收
 
