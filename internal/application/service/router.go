@@ -30,6 +30,9 @@ type Decision struct {
 	Command        string
 	ConversationID string
 	WindowID       string
+	RouteKey       string
+	ProjectID      string
+	ProjectMode    string
 	Message        chat.Message
 	SkillName      string
 	SkillInput     string
@@ -38,11 +41,16 @@ type Decision struct {
 	Skill          *skilldomain.Definition
 }
 
+type ProjectResolver interface {
+	ResolveProject(ctx context.Context, routeKey string) (projectID string, routingMode string, err error)
+}
+
 type Router struct {
 	cfg            config.Snapshot
 	sessionManager *SessionManager
 	backend        execution.Backend
 	intentPipeline *intent.Pipeline
+	project        ProjectResolver
 }
 
 type RouterOption func(*Router)
@@ -50,6 +58,12 @@ type RouterOption func(*Router)
 func WithIntentPipeline(pipeline *intent.Pipeline) RouterOption {
 	return func(r *Router) {
 		r.intentPipeline = pipeline
+	}
+}
+
+func WithProjectResolver(resolver ProjectResolver) RouterOption {
+	return func(r *Router) {
+		r.project = resolver
 	}
 }
 
@@ -80,7 +94,11 @@ func (r *Router) Route(ctx context.Context, message chat.Message) (Decision, err
 	decision := Decision{
 		ConversationID: message.ConversationID,
 		WindowID:       message.WindowID,
+		RouteKey:       strings.TrimSpace(message.RouteKey),
 		Message:        message,
+	}
+	if err := r.resolveProject(ctx, &decision); err != nil {
+		return Decision{}, err
 	}
 
 	if isBuiltInControlCommand(text) {
@@ -124,6 +142,41 @@ func (r *Router) Route(ctx context.Context, message chat.Message) (Decision, err
 
 	decision.Kind = DecisionExecute
 	return decision, nil
+}
+
+func (r *Router) resolveProject(ctx context.Context, decision *Decision) error {
+	if decision == nil {
+		return nil
+	}
+
+	projectID := strings.TrimSpace(r.cfg.Projects.DefaultProjectID)
+	if projectID == "" {
+		projectID = "main"
+	}
+	mode := "fallback"
+
+	routeKey := strings.TrimSpace(decision.RouteKey)
+	if routeKey == "" {
+		routeKey = "compat:" + strings.TrimSpace(decision.ConversationID)
+	}
+	decision.RouteKey = routeKey
+
+	if r.project != nil {
+		resolvedID, resolvedMode, err := r.project.ResolveProject(ctx, routeKey)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(resolvedID) != "" {
+			projectID = strings.TrimSpace(resolvedID)
+		}
+		if strings.TrimSpace(resolvedMode) != "" {
+			mode = strings.TrimSpace(resolvedMode)
+		}
+	}
+
+	decision.ProjectID = projectID
+	decision.ProjectMode = mode
+	return nil
 }
 
 func isBareControlCommand(text string) bool {

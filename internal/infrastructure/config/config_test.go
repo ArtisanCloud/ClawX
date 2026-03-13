@@ -1083,3 +1083,67 @@ func chdirForTest(t *testing.T, dir string) {
 		_ = os.Chdir(previous)
 	})
 }
+
+func TestLoadParsesProjectConfigFromJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	content := `{
+  "runtime": {
+    "allowedRoots": ["."],
+    "defaultCwd": "."
+  },
+  "execution": {
+    "command": "cat"
+  },
+  "projects": {
+    "workspaceRoot": "/tmp/clawx-workspaces",
+    "defaultProject": "bid"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.Projects.WorkspaceRoot != "/tmp/clawx-workspaces" {
+		t.Fatalf("unexpected projects workspace root: %q", cfg.Projects.WorkspaceRoot)
+	}
+	if cfg.Projects.DefaultProjectID != "bid" {
+		t.Fatalf("unexpected default project id: %q", cfg.Projects.DefaultProjectID)
+	}
+}
+
+func TestLoadDefaultsProjectConfigWhenMissing(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	content := `{
+  "runtime": {
+    "allowedRoots": ["."],
+    "defaultCwd": "."
+  },
+  "execution": {
+    "command": "cat"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if strings.TrimSpace(cfg.Projects.WorkspaceRoot) == "" {
+		t.Fatalf("expected default projects workspace root")
+	}
+	if cfg.Projects.DefaultProjectID != "main" {
+		t.Fatalf("expected default project id main, got %q", cfg.Projects.DefaultProjectID)
+	}
+}

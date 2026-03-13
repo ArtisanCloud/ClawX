@@ -171,6 +171,11 @@ type IntentRouterConfig struct {
 	LLMFallback LLMFallbackConfig
 }
 
+type ProjectConfig struct {
+	WorkspaceRoot    string
+	DefaultProjectID string
+}
+
 type Snapshot struct {
 	AllowedRoots                  []string
 	DefaultCWD                    string
@@ -233,6 +238,7 @@ type Snapshot struct {
 	ExtendedChannels       map[string]ExtendedChannelConfig
 	Skills                 SkillConfig
 	IntentRouter           IntentRouterConfig
+	Projects               ProjectConfig
 }
 
 type jsonSnapshot struct {
@@ -245,6 +251,7 @@ type jsonSnapshot struct {
 	Database     *jsonDatabase     `json:"database"`
 	Skills       *jsonSkills       `json:"skills"`
 	IntentRouter *jsonIntentRouter `json:"intentRouter"`
+	Projects     *jsonProjects     `json:"projects"`
 
 	AllowedRoots                  []string                   `json:"allowed_roots"`
 	DefaultCWD                    string                     `json:"default_cwd"`
@@ -512,6 +519,11 @@ type jsonIntentLLMFallback struct {
 	ConfidenceThreshold float64 `json:"confidenceThreshold"`
 }
 
+type jsonProjects struct {
+	WorkspaceRoot    string `json:"workspaceRoot"`
+	DefaultProjectID string `json:"defaultProject"`
+}
+
 type BootstrapOptions struct {
 	BaseProfileID         string
 	DefaultProfileID      string
@@ -551,6 +563,7 @@ type fileSnapshot struct {
 	Database     fileDatabase     `json:"database"`
 	Skills       fileSkills       `json:"skills"`
 	IntentRouter fileIntentRouter `json:"intentRouter"`
+	Projects     fileProjects     `json:"projects"`
 }
 
 type fileRuntime struct {
@@ -787,6 +800,11 @@ type fileIntentLLMFallback struct {
 	ConfidenceThreshold float64 `json:"confidenceThreshold"`
 }
 
+type fileProjects struct {
+	WorkspaceRoot    string `json:"workspaceRoot"`
+	DefaultProjectID string `json:"defaultProject"`
+}
+
 func Load() (Snapshot, error) {
 	if err := EnsureStateLayout(); err != nil {
 		return Snapshot{}, err
@@ -816,6 +834,7 @@ func Load() (Snapshot, error) {
 	cfg.normalizeDatabase()
 	cfg.normalizeSkills()
 	cfg.normalizeIntentRouter()
+	cfg.normalizeProjects()
 	if err := cfg.Validate(); err != nil {
 		return Snapshot{}, err
 	}
@@ -1573,6 +1592,7 @@ func LoadFromEnv() (Snapshot, error) {
 	cfg.normalizeDatabase()
 	cfg.normalizeSkills()
 	cfg.normalizeIntentRouter()
+	cfg.normalizeProjects()
 	if err := cfg.Validate(); err != nil {
 		return Snapshot{}, err
 	}
@@ -1718,6 +1738,10 @@ func defaultFileSnapshot() fileSnapshot {
 				Enabled:             true,
 				ConfidenceThreshold: 0.72,
 			},
+		},
+		Projects: fileProjects{
+			WorkspaceRoot:    workspaceRoot,
+			DefaultProjectID: "main",
 		},
 	}
 }
@@ -1915,6 +1939,15 @@ func normalizeFileSnapshot(file *fileSnapshot) {
 	if file.IntentRouter.LLMFallback.ConfidenceThreshold <= 0 || file.IntentRouter.LLMFallback.ConfidenceThreshold > 1 {
 		file.IntentRouter.LLMFallback.ConfidenceThreshold = 0.72
 	}
+
+	file.Projects.WorkspaceRoot = strings.TrimSpace(file.Projects.WorkspaceRoot)
+	if file.Projects.WorkspaceRoot == "" {
+		file.Projects.WorkspaceRoot = defaultWorkspaceRoot()
+	}
+	file.Projects.DefaultProjectID = strings.TrimSpace(file.Projects.DefaultProjectID)
+	if file.Projects.DefaultProjectID == "" {
+		file.Projects.DefaultProjectID = "main"
+	}
 }
 
 func normalizeFileExtendedChannel(channelName string, channel *fileExtendedChannel) {
@@ -2071,6 +2104,10 @@ func defaultSnapshot() Snapshot {
 				Enabled:             true,
 				ConfidenceThreshold: 0.72,
 			},
+		},
+		Projects: ProjectConfig{
+			WorkspaceRoot:    workspaceRoot,
+			DefaultProjectID: "main",
 		},
 		ProviderProfiles: make(map[string]ProviderProfile),
 		Agents:           make(map[string]Agent),
@@ -2585,6 +2622,15 @@ func applyStructuredJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 			}
 		}
 	}
+
+	if raw.Projects != nil {
+		if strings.TrimSpace(raw.Projects.WorkspaceRoot) != "" {
+			cfg.Projects.WorkspaceRoot = strings.TrimSpace(raw.Projects.WorkspaceRoot)
+		}
+		if strings.TrimSpace(raw.Projects.DefaultProjectID) != "" {
+			cfg.Projects.DefaultProjectID = strings.TrimSpace(raw.Projects.DefaultProjectID)
+		}
+	}
 }
 
 func applyStructuredExtendedChannel(cfg *Snapshot, channelName string, raw *jsonExtendedChannel) {
@@ -2831,6 +2877,12 @@ func applyEnvOverrides(cfg *Snapshot) error {
 	if raw, ok := os.LookupEnv("CLAWX_DATABASE_AUTO_CREATE"); ok {
 		cfg.Database.AutoCreate = parseBoolOrDefault(raw, cfg.Database.AutoCreate)
 	}
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_PROJECTS_WORKSPACE_ROOT")); raw != "" {
+		cfg.Projects.WorkspaceRoot = raw
+	}
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_PROJECTS_DEFAULT_PROJECT")); raw != "" {
+		cfg.Projects.DefaultProjectID = raw
+	}
 	return nil
 }
 
@@ -3011,6 +3063,17 @@ func (s *Snapshot) normalizeIntentRouter() {
 	}
 	if s.IntentRouter.LLMFallback.ConfidenceThreshold <= 0 || s.IntentRouter.LLMFallback.ConfidenceThreshold > 1 {
 		s.IntentRouter.LLMFallback.ConfidenceThreshold = 0.72
+	}
+}
+
+func (s *Snapshot) normalizeProjects() {
+	s.Projects.WorkspaceRoot = strings.TrimSpace(s.Projects.WorkspaceRoot)
+	if s.Projects.WorkspaceRoot == "" {
+		s.Projects.WorkspaceRoot = defaultWorkspaceRoot()
+	}
+	s.Projects.DefaultProjectID = strings.TrimSpace(s.Projects.DefaultProjectID)
+	if s.Projects.DefaultProjectID == "" {
+		s.Projects.DefaultProjectID = "main"
 	}
 }
 
@@ -3394,6 +3457,12 @@ func (s Snapshot) Validate() error {
 		return ErrInvalidConfig
 	}
 	if strings.TrimSpace(s.HealthProbePath) == "" {
+		return ErrInvalidConfig
+	}
+	if strings.TrimSpace(s.Projects.WorkspaceRoot) == "" {
+		return ErrInvalidConfig
+	}
+	if strings.TrimSpace(s.Projects.DefaultProjectID) == "" {
 		return ErrInvalidConfig
 	}
 	for _, root := range s.AllowedRoots {

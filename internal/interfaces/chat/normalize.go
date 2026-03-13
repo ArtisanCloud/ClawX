@@ -15,6 +15,7 @@ var (
 
 type NormalizeInput struct {
 	Channel         string
+	InstanceID      string
 	UserID          string
 	GuildID         string
 	ThreadID        string
@@ -64,6 +65,8 @@ func NormalizeInboundMessage(input NormalizeInput) (Message, error) {
 		ReplyTo:        input.ReplyTo,
 		Attachments:    append([]Attachment(nil), input.Attachments...),
 		Channel:        strings.TrimSpace(input.Channel),
+		InstanceID:     normalizeRouteInstanceID(input.InstanceID),
+		RouteKey:       buildRouteKey(input),
 		ContextFlags: ContextFlags{
 			IsDirectMessage: input.IsDirectMessage,
 			IsThread:        input.IsThread,
@@ -126,4 +129,45 @@ func normalizeWindowID(conversationID, rawWindowID string) (string, error) {
 		return "", ErrInvalidWindowContext
 	}
 	return "compat:" + conversationID, nil
+}
+
+func buildRouteKey(input NormalizeInput) string {
+	channel := strings.TrimSpace(input.Channel)
+	if channel == "" {
+		channel = "unknown"
+	}
+	instanceID := normalizeRouteInstanceID(input.InstanceID)
+	peerKind, peerID := inferRoutePeer(input)
+	threadID := strings.TrimSpace(input.ThreadID)
+	if threadID != "" {
+		return fmt.Sprintf("%s:%s:%s:%s:thread:%s", channel, instanceID, peerKind, peerID, threadID)
+	}
+	return fmt.Sprintf("%s:%s:%s:%s", channel, instanceID, peerKind, peerID)
+}
+
+func normalizeRouteInstanceID(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "default"
+	}
+	return value
+}
+
+func inferRoutePeer(input NormalizeInput) (string, string) {
+	if input.IsDirectMessage {
+		peerID := strings.TrimSpace(input.UserID)
+		if peerID == "" {
+			peerID = "-"
+		}
+		return "direct", peerID
+	}
+
+	peerID := strings.TrimSpace(input.GuildID)
+	if peerID == "" {
+		peerID = strings.TrimSpace(input.UserID)
+	}
+	if peerID == "" {
+		peerID = "-"
+	}
+	return "channel", peerID
 }

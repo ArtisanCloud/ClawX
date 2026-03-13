@@ -21,6 +21,8 @@ type Message struct {
 	ReplyTo        *string
 	Attachments    []Attachment
 	Channel        string
+	InstanceID     string
+	RouteKey       string
 	ContextFlags   ContextFlags
 }
 

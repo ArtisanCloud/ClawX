@@ -37,18 +37,18 @@
 
 **⚠️ 关键说明**: 本阶段完成前不得进入用户故事实现
 
-- [ ] T006 定义 Project/Binding/Proposal 领域模型于 /home/ubuntu/workspace/ClawX/internal/domain/project/model.go
-- [ ] T007 [P] 定义项目仓储接口于 /home/ubuntu/workspace/ClawX/internal/domain/project/repository.go
-- [ ] T008 [P] 实现文件存储 `projects.json` 读写于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/project_registry_file_store.go
-- [ ] T009 [P] 实现文件存储 `bindings.json` 读写于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/project_binding_file_store.go
-- [ ] T010 [P] 实现文件存储 `proposals.json` 读写于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/project_proposal_file_store.go
-- [ ] T011 实现项目应用服务（create/list/use/current）于 /home/ubuntu/workspace/ClawX/internal/application/project/service.go
-- [ ] T012 [P] 扩展配置结构支持项目目录前缀与默认项目于 /home/ubuntu/workspace/ClawX/internal/infrastructure/config/config.go
-- [ ] T013 [P] 增加项目配置校验单测于 /home/ubuntu/workspace/ClawX/internal/infrastructure/config/config_test.go
-- [ ] T014 在消息归一化层补充 route key 生成于 /home/ubuntu/workspace/ClawX/internal/interfaces/chat/normalize.go
-- [ ] T015 在路由入口注入项目判定（binding -> default fallback）于 /home/ubuntu/workspace/ClawX/internal/application/service/router.go
-- [ ] T016 [P] 增加 route key 归一化单测（含 thread 优先）于 /home/ubuntu/workspace/ClawX/tests/unit/project_route_key_test.go
-- [ ] T017 [P] 增加项目 fallback 路由集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_fallback_routing_test.go
+- [X] T006 定义 Project/Binding/Proposal 领域模型于 /home/ubuntu/workspace/ClawX/internal/domain/project/model.go
+- [X] T007 [P] 定义项目仓储接口于 /home/ubuntu/workspace/ClawX/internal/domain/project/repository.go
+- [X] T008 [P] 实现文件存储 `projects.json` 读写于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/project_registry_file_store.go
+- [X] T009 [P] 实现文件存储 `bindings.json` 读写于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/project_binding_file_store.go
+- [X] T010 [P] 实现文件存储 `proposals.json` 读写于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/project_proposal_file_store.go
+- [X] T011 实现项目应用服务（create/list/use/current）于 /home/ubuntu/workspace/ClawX/internal/application/project/service.go
+- [X] T012 [P] 扩展配置结构支持项目目录前缀与默认项目于 /home/ubuntu/workspace/ClawX/internal/infrastructure/config/config.go
+- [X] T013 [P] 增加项目配置校验单测于 /home/ubuntu/workspace/ClawX/internal/infrastructure/config/config_test.go
+- [X] T014 在消息归一化层补充 route key 生成于 /home/ubuntu/workspace/ClawX/internal/interfaces/chat/normalize.go
+- [X] T015 在路由入口注入项目判定（binding -> default fallback）于 /home/ubuntu/workspace/ClawX/internal/application/service/router.go
+- [X] T016 [P] 增加 route key 归一化单测（含 thread 优先）于 /home/ubuntu/workspace/ClawX/tests/unit/project_route_key_test.go
+- [X] T017 [P] 增加项目 fallback 路由集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_fallback_routing_test.go
 
 **检查点**: 基础能力完成后，用户故事实现可以开始
 
