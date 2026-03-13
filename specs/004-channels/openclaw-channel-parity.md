@@ -38,6 +38,16 @@
 | Tlon | 插件 | 未实现 | Wave 4（可选） |
 | WebChat | 内建（Gateway UI） | 未实现 | Wave 4（可选） |
 
+## 2026-03-12 补齐状态
+
+- 已补齐 Wave 2~4 全量渠道契约文档（`contracts/*.md`），覆盖 Slack/WhatsApp/Signal/Google Chat/IRC、Matrix/Mattermost/Microsoft Teams/Nextcloud Talk/LINE/Nostr/Synology Chat/Twitch/Zalo/Zalo Personal、BlueBubbles/iMessage legacy/Tlon/WebChat。
+- 已补齐 Wave 2~4 测试三联骨架：
+  - unit：`tests/unit/channels/wave2~wave4/*_adapter_test.go`
+  - integration：`tests/integration/channels/wave2~wave4/*_control_flow_test.go`
+  - contract：`tests/contract/channels/wave2~wave4/*_contract_test.go`
+- 已补齐渠道实现卡与模板：`specs/004-channels/channels/_template.md` 与 19 个渠道实现卡。
+- 说明：当前“补齐”范围为技术规范与测试骨架；运行时代码仍保持 Wave 1（Discord/Telegram/Feishu/WeCom）实现状态。
+
 ## 渠道实现建议（逐渠道落地）
 
 > 说明：下表用于“同步到技术规范”的最小落地指引。每个渠道进入实现前，需先补契约文档并挂到 `specs/004-channels/contracts/`。

@@ -31,12 +31,13 @@ const (
 )
 
 var (
-	ErrMessageTooLong      = errors.New("telegram message exceeds limit")
-	ErrMissingToken        = errors.New("telegram bot token is required")
-	ErrUnknownSessionRoute = errors.New("telegram session target is not bound")
-	ErrInvalidWebhook      = errors.New("invalid telegram webhook request")
-	ErrWebhookMethod       = errors.New("telegram webhook method is not allowed")
-	ErrWebhookUnauthorized = errors.New("telegram webhook secret mismatch")
+	ErrMessageTooLong        = errors.New("telegram message exceeds limit")
+	ErrMissingToken          = errors.New("telegram bot token is required")
+	ErrUnknownSessionRoute   = errors.New("telegram session target is not bound")
+	ErrInvalidWebhook        = errors.New("invalid telegram webhook request")
+	ErrWebhookMethod         = errors.New("telegram webhook method is not allowed")
+	ErrWebhookUnauthorized   = errors.New("telegram webhook secret mismatch")
+	ErrWebhookReplayRejected = errors.New("telegram webhook replay rejected")
 )
 
 type Options struct {
@@ -59,6 +60,7 @@ type Target struct {
 type InboundEnvelope struct {
 	Message chatiface.Message
 	Target  Target
+	EventID string
 }
 
 type InboundHandler func(ctx context.Context, envelope InboundEnvelope) error
@@ -76,6 +78,7 @@ type Adapter struct {
 	mu             sync.Mutex
 	nextUpdateID   int64
 	sessionTargets map[string]Target
+	webhookReplay  map[string]time.Time
 }
 
 func NewAdapter(options Options) (*Adapter, error) {
@@ -109,6 +112,7 @@ func NewAdapter(options Options) (*Adapter, error) {
 		client:                client,
 		allowedChatIDs:        buildAllowedChatIDSet(options.AllowedChatIDs),
 		sessionTargets:        make(map[string]Target),
+		webhookReplay:         make(map[string]time.Time),
 	}, nil
 }
 
@@ -134,7 +138,7 @@ func (a *Adapter) Listen(ctx context.Context, handler InboundHandler) error {
 			if update.Message == nil {
 				continue
 			}
-			envelope, ok, err := a.normalizeUpdate(*update.Message)
+			envelope, ok, err := a.normalizeUpdate(update)
 			if err != nil {
 				return err
 			}
@@ -247,7 +251,11 @@ func (a *Adapter) ParseWebhookRequest(r *http.Request) (InboundEnvelope, bool, e
 	if update.Message == nil {
 		return InboundEnvelope{}, false, nil
 	}
-	return a.normalizeUpdate(*update.Message)
+	eventID := buildTelegramEventID(update)
+	if !a.acceptWebhookEvent(eventID, time.Now().UTC()) {
+		return InboundEnvelope{}, false, ErrWebhookReplayRejected
+	}
+	return a.normalizeUpdate(update)
 }
 
 func (a *Adapter) BindSession(sessionID string, target Target) {
@@ -306,7 +314,11 @@ func (a *Adapter) lookupTarget(sessionID string) (Target, error) {
 	return target, nil
 }
 
-func (a *Adapter) normalizeUpdate(message telegramMessage) (InboundEnvelope, bool, error) {
+func (a *Adapter) normalizeUpdate(update telegramUpdate) (InboundEnvelope, bool, error) {
+	if update.Message == nil {
+		return InboundEnvelope{}, false, nil
+	}
+	message := *update.Message
 	if strings.TrimSpace(message.Text) == "" {
 		return InboundEnvelope{}, false, nil
 	}
@@ -340,7 +352,40 @@ func (a *Adapter) normalizeUpdate(message telegramMessage) (InboundEnvelope, boo
 	return InboundEnvelope{
 		Message: normalized,
 		Target:  target,
+		EventID: buildTelegramEventID(update),
 	}, true, nil
+}
+
+func (a *Adapter) acceptWebhookEvent(eventID string, now time.Time) bool {
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		return true
+	}
+	cutoff := now.Add(-15 * time.Minute)
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	for key, seenAt := range a.webhookReplay {
+		if seenAt.Before(cutoff) {
+			delete(a.webhookReplay, key)
+		}
+	}
+	if seenAt, exists := a.webhookReplay[eventID]; exists && !seenAt.Before(cutoff) {
+		return false
+	}
+	a.webhookReplay[eventID] = now
+	return true
+}
+
+func buildTelegramEventID(update telegramUpdate) string {
+	if update.UpdateID > 0 {
+		return strconv.FormatInt(update.UpdateID, 10)
+	}
+	if update.Message != nil && update.Message.MessageID > 0 {
+		return fmt.Sprintf("%d:%d", update.Message.Chat.ID, update.Message.MessageID)
+	}
+	return ""
 }
 
 func (a *Adapter) prepareText(raw string, isDirect bool) (string, bool) {

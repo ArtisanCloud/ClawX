@@ -23,11 +23,11 @@
 
 **目的**: 建立项目隔离功能骨架与测试占位
 
-- [ ] T001 创建 Phase 5 验证文档占位于 /home/ubuntu/workspace/ClawX/docs/guides/phase_5/phase_5_project_workspace_validation.md
-- [ ] T002 [P] 创建项目隔离集成测试骨架于 /home/ubuntu/workspace/ClawX/tests/integration/project_workspace_smoke_test.go
-- [ ] T003 [P] 创建项目命令契约测试骨架于 /home/ubuntu/workspace/ClawX/tests/contract/project_command_contract_test.go
-- [ ] T004 创建项目领域目录骨架于 /home/ubuntu/workspace/ClawX/internal/domain/project/
-- [ ] T005 [P] 创建项目应用服务目录骨架于 /home/ubuntu/workspace/ClawX/internal/application/project/
+- [X] T001 创建 Phase 5 验证文档占位于 /home/ubuntu/workspace/ClawX/docs/guides/phase_5/phase_5_project_workspace_validation.md
+- [X] T002 [P] 创建项目隔离集成测试骨架于 /home/ubuntu/workspace/ClawX/tests/integration/project_workspace_smoke_test.go
+- [X] T003 [P] 创建项目命令契约测试骨架于 /home/ubuntu/workspace/ClawX/tests/contract/project_command_contract_test.go
+- [X] T004 创建项目领域目录骨架于 /home/ubuntu/workspace/ClawX/internal/domain/project/
+- [X] T005 [P] 创建项目应用服务目录骨架于 /home/ubuntu/workspace/ClawX/internal/application/project/
 
 ---
 

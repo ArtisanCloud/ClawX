@@ -439,6 +439,109 @@ func TestLoadParsesFeishuAndWeComInstances(t *testing.T) {
 	}
 }
 
+func TestLoadParsesExtendedWaveChannelConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	content := `{
+  "providers": {
+    "profiles": {
+      "codex": {
+        "kind": "codex-cli",
+        "command": "codex"
+      }
+    }
+  },
+  "agents": {
+    "default": "main",
+    "list": [
+      {
+        "id": "main",
+        "profile": "codex",
+        "workspace": ".",
+        "default": true
+      }
+    ]
+  },
+  "runtime": {
+    "allowedRoots": ["."],
+    "defaultCwd": "."
+  },
+  "channels": {
+    "slack": {
+      "enabled": true,
+      "defaultAgent": "main",
+      "instances": [
+        {
+          "id": "slack-prod",
+          "enabled": true,
+          "defaultAgent": "main"
+        },
+        {
+          "enabled": false
+        }
+      ]
+    },
+    "nextcloud-talk": {
+      "enabled": false,
+      "instances": [
+        {
+          "enabled": true
+        }
+      ]
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	slack, ok := cfg.ExtendedChannels["slack"]
+	if !ok {
+		t.Fatalf("expected slack extended channel to be present")
+	}
+	if !slack.Enabled {
+		t.Fatalf("expected slack channel enabled")
+	}
+	if slack.DefaultAgentID != "main" {
+		t.Fatalf("unexpected slack default agent: %q", slack.DefaultAgentID)
+	}
+	if len(slack.Instances) != 2 {
+		t.Fatalf("unexpected slack instances: %d", len(slack.Instances))
+	}
+	if slack.Instances[0].ID != "slack-prod" {
+		t.Fatalf("unexpected slack instance id: %q", slack.Instances[0].ID)
+	}
+	if slack.Instances[1].ID == "" {
+		t.Fatalf("expected generated id for slack second instance")
+	}
+	if slack.Instances[1].DefaultAgentID != "main" {
+		t.Fatalf("expected fallback default agent for slack second instance")
+	}
+	if !cfg.IsChannelEnabled("slack") {
+		t.Fatalf("expected IsChannelEnabled(slack)=true")
+	}
+
+	nextcloud, ok := cfg.ExtendedChannels["nextcloud-talk"]
+	if !ok {
+		t.Fatalf("expected nextcloud-talk channel")
+	}
+	if len(nextcloud.Instances) != 1 {
+		t.Fatalf("unexpected nextcloud-talk instances: %d", len(nextcloud.Instances))
+	}
+	if nextcloud.Instances[0].ID == "" {
+		t.Fatalf("expected generated id for nextcloud-talk instance")
+	}
+	if nextcloud.Instances[0].DefaultAgentID != "main" {
+		t.Fatalf("expected fallback default agent for nextcloud-talk instance")
+	}
+}
+
 func TestLoadRejectsUnknownChannelAgentBinding(t *testing.T) {
 	tempDir := t.TempDir()
 	chdirForTest(t, tempDir)
@@ -487,6 +590,41 @@ func TestLoadRejectsUnknownChannelAgentBinding(t *testing.T) {
 	}
 
 	_, err := Load()
+	if !errors.Is(err, ErrUnknownAgent) {
+		t.Fatalf("expected ErrUnknownAgent, got %v", err)
+	}
+}
+
+func TestValidateRejectsUnknownExtendedChannelAgentBinding(t *testing.T) {
+	cfg := defaultSnapshot()
+	cfg.ProviderProfiles = map[string]ProviderProfile{
+		"codex": {
+			ID:      "codex",
+			Kind:    "codex-cli",
+			Command: "codex",
+		},
+	}
+	cfg.Agents = map[string]Agent{
+		"main": {
+			ID:        "main",
+			ProfileID: "codex",
+			Workspace: ".",
+			Timeout:   30,
+		},
+	}
+	cfg.DefaultAgentID = "main"
+	cfg.ExtendedChannels = map[string]ExtendedChannelConfig{
+		"slack": {
+			Enabled:        true,
+			DefaultAgentID: "missing-agent",
+			Instances: []ExtendedChannelInstance{
+				{ID: "slack-1", Enabled: true, DefaultAgentID: "main"},
+			},
+		},
+	}
+	cfg.normalizeChannelInstances()
+
+	err := cfg.Validate()
 	if !errors.Is(err, ErrUnknownAgent) {
 		t.Fatalf("expected ErrUnknownAgent, got %v", err)
 	}

@@ -70,3 +70,67 @@ func TestChannelConfigIncrementalPreservesNonTargetChannels(t *testing.T) {
 		t.Fatalf("unexpected wecom corp id: %q", cfg.WeComInstances[0].CorpID)
 	}
 }
+
+func TestChannelConfigIncrementalSupportsExtendedChannelsFR025(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	homeDir := filepath.Join(tempDir, "home")
+
+	t.Setenv("CLAWX_CONFIG", configPath)
+	t.Setenv("HOME", homeDir)
+
+	if _, _, err := config.EnsureDefaultFile(); err != nil {
+		t.Fatalf("ensure default config: %v", err)
+	}
+
+	seed := map[string]string{
+		"channels.telegram.enabled": "true",
+		"channels.telegram.token":   "tg-token-old",
+		"channels.discord.enabled":  "true",
+		"channels.discord.botToken": "dc-token-old",
+	}
+	if _, err := config.SetValuesByDotKey(seed); err != nil {
+		t.Fatalf("seed base channels: %v", err)
+	}
+
+	patch := map[string]string{
+		"channels.slack.enabled":      "true",
+		"channels.slack.defaultAgent": "main",
+		"channels.slack.instances":    `[{"id":"slack-main","enabled":true,"defaultAgent":"main"}]`,
+	}
+	if _, err := config.SetValuesByDotKey(patch); err != nil {
+		t.Fatalf("apply slack patch: %v", err)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.TelegramToken != "tg-token-old" {
+		t.Fatalf("telegram token should be preserved, got %q", cfg.TelegramToken)
+	}
+	if cfg.DiscordBotToken != "dc-token-old" {
+		t.Fatalf("discord token should be preserved, got %q", cfg.DiscordBotToken)
+	}
+
+	slack, ok := cfg.ExtendedChannels["slack"]
+	if !ok {
+		t.Fatalf("expected slack extended channel to be present")
+	}
+	if !slack.Enabled {
+		t.Fatalf("expected slack channel enabled")
+	}
+	if slack.DefaultAgentID != "main" {
+		t.Fatalf("unexpected slack default agent: %q", slack.DefaultAgentID)
+	}
+	if len(slack.Instances) != 1 {
+		t.Fatalf("unexpected slack instances count: %d", len(slack.Instances))
+	}
+	if slack.Instances[0].ID != "slack-main" {
+		t.Fatalf("unexpected slack instance id: %q", slack.Instances[0].ID)
+	}
+	if !cfg.IsChannelEnabled("slack") {
+		t.Fatalf("expected IsChannelEnabled(slack)=true")
+	}
+}

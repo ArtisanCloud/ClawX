@@ -8,6 +8,7 @@
 ## 阶段索引
 - `phase_1/`: 第一阶段（Foundation / MVP）指南集合
 - `skill_intent_router/`: Skill Registry + Intent Router 指南与测试用例集合
+- `use_cases/`: 渠道窗口任务型用例（能做/怎么做/缺什么）
 
 ## 通用指南
 - `agent_setup.md`: Agent 创建、独立 workspace 与渠道路由配置指南

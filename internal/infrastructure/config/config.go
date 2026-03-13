@@ -22,6 +22,28 @@ var (
 	ErrUnknownAgent        = errors.New("default agent is not defined")
 	ErrUnknownAgentProfile = errors.New("agent references an unknown provider profile")
 	ErrConfigKeyNotFound   = errors.New("config key not found")
+
+	waveExtendedChannelKeys = []string{
+		"slack",
+		"whatsapp",
+		"signal",
+		"googlechat",
+		"irc",
+		"matrix",
+		"mattermost",
+		"msteams",
+		"nextcloud-talk",
+		"line",
+		"nostr",
+		"synology-chat",
+		"twitch",
+		"zalo",
+		"zalouser",
+		"bluebubbles",
+		"imessage-legacy",
+		"tlon",
+		"webchat",
+	}
 )
 
 type ProviderProfile struct {
@@ -104,6 +126,18 @@ type WeComInstance struct {
 	EncodingAESKey string
 	DefaultAgentID string
 	AgentBindings  map[string]string
+}
+
+type ExtendedChannelInstance struct {
+	ID             string
+	Enabled        bool
+	DefaultAgentID string
+}
+
+type ExtendedChannelConfig struct {
+	Enabled        bool
+	DefaultAgentID string
+	Instances      []ExtendedChannelInstance
 }
 
 type SkillSources struct {
@@ -196,6 +230,7 @@ type Snapshot struct {
 	WeComInstances         []WeComInstance
 	WeComDefaultAgentID    string
 	WeComAgentBindings     map[string]string
+	ExtendedChannels       map[string]ExtendedChannelConfig
 	Skills                 SkillConfig
 	IntentRouter           IntentRouterConfig
 }
@@ -281,10 +316,29 @@ type jsonAgent struct {
 }
 
 type jsonChannels struct {
-	Discord  *jsonDiscordChannel  `json:"discord"`
-	Telegram *jsonTelegramChannel `json:"telegram"`
-	Feishu   *jsonFeishuChannel   `json:"feishu"`
-	WeCom    *jsonWeComChannel    `json:"wecom"`
+	Discord        *jsonDiscordChannel  `json:"discord"`
+	Telegram       *jsonTelegramChannel `json:"telegram"`
+	Feishu         *jsonFeishuChannel   `json:"feishu"`
+	WeCom          *jsonWeComChannel    `json:"wecom"`
+	Slack          *jsonExtendedChannel `json:"slack"`
+	WhatsApp       *jsonExtendedChannel `json:"whatsapp"`
+	Signal         *jsonExtendedChannel `json:"signal"`
+	GoogleChat     *jsonExtendedChannel `json:"googlechat"`
+	IRC            *jsonExtendedChannel `json:"irc"`
+	Matrix         *jsonExtendedChannel `json:"matrix"`
+	Mattermost     *jsonExtendedChannel `json:"mattermost"`
+	MSTeams        *jsonExtendedChannel `json:"msteams"`
+	NextcloudTalk  *jsonExtendedChannel `json:"nextcloud-talk"`
+	Line           *jsonExtendedChannel `json:"line"`
+	Nostr          *jsonExtendedChannel `json:"nostr"`
+	SynologyChat   *jsonExtendedChannel `json:"synology-chat"`
+	Twitch         *jsonExtendedChannel `json:"twitch"`
+	Zalo           *jsonExtendedChannel `json:"zalo"`
+	ZaloUser       *jsonExtendedChannel `json:"zalouser"`
+	BlueBubbles    *jsonExtendedChannel `json:"bluebubbles"`
+	IMessageLegacy *jsonExtendedChannel `json:"imessage-legacy"`
+	Tlon           *jsonExtendedChannel `json:"tlon"`
+	WebChat        *jsonExtendedChannel `json:"webchat"`
 }
 
 type jsonDiscordChannel struct {
@@ -391,6 +445,18 @@ type jsonWeComInstance struct {
 	EncodingAESKey string            `json:"encodingAesKey"`
 	DefaultAgent   string            `json:"defaultAgent"`
 	AgentBindings  map[string]string `json:"agentBindings"`
+}
+
+type jsonExtendedChannel struct {
+	Enabled      *bool                         `json:"enabled"`
+	DefaultAgent string                        `json:"defaultAgent"`
+	Instances    []jsonExtendedChannelInstance `json:"instances"`
+}
+
+type jsonExtendedChannelInstance struct {
+	ID           string `json:"id"`
+	Enabled      *bool  `json:"enabled"`
+	DefaultAgent string `json:"defaultAgent"`
 }
 
 type jsonGateway struct {
@@ -525,10 +591,29 @@ type fileExecution struct {
 }
 
 type fileChannels struct {
-	Discord  fileDiscordChannel  `json:"discord"`
-	Telegram fileTelegramChannel `json:"telegram"`
-	Feishu   fileFeishuChannel   `json:"feishu"`
-	WeCom    fileWeComChannel    `json:"wecom"`
+	Discord        fileDiscordChannel   `json:"discord"`
+	Telegram       fileTelegramChannel  `json:"telegram"`
+	Feishu         fileFeishuChannel    `json:"feishu"`
+	WeCom          fileWeComChannel     `json:"wecom"`
+	Slack          *fileExtendedChannel `json:"slack,omitempty"`
+	WhatsApp       *fileExtendedChannel `json:"whatsapp,omitempty"`
+	Signal         *fileExtendedChannel `json:"signal,omitempty"`
+	GoogleChat     *fileExtendedChannel `json:"googlechat,omitempty"`
+	IRC            *fileExtendedChannel `json:"irc,omitempty"`
+	Matrix         *fileExtendedChannel `json:"matrix,omitempty"`
+	Mattermost     *fileExtendedChannel `json:"mattermost,omitempty"`
+	MSTeams        *fileExtendedChannel `json:"msteams,omitempty"`
+	NextcloudTalk  *fileExtendedChannel `json:"nextcloud-talk,omitempty"`
+	Line           *fileExtendedChannel `json:"line,omitempty"`
+	Nostr          *fileExtendedChannel `json:"nostr,omitempty"`
+	SynologyChat   *fileExtendedChannel `json:"synology-chat,omitempty"`
+	Twitch         *fileExtendedChannel `json:"twitch,omitempty"`
+	Zalo           *fileExtendedChannel `json:"zalo,omitempty"`
+	ZaloUser       *fileExtendedChannel `json:"zalouser,omitempty"`
+	BlueBubbles    *fileExtendedChannel `json:"bluebubbles,omitempty"`
+	IMessageLegacy *fileExtendedChannel `json:"imessage-legacy,omitempty"`
+	Tlon           *fileExtendedChannel `json:"tlon,omitempty"`
+	WebChat        *fileExtendedChannel `json:"webchat,omitempty"`
 }
 
 type fileDiscordChannel struct {
@@ -635,6 +720,18 @@ type fileWeComInstance struct {
 	EncodingAESKey string            `json:"encodingAesKey"`
 	DefaultAgent   string            `json:"defaultAgent,omitempty"`
 	AgentBindings  map[string]string `json:"agentBindings,omitempty"`
+}
+
+type fileExtendedChannel struct {
+	Enabled      bool                          `json:"enabled"`
+	DefaultAgent string                        `json:"defaultAgent,omitempty"`
+	Instances    []fileExtendedChannelInstance `json:"instances,omitempty"`
+}
+
+type fileExtendedChannelInstance struct {
+	ID           string `json:"id"`
+	Enabled      bool   `json:"enabled"`
+	DefaultAgent string `json:"defaultAgent,omitempty"`
 }
 
 type fileGateway struct {
@@ -1744,6 +1841,26 @@ func normalizeFileSnapshot(file *fileSnapshot) {
 	}
 	file.Channels.WeCom.AgentBindings = filterBindingMap(file.Channels.WeCom.AgentBindings)
 
+	normalizeFileExtendedChannel("slack", file.Channels.Slack)
+	normalizeFileExtendedChannel("whatsapp", file.Channels.WhatsApp)
+	normalizeFileExtendedChannel("signal", file.Channels.Signal)
+	normalizeFileExtendedChannel("googlechat", file.Channels.GoogleChat)
+	normalizeFileExtendedChannel("irc", file.Channels.IRC)
+	normalizeFileExtendedChannel("matrix", file.Channels.Matrix)
+	normalizeFileExtendedChannel("mattermost", file.Channels.Mattermost)
+	normalizeFileExtendedChannel("msteams", file.Channels.MSTeams)
+	normalizeFileExtendedChannel("nextcloud-talk", file.Channels.NextcloudTalk)
+	normalizeFileExtendedChannel("line", file.Channels.Line)
+	normalizeFileExtendedChannel("nostr", file.Channels.Nostr)
+	normalizeFileExtendedChannel("synology-chat", file.Channels.SynologyChat)
+	normalizeFileExtendedChannel("twitch", file.Channels.Twitch)
+	normalizeFileExtendedChannel("zalo", file.Channels.Zalo)
+	normalizeFileExtendedChannel("zalouser", file.Channels.ZaloUser)
+	normalizeFileExtendedChannel("bluebubbles", file.Channels.BlueBubbles)
+	normalizeFileExtendedChannel("imessage-legacy", file.Channels.IMessageLegacy)
+	normalizeFileExtendedChannel("tlon", file.Channels.Tlon)
+	normalizeFileExtendedChannel("webchat", file.Channels.WebChat)
+
 	file.Database.Driver = strings.ToLower(strings.TrimSpace(file.Database.Driver))
 	if file.Database.Driver == "" {
 		file.Database.Driver = "postgres"
@@ -1798,6 +1915,60 @@ func normalizeFileSnapshot(file *fileSnapshot) {
 	if file.IntentRouter.LLMFallback.ConfidenceThreshold <= 0 || file.IntentRouter.LLMFallback.ConfidenceThreshold > 1 {
 		file.IntentRouter.LLMFallback.ConfidenceThreshold = 0.72
 	}
+}
+
+func normalizeFileExtendedChannel(channelName string, channel *fileExtendedChannel) {
+	if channel == nil {
+		return
+	}
+	channelName = normalizeChannelKey(channelName)
+	channel.DefaultAgent = strings.TrimSpace(channel.DefaultAgent)
+	if channel.DefaultAgent == "" {
+		channel.DefaultAgent = "main"
+	}
+	channel.Instances = normalizeFileExtendedInstances(channelName, channel.Instances, channel.DefaultAgent)
+	channel.Enabled = hasEnabledFileExtendedInstance(channel.Instances) || channel.Enabled
+}
+
+func normalizeFileExtendedInstances(channelName string, values []fileExtendedChannelInstance, fallbackAgent string) []fileExtendedChannelInstance {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]fileExtendedChannelInstance, 0, len(values))
+	seen := make(map[string]int, len(values))
+	fallbackAgent = strings.TrimSpace(fallbackAgent)
+	if fallbackAgent == "" {
+		fallbackAgent = "main"
+	}
+
+	for idx, raw := range values {
+		item := raw
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = fmt.Sprintf("%s-%d", channelName, idx+1)
+		}
+		seen[id]++
+		if seen[id] > 1 {
+			id = fmt.Sprintf("%s-%d", id, seen[id])
+		}
+
+		item.ID = id
+		item.DefaultAgent = strings.TrimSpace(item.DefaultAgent)
+		if item.DefaultAgent == "" {
+			item.DefaultAgent = fallbackAgent
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func hasEnabledFileExtendedInstance(values []fileExtendedChannelInstance) bool {
+	for _, item := range values {
+		if item.Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 func setDefaultFlag(agents *fileAgents, defaultID string) {
@@ -2297,6 +2468,26 @@ func applyStructuredJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 				}
 			}
 		}
+
+		applyStructuredExtendedChannel(cfg, "slack", raw.Channels.Slack)
+		applyStructuredExtendedChannel(cfg, "whatsapp", raw.Channels.WhatsApp)
+		applyStructuredExtendedChannel(cfg, "signal", raw.Channels.Signal)
+		applyStructuredExtendedChannel(cfg, "googlechat", raw.Channels.GoogleChat)
+		applyStructuredExtendedChannel(cfg, "irc", raw.Channels.IRC)
+		applyStructuredExtendedChannel(cfg, "matrix", raw.Channels.Matrix)
+		applyStructuredExtendedChannel(cfg, "mattermost", raw.Channels.Mattermost)
+		applyStructuredExtendedChannel(cfg, "msteams", raw.Channels.MSTeams)
+		applyStructuredExtendedChannel(cfg, "nextcloud-talk", raw.Channels.NextcloudTalk)
+		applyStructuredExtendedChannel(cfg, "line", raw.Channels.Line)
+		applyStructuredExtendedChannel(cfg, "nostr", raw.Channels.Nostr)
+		applyStructuredExtendedChannel(cfg, "synology-chat", raw.Channels.SynologyChat)
+		applyStructuredExtendedChannel(cfg, "twitch", raw.Channels.Twitch)
+		applyStructuredExtendedChannel(cfg, "zalo", raw.Channels.Zalo)
+		applyStructuredExtendedChannel(cfg, "zalouser", raw.Channels.ZaloUser)
+		applyStructuredExtendedChannel(cfg, "bluebubbles", raw.Channels.BlueBubbles)
+		applyStructuredExtendedChannel(cfg, "imessage-legacy", raw.Channels.IMessageLegacy)
+		applyStructuredExtendedChannel(cfg, "tlon", raw.Channels.Tlon)
+		applyStructuredExtendedChannel(cfg, "webchat", raw.Channels.WebChat)
 	}
 
 	if raw.Gateway != nil {
@@ -2394,6 +2585,36 @@ func applyStructuredJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 			}
 		}
 	}
+}
+
+func applyStructuredExtendedChannel(cfg *Snapshot, channelName string, raw *jsonExtendedChannel) {
+	if cfg == nil || raw == nil {
+		return
+	}
+	channelName = normalizeChannelKey(channelName)
+	if channelName == "" || !isSupportedExtendedChannelKey(channelName) {
+		return
+	}
+
+	parsed := ExtendedChannelConfig{
+		Enabled:        valueOrDefaultBool(raw.Enabled, false),
+		DefaultAgentID: strings.TrimSpace(raw.DefaultAgent),
+	}
+	if len(raw.Instances) > 0 {
+		parsed.Instances = make([]ExtendedChannelInstance, 0, len(raw.Instances))
+		for _, item := range raw.Instances {
+			parsed.Instances = append(parsed.Instances, ExtendedChannelInstance{
+				ID:             strings.TrimSpace(item.ID),
+				Enabled:        valueOrDefaultBool(item.Enabled, true),
+				DefaultAgentID: strings.TrimSpace(item.DefaultAgent),
+			})
+		}
+	}
+
+	if cfg.ExtendedChannels == nil {
+		cfg.ExtendedChannels = make(map[string]ExtendedChannelConfig)
+	}
+	cfg.ExtendedChannels[channelName] = parsed
 }
 
 func applyProfileSet(cfg *Snapshot, section interface{}) {
@@ -2685,6 +2906,7 @@ func (s *Snapshot) normalizeChannelInstances() {
 	s.TelegramInstances = normalizeTelegramInstances(s.TelegramInstances, s.TelegramDefaultAgentID, s.TelegramPollingTimeout, s.TelegramWebhookPath)
 	s.FeishuInstances = normalizeFeishuInstances(s.FeishuInstances, s.FeishuDefaultAgentID)
 	s.WeComInstances = normalizeWeComInstances(s.WeComInstances, s.WeComDefaultAgentID)
+	s.ExtendedChannels = normalizeExtendedChannels(s.ExtendedChannels)
 
 	s.DiscordEnabled = hasEnabledDiscordInstance(s.DiscordInstances)
 	s.TelegramEnabled = hasEnabledTelegramInstance(s.TelegramInstances)
@@ -2965,6 +3187,64 @@ func normalizeWeComInstances(values []WeComInstance, fallbackAgent string) []WeC
 	return result
 }
 
+func normalizeExtendedChannels(values map[string]ExtendedChannelConfig) map[string]ExtendedChannelConfig {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make(map[string]ExtendedChannelConfig, len(values))
+	for key, raw := range values {
+		channelName := normalizeChannelKey(key)
+		if channelName == "" || !isSupportedExtendedChannelKey(channelName) {
+			continue
+		}
+
+		item := raw
+		item.DefaultAgentID = strings.TrimSpace(item.DefaultAgentID)
+		if item.DefaultAgentID == "" {
+			item.DefaultAgentID = "main"
+		}
+		item.Instances = normalizeExtendedInstances(channelName, item.Instances, item.DefaultAgentID)
+		item.Enabled = hasEnabledExtendedInstance(item.Instances) || item.Enabled
+		result[channelName] = item
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func normalizeExtendedInstances(channelName string, values []ExtendedChannelInstance, fallbackAgent string) []ExtendedChannelInstance {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]ExtendedChannelInstance, 0, len(values))
+	seen := make(map[string]int, len(values))
+	fallbackAgent = strings.TrimSpace(fallbackAgent)
+	if fallbackAgent == "" {
+		fallbackAgent = "main"
+	}
+
+	for idx, raw := range values {
+		item := raw
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = fmt.Sprintf("%s-%d", channelName, idx+1)
+		}
+		seen[id]++
+		if seen[id] > 1 {
+			id = fmt.Sprintf("%s-%d", id, seen[id])
+		}
+
+		item.ID = id
+		item.DefaultAgentID = strings.TrimSpace(item.DefaultAgentID)
+		if item.DefaultAgentID == "" {
+			item.DefaultAgentID = fallbackAgent
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
 func hasEnabledDiscordInstance(values []DiscordInstance) bool {
 	for _, item := range values {
 		if item.Enabled {
@@ -2993,6 +3273,15 @@ func hasEnabledFeishuInstance(values []FeishuInstance) bool {
 }
 
 func hasEnabledWeComInstance(values []WeComInstance) bool {
+	for _, item := range values {
+		if item.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEnabledExtendedInstance(values []ExtendedChannelInstance) bool {
 	for _, item := range values {
 		if item.Enabled {
 			return true
@@ -3274,6 +3563,23 @@ func (s Snapshot) Validate() error {
 		}
 	}
 
+	for channelName, channelCfg := range s.ExtendedChannels {
+		if normalizeChannelKey(channelName) == "" {
+			return ErrInvalidConfig
+		}
+		if err := s.validateChannelAgentReference(channelCfg.DefaultAgentID); err != nil {
+			return err
+		}
+		for _, instance := range channelCfg.Instances {
+			if strings.TrimSpace(instance.ID) == "" {
+				return ErrInvalidConfig
+			}
+			if err := s.validateChannelAgentReference(instance.DefaultAgentID); err != nil {
+				return err
+			}
+		}
+	}
+
 	if s.Database.Enabled {
 		if strings.TrimSpace(s.Database.Driver) == "" {
 			return ErrInvalidConfig
@@ -3345,8 +3651,24 @@ func (s Snapshot) ValidateWorkingDirectory(cwd string) error {
 	return ErrForbiddenCWD
 }
 
+func normalizeChannelKey(raw string) string {
+	key := strings.ToLower(strings.TrimSpace(raw))
+	key = strings.ReplaceAll(key, "_", "-")
+	return key
+}
+
+func isSupportedExtendedChannelKey(channel string) bool {
+	for _, item := range waveExtendedChannelKeys {
+		if item == channel {
+			return true
+		}
+	}
+	return false
+}
+
 func (s Snapshot) IsChannelEnabled(channel string) bool {
-	switch strings.ToLower(strings.TrimSpace(channel)) {
+	channel = normalizeChannelKey(channel)
+	switch channel {
 	case "discord":
 		if len(s.DiscordInstances) > 0 {
 			return hasEnabledDiscordInstance(s.DiscordInstances)
@@ -3368,6 +3690,12 @@ func (s Snapshot) IsChannelEnabled(channel string) bool {
 		}
 		return s.WeComEnabled
 	default:
+		if extended, ok := s.ExtendedChannels[channel]; ok {
+			if len(extended.Instances) > 0 {
+				return hasEnabledExtendedInstance(extended.Instances)
+			}
+			return extended.Enabled
+		}
 		return false
 	}
 }

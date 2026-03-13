@@ -1,0 +1,40 @@
+name: spec-governance
+
+on:
+  pull_request:
+    paths:
+      - "specs/004-channels/**"
+      - "docs/guides/phase_4/**"
+      - "scripts/ci/check_spec_governance.sh"
+      - ".github/workflows/spec-governance.yml"
+  push:
+    branches:
+      - main
+      - master
+      - 004-channels
+    paths:
+      - "specs/004-channels/**"
+      - "docs/guides/phase_4/**"
+      - "scripts/ci/check_spec_governance.sh"
+      - ".github/workflows/spec-governance.yml"
+
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run governance checks (pull_request)
+        if: github.event_name == 'pull_request'
+        env:
+          SPEC_GOVERNANCE_DIFF_RANGE: ${{ github.event.pull_request.base.sha }}..${{ github.sha }}
+        run: bash scripts/ci/check_spec_governance.sh
+
+      - name: Run governance checks (push)
+        if: github.event_name == 'push'
+        env:
+          SPEC_GOVERNANCE_DIFF_RANGE: ${{ github.event.before }}..${{ github.sha }}
+        run: bash scripts/ci/check_spec_governance.sh

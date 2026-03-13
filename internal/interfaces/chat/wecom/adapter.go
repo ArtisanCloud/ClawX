@@ -92,6 +92,7 @@ type Adapter struct {
 	sessionTargets map[string]Target
 	accessToken    string
 	accessTokenExp time.Time
+	webhookReplay  map[string]time.Time
 }
 
 func NewAdapter(options Options) (*Adapter, error) {
@@ -139,6 +140,7 @@ func NewAdapter(options Options) (*Adapter, error) {
 		baseURL:        baseURL,
 		client:         client,
 		sessionTargets: make(map[string]Target),
+		webhookReplay:  make(map[string]time.Time),
 	}, nil
 }
 
@@ -231,6 +233,9 @@ func (a *Adapter) ParseWebhookRequest(r *http.Request) (ParseResult, error) {
 	}
 	if eventID == "" {
 		eventID = buildFallbackEventID(timestamp, nonce, encryptText)
+	}
+	if !a.acceptWebhookEvent(eventID, time.Now().UTC()) {
+		return ParseResult{}, ErrWebhookReplayRejected
 	}
 
 	return ParseResult{
@@ -611,6 +616,28 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func (a *Adapter) acceptWebhookEvent(eventID string, now time.Time) bool {
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		return true
+	}
+	cutoff := now.Add(-15 * time.Minute)
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	for key, seenAt := range a.webhookReplay {
+		if seenAt.Before(cutoff) {
+			delete(a.webhookReplay, key)
+		}
+	}
+	if seenAt, exists := a.webhookReplay[eventID]; exists && !seenAt.Before(cutoff) {
+		return false
+	}
+	a.webhookReplay[eventID] = now
+	return true
 }
 
 type encryptedCallbackXML struct {

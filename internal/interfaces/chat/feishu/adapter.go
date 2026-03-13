@@ -39,6 +39,7 @@ var (
 	ErrWebhookMethod         = errors.New("feishu webhook method is not allowed")
 	ErrWebhookUnauthorized   = errors.New("feishu webhook signature mismatch")
 	ErrVerificationTokenFail = errors.New("feishu verification token mismatch")
+	ErrWebhookReplayRejected = errors.New("feishu webhook replay rejected")
 )
 
 type Options struct {
@@ -79,6 +80,7 @@ type Adapter struct {
 	sessionTargets map[string]Target
 	tenantToken    string
 	tenantTokenExp time.Time
+	webhookReplay  map[string]time.Time
 }
 
 func NewAdapter(options Options) (*Adapter, error) {
@@ -113,6 +115,7 @@ func NewAdapter(options Options) (*Adapter, error) {
 		baseURL:           baseURL,
 		client:            client,
 		sessionTargets:    make(map[string]Target),
+		webhookReplay:     make(map[string]time.Time),
 	}, nil
 }
 
@@ -160,6 +163,9 @@ func (a *Adapter) ParseWebhookRequest(r *http.Request) (ParseResult, error) {
 	}
 	if !ok {
 		return ParseResult{HasMessage: false}, nil
+	}
+	if !a.acceptWebhookEvent(envelope.EventID, time.Now().UTC()) {
+		return ParseResult{}, ErrWebhookReplayRejected
 	}
 	return ParseResult{
 		HasMessage: true,
@@ -505,6 +511,28 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func (a *Adapter) acceptWebhookEvent(eventID string, now time.Time) bool {
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		return true
+	}
+	cutoff := now.Add(-15 * time.Minute)
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	for key, seenAt := range a.webhookReplay {
+		if seenAt.Before(cutoff) {
+			delete(a.webhookReplay, key)
+		}
+	}
+	if seenAt, exists := a.webhookReplay[eventID]; exists && !seenAt.Before(cutoff) {
+		return false
+	}
+	a.webhookReplay[eventID] = now
+	return true
 }
 
 type webhookPayload struct {
