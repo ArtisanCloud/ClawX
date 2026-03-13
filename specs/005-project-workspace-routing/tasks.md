@@ -109,16 +109,16 @@
 
 ### 测试任务（US3）
 
-- [ ] T033 [P] [US3] 增加建议切换生成规则单测于 /home/ubuntu/workspace/ClawX/tests/unit/project_switch_proposal_test.go
-- [ ] T034 [P] [US3] 增加确认式切换集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_switch_confirm_test.go
-- [ ] T035 [P] [US3] 增加 proposal 超时失效测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_switch_proposal_expire_test.go
+- [X] T033 [P] [US3] 增加建议切换生成规则单测于 /home/ubuntu/workspace/ClawX/tests/unit/project_switch_proposal_test.go
+- [X] T034 [P] [US3] 增加确认式切换集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_switch_confirm_test.go
+- [X] T035 [P] [US3] 增加 proposal 超时失效测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_switch_proposal_expire_test.go
 
 ### 实现任务（US3）
 
-- [ ] T036 [US3] 在意图路由中接入项目候选判定于 /home/ubuntu/workspace/ClawX/internal/application/intent/pipeline.go
-- [ ] T037 [US3] 实现 proposal 创建与持久化于 /home/ubuntu/workspace/ClawX/internal/application/project/service_proposal.go
-- [ ] T038 [US3] 实现 `/project confirm <proposal_id>` 命令于 /home/ubuntu/workspace/ClawX/cmd/clawx/project.go
-- [ ] T039 [US3] 实现 proposal 生命周期回收任务于 /home/ubuntu/workspace/ClawX/internal/application/project/proposal_gc.go
+- [X] T036 [US3] 在意图路由中接入项目候选判定于 /home/ubuntu/workspace/ClawX/internal/application/intent/pipeline.go
+- [X] T037 [US3] 实现 proposal 创建与持久化于 /home/ubuntu/workspace/ClawX/internal/application/project/service_proposal.go
+- [X] T038 [US3] 实现 `/project confirm <proposal_id>` 命令于 /home/ubuntu/workspace/ClawX/cmd/clawx/project.go
+- [X] T039 [US3] 实现 proposal 生命周期回收任务于 /home/ubuntu/workspace/ClawX/internal/application/project/proposal_gc.go
 
 **检查点**: US3 完成后，意图切换流程可独立验收
 

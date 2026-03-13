@@ -215,6 +215,41 @@ func (r *Router) handleProjectControlCommand(ctx context.Context, cmd command.Pr
 		return ControlFlowResult{
 			Message: fmt.Sprintf("当前项目: %s [%s] %s (mode=%s)", record.ID, normalizeProjectStatus(record.Status), record.WorkspacePath, mode),
 		}, nil
+	case command.ProjectControlSuggest:
+		fromProjectID, _, err := r.resolveControlProject(ctx, routeKey)
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		proposal, err := r.projectControl.SuggestProjectSwitch(
+			ctx,
+			routeKey,
+			fromProjectID,
+			cmd.ProjectID,
+			cmd.Reason,
+			cmd.Confidence,
+			"intent-router",
+		)
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{
+			Message: fmt.Sprintf(
+				"建议切换项目: %s -> %s\n原因: %s\n置信度: %.2f\n确认命令: /project confirm %s",
+				proposal.FromProjectID,
+				proposal.ToProjectID,
+				proposal.Reason,
+				proposal.Confidence,
+				proposal.ID,
+			),
+		}, nil
+	case command.ProjectControlConfirm:
+		binding, err := r.projectControl.ConfirmProjectSwitch(ctx, cmd.ProposalID, "chat-control")
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{
+			Message: fmt.Sprintf("已确认并切换项目: %s (route=%s)", binding.ProjectID, binding.RouteKey),
+		}, nil
 	default:
 		return ControlFlowResult{}, command.ErrInvalidControlCommand
 	}

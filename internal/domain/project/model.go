@@ -11,6 +11,8 @@ var (
 	ErrProjectNotFound  = errors.New("project not found")
 	ErrBindingNotFound  = errors.New("project binding not found")
 	ErrProposalNotFound = errors.New("project proposal not found")
+	ErrProposalExpired  = errors.New("project proposal expired")
+	ErrProposalInvalid  = errors.New("project proposal is invalid")
 )
 
 type Status string

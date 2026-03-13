@@ -27,6 +27,7 @@ type Service struct {
 	clock          Clock
 	workspaceRoot  string
 	defaultProject string
+	proposalTTL    time.Duration
 }
 
 type Option func(*Service)
@@ -49,6 +50,12 @@ func WithDefaultProjectID(projectID string) Option {
 	}
 }
 
+func WithProposalTTL(ttl time.Duration) Option {
+	return func(s *Service) {
+		s.proposalTTL = ttl
+	}
+}
+
 func NewService(
 	registryRepo projectdomain.RegistryRepository,
 	bindingRepo projectdomain.BindingRepository,
@@ -62,6 +69,7 @@ func NewService(
 		clock:          func() time.Time { return time.Now().UTC() },
 		workspaceRoot:  defaultWorkspaceRoot(),
 		defaultProject: "main",
+		proposalTTL:    10 * time.Minute,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -73,6 +81,9 @@ func NewService(
 	}
 	if strings.TrimSpace(svc.defaultProject) == "" {
 		svc.defaultProject = "main"
+	}
+	if svc.proposalTTL <= 0 {
+		svc.proposalTTL = 10 * time.Minute
 	}
 	return svc
 }

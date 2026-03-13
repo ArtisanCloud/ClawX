@@ -2,6 +2,7 @@ package command
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 )
 
@@ -14,12 +15,17 @@ const (
 	ProjectControlList    ProjectControlKind = "list"
 	ProjectControlUse     ProjectControlKind = "use"
 	ProjectControlCurrent ProjectControlKind = "current"
+	ProjectControlSuggest ProjectControlKind = "suggest"
+	ProjectControlConfirm ProjectControlKind = "confirm"
 )
 
 type ProjectControlCommand struct {
 	Kind        ProjectControlKind
 	ProjectID   string
 	ProjectName string
+	ProposalID  string
+	Confidence  float64
+	Reason      string
 }
 
 func ParseProjectControlCommand(raw string) (ProjectControlCommand, error) {
@@ -61,6 +67,34 @@ func ParseProjectControlCommand(raw string) (ProjectControlCommand, error) {
 		}
 	case "current":
 		cmd.Kind = ProjectControlCurrent
+	case "suggest":
+		if len(fields) < 3 {
+			return ProjectControlCommand{}, ErrInvalidControlCommand
+		}
+		cmd.Kind = ProjectControlSuggest
+		cmd.ProjectID = strings.TrimSpace(fields[2])
+		if cmd.ProjectID == "" {
+			return ProjectControlCommand{}, ErrInvalidControlCommand
+		}
+		startReasonIndex := 3
+		if len(fields) > 3 {
+			if parsed, err := strconv.ParseFloat(strings.TrimSpace(fields[3]), 64); err == nil {
+				cmd.Confidence = parsed
+				startReasonIndex = 4
+			}
+		}
+		if len(fields) > startReasonIndex {
+			cmd.Reason = strings.TrimSpace(strings.Join(fields[startReasonIndex:], " "))
+		}
+	case "confirm":
+		if len(fields) < 3 {
+			return ProjectControlCommand{}, ErrInvalidControlCommand
+		}
+		cmd.Kind = ProjectControlConfirm
+		cmd.ProposalID = strings.TrimSpace(fields[2])
+		if cmd.ProposalID == "" {
+			return ProjectControlCommand{}, ErrInvalidControlCommand
+		}
 	default:
 		return ProjectControlCommand{}, ErrInvalidControlCommand
 	}

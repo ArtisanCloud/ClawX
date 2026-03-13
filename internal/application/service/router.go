@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"clawx/internal/application/intent"
@@ -52,6 +53,8 @@ type ProjectCommandService interface {
 	ListProjects(ctx context.Context) ([]projectdomain.Record, error)
 	UseProject(ctx context.Context, routeKey, projectID, updatedBy string) (projectdomain.RouteBinding, error)
 	GetProject(ctx context.Context, projectID string) (projectdomain.Record, error)
+	SuggestProjectSwitch(ctx context.Context, routeKey, fromProjectID, toProjectID, reason string, confidence float64, createdBy string) (projectdomain.Proposal, error)
+	ConfirmProjectSwitch(ctx context.Context, proposalID, updatedBy string) (projectdomain.RouteBinding, error)
 }
 
 type Router struct {
@@ -139,6 +142,14 @@ func (r *Router) Route(ctx context.Context, message chat.Message) (Decision, err
 		default:
 			decision.Kind = DecisionExecute
 		}
+		if strings.TrimSpace(intentResult.ProposalProjectID) != "" && r.projectControl != nil {
+			targetProjectID := normalizeProjectSwitchID(intentResult.ProposalProjectID)
+			currentProjectID := normalizeProjectSwitchID(decision.ProjectID)
+			if targetProjectID != "" && targetProjectID != currentProjectID {
+				decision.Kind = DecisionControl
+				decision.Command = buildProjectSuggestCommand(targetProjectID, intentResult.ProposalConfidence, intentResult.ProposalReason)
+			}
+		}
 		return decision, nil
 	}
 
@@ -211,6 +222,43 @@ func isBuiltInControlCommand(text string) bool {
 	default:
 		return false
 	}
+}
+
+func normalizeProjectSwitchID(raw string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(raw))
+	if trimmed == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(trimmed))
+	for _, r := range trimmed {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteRune('-')
+		}
+	}
+	return strings.Trim(b.String(), "-_")
+}
+
+func buildProjectSuggestCommand(projectID string, confidence float64, reason string) string {
+	projectID = normalizeProjectSwitchID(projectID)
+	reason = strings.TrimSpace(strings.Join(strings.Fields(reason), " "))
+	if reason == "" {
+		reason = "intent_project_switch"
+	}
+	if confidence < 0 {
+		confidence = 0
+	}
+	if confidence > 1 {
+		confidence = 1
+	}
+	return fmt.Sprintf("/project suggest %s %.2f %s", projectID, confidence, reason)
 }
 
 func (r *Router) ValidateContext(message chat.Message) error {

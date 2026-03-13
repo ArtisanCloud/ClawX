@@ -2,6 +2,7 @@ package intent
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"time"
 
@@ -42,6 +43,10 @@ type Result struct {
 	Skill      *skilldomain.Definition
 	SkillInput string
 	DurationMS int64
+
+	ProposalProjectID  string
+	ProposalReason     string
+	ProposalConfidence float64
 }
 
 func (p *Pipeline) Decide(ctx context.Context, message chatiface.Message) (Result, error) {
@@ -51,6 +56,7 @@ func (p *Pipeline) Decide(ctx context.Context, message chatiface.Message) (Resul
 		decision, _ := (skilldomain.IntentDecision{Kind: skilldomain.IntentTask, Reason: "empty_message"}).Normalize()
 		return Result{Decision: decision, DurationMS: 0}, nil
 	}
+	proposalProjectID, proposalReason, proposalConfidence := detectProjectSwitchCandidate(text)
 	if isControlCommand(text) {
 		decision, _ := (skilldomain.IntentDecision{Kind: skilldomain.IntentControl, Reason: "control_command"}).Normalize()
 		return Result{Decision: decision, DurationMS: time.Since(started).Milliseconds()}, nil
@@ -62,6 +68,9 @@ func (p *Pipeline) Decide(ctx context.Context, message chatiface.Message) (Resul
 	if explicit.Valid {
 		result, err := p.resolveSkill(ctx, snapshot, message, explicit.Name, "explicit_skill", 1.0, explicit.Input)
 		result.DurationMS = time.Since(started).Milliseconds()
+		result.ProposalProjectID = proposalProjectID
+		result.ProposalReason = proposalReason
+		result.ProposalConfidence = proposalConfidence
 		return result, err
 	}
 
@@ -69,6 +78,9 @@ func (p *Pipeline) Decide(ctx context.Context, message chatiface.Message) (Resul
 	if selected, ok := SelectCandidate(ruleCandidates); ok {
 		result, err := p.resolveSkill(ctx, snapshot, message, selected.SkillName, selected.Reason, selected.Confidence, text)
 		result.DurationMS = time.Since(started).Milliseconds()
+		result.ProposalProjectID = proposalProjectID
+		result.ProposalReason = proposalReason
+		result.ProposalConfidence = proposalConfidence
 		return result, err
 	}
 
@@ -80,6 +92,9 @@ func (p *Pipeline) Decide(ctx context.Context, message chatiface.Message) (Resul
 		if llmCandidate.Confidence >= p.threshold {
 			result, err := p.resolveSkill(ctx, snapshot, message, llmCandidate.SkillName, llmCandidate.Reason, llmCandidate.Confidence, text)
 			result.DurationMS = time.Since(started).Milliseconds()
+			result.ProposalProjectID = proposalProjectID
+			result.ProposalReason = proposalReason
+			result.ProposalConfidence = proposalConfidence
 			return result, err
 		}
 		decision, _ := (skilldomain.IntentDecision{
@@ -87,11 +102,23 @@ func (p *Pipeline) Decide(ctx context.Context, message chatiface.Message) (Resul
 			Reason:     "llm_below_threshold",
 			Confidence: llmCandidate.Confidence,
 		}).Normalize()
-		return Result{Decision: decision, DurationMS: time.Since(started).Milliseconds()}, nil
+		return Result{
+			Decision:           decision,
+			DurationMS:         time.Since(started).Milliseconds(),
+			ProposalProjectID:  proposalProjectID,
+			ProposalReason:     proposalReason,
+			ProposalConfidence: proposalConfidence,
+		}, nil
 	}
 
 	decision, _ := (skilldomain.IntentDecision{Kind: skilldomain.IntentTask, Reason: "task_fallback"}).Normalize()
-	return Result{Decision: decision, DurationMS: time.Since(started).Milliseconds()}, nil
+	return Result{
+		Decision:           decision,
+		DurationMS:         time.Since(started).Milliseconds(),
+		ProposalProjectID:  proposalProjectID,
+		ProposalReason:     proposalReason,
+		ProposalConfidence: proposalConfidence,
+	}, nil
 }
 
 func (p *Pipeline) resolveSkill(
@@ -160,9 +187,57 @@ func isControlCommand(text string) bool {
 		return false
 	}
 	switch normalizeCommand(fields[0]) {
-	case "new", "resume", "switch", "list", "cancel", "current":
+	case "new", "resume", "switch", "list", "cancel", "current", "project":
 		return true
 	default:
 		return false
 	}
+}
+
+var (
+	projectHintPatternCN = regexp.MustCompile(`项目\s*[:：]\s*([a-zA-Z0-9][a-zA-Z0-9_-]{0,63})`)
+	projectHintPatternEN = regexp.MustCompile(`(?i)\bproject\s*[:=]\s*([a-z0-9][a-z0-9_-]{0,63})\b`)
+	projectHintSwitch    = regexp.MustCompile(`(?i)(?:switch\s+to|切换到|切到)\s*([a-z0-9][a-z0-9_-]{0,63})`)
+)
+
+func detectProjectSwitchCandidate(text string) (string, string, float64) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", "", 0
+	}
+
+	if match := projectHintPatternEN.FindStringSubmatch(text); len(match) > 1 {
+		return normalizeProjectHintID(match[1]), "text_project_hint", 0.93
+	}
+	if match := projectHintPatternCN.FindStringSubmatch(text); len(match) > 1 {
+		return normalizeProjectHintID(match[1]), "text_project_hint", 0.93
+	}
+	if match := projectHintSwitch.FindStringSubmatch(text); len(match) > 1 {
+		return normalizeProjectHintID(match[1]), "text_switch_intent", 0.86
+	}
+	return "", "", 0
+}
+
+func normalizeProjectHintID(raw string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(raw))
+	if trimmed == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	b.Grow(len(trimmed))
+	for _, r := range trimmed {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteRune('-')
+		}
+	}
+
+	return strings.Trim(b.String(), "-_")
 }

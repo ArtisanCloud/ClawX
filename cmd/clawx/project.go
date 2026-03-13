@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	projectapp "clawx/internal/application/project"
 	"clawx/internal/application/service"
@@ -50,5 +51,6 @@ func newProjectCommandService(cfg config.Snapshot) (service.ProjectCommandServic
 		proposalStore,
 		projectapp.WithWorkspaceRoot(workspaceRoot),
 		projectapp.WithDefaultProjectID(defaultProjectID),
+		projectapp.WithProposalTTL(10*time.Minute),
 	), nil
 }
