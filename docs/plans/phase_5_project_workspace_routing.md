@@ -5,40 +5,46 @@
 - 支持同一 bot 并发处理多个项目，且代码与会话上下文隔离。
 - 固化 `/project` 命令闭环，并明确 `/new` 只创建会话。
 
-## 范围
-### P5（必须）
-- 项目注册表（project metadata）
-- route key 到项目绑定
-- `/project create/list/use/current`
-- `project_id` 纳入会话键
-- 默认项目 fallback 与审计日志
+## 交付状态（2026-03-13）
 
-### P5.5（增强）
-- 意图命中跨项目时“建议切换 + 用户确认”
-- `/project bind/unbind/audit/delete` 运维命令
-- 异常状态修复（broken 项目、脏绑定）
+### 已完成
+- 基础能力：
+  - 项目领域模型、仓储接口、文件存储（`projects.json` / `bindings.json` / `proposals.json`）。
+  - route key 归一化与路由入口项目判定（binding -> fallback）。
+  - 会话键与窗口绑定纳入 `project_id` 作用域。
+- US1（显式管理项目）：
+  - `/project create/list/use/current` 完成并接入路由控制流。
+  - workspace 自动初始化与状态查询可用。
+- US2（同 bot 并发隔离）：
+  - 多 route key 并发绑定不同项目不串线。
+  - `/new` 保持“当前项目内新建会话”语义。
+- US3（意图辅助切换）：
+  - 建议切换（proposal）生成、确认、过期回收闭环完成。
+  - confirm-first 语义已由测试覆盖。
+- US4（可观测与恢复）：
+  - `/project bind/unbind/audit/delete/repair` 全部可用。
+  - broken 状态识别与修复链路可用。
+- 收尾与门禁：
+  - 契约文档：`project-command-contract.md`、`project-routing-contract.md`。
+  - Phase 5 指标门禁测试（SC-001~SC-006）已补齐。
+  - 快速验收脚本与发布门禁路径已更新。
 
-## 关键规则
+### 测试覆盖状态
+- Unit: `tests/unit/project_*`
+- Integration: `tests/integration/project_*`
+- Contract: `tests/contract/project_*`
+- Metrics Gate: `tests/integration/project_routing_metrics_report_test.go`
+
+## 当前范围结论
+- P5（必须范围）：已完成。
+- P5.5（增强范围）：已完成。
+- Phase 5 可进入发布候选，发布前执行全量回归与指标门禁。
+
+## 关键规则（已固化）
 - `/new` 不得创建或切换项目。
 - 项目切换只能显式命令或确认式切换完成。
 - route key 需覆盖 `channel/instance/peer/thread`，线程优先。
 - 项目目录默认在 `~/.clawx/workspaces/<project_id>`。
-
-## 里程碑
-
-### M1: 显式项目管理（P5 MVP）
-- `/project create/list/use/current` 可用。
-- `projects.json` 与 `bindings.json` 可稳定读写。
-- 路由可按绑定命中项目。
-
-### M2: 并发隔离闭环
-- 会话键加入 `project_id`。
-- 两个 route key 绑定不同项目后可并行执行且不串线。
-- `/new` 在当前项目内新建会话且不改变项目绑定。
-
-### M3: 意图辅助与治理
-- 高置信跨项目命中输出 proposal，确认后切换。
-- 审计、修复、删除保护命令可用。
 
 ## 验收标准（阶段门禁）
 - 同一 bot 下至少 2 个项目并发执行无串线。
@@ -54,7 +60,10 @@
   - 缓解：原子写入 + 文件锁 + 损坏检测。
 - 风险：意图建议过于频繁干扰用户。
   - 缓解：建议节流 + 最短冷却窗口。
+- 风险：指标样本不足导致门禁不可判定。
+  - 缓解：维持 `>=200` 样本下限并输出 markdown 报告。
 
 ## 交付物
 - 规格与任务：`specs/005-project-workspace-routing/*`
+- 契约：`specs/005-project-workspace-routing/contracts/*`
 - 阶段计划：`docs/plans/phase_5_project_workspace_routing.md`（本文件）

@@ -151,12 +151,12 @@
 
 **目的**: 契约、文档、回归、发布门禁收口
 
-- [ ] T047 [P] 补充项目命令契约文档于 /home/ubuntu/workspace/ClawX/specs/005-project-workspace-routing/contracts/project-command-contract.md
-- [ ] T048 [P] 补充项目路由契约文档于 /home/ubuntu/workspace/ClawX/specs/005-project-workspace-routing/contracts/project-routing-contract.md
-- [ ] T049 [P] 更新 Phase 5 人工验收指南于 /home/ubuntu/workspace/ClawX/specs/005-project-workspace-routing/quickstart.md
-- [ ] T050 更新 Phase 5 阶段计划状态于 /home/ubuntu/workspace/ClawX/docs/plans/phase_5_project_workspace_routing.md
-- [ ] T051 运行全量回归并修复问题（`go test ./...`）于 /home/ubuntu/workspace/ClawX/tests/
-- [ ] T052 [P] 输出 SC-001~SC-006 指标采集测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_routing_metrics_report_test.go
+- [X] T047 [P] 补充项目命令契约文档于 /home/ubuntu/workspace/ClawX/specs/005-project-workspace-routing/contracts/project-command-contract.md
+- [X] T048 [P] 补充项目路由契约文档于 /home/ubuntu/workspace/ClawX/specs/005-project-workspace-routing/contracts/project-routing-contract.md
+- [X] T049 [P] 更新 Phase 5 人工验收指南于 /home/ubuntu/workspace/ClawX/specs/005-project-workspace-routing/quickstart.md
+- [X] T050 更新 Phase 5 阶段计划状态于 /home/ubuntu/workspace/ClawX/docs/plans/phase_5_project_workspace_routing.md
+- [X] T051 运行全量回归并修复问题（`go test ./...`）于 /home/ubuntu/workspace/ClawX/tests/
+- [X] T052 [P] 输出 SC-001~SC-006 指标采集测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_routing_metrics_report_test.go
 
 ---
 
