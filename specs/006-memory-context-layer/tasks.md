@@ -36,17 +36,17 @@
 
 **⚠️ 关键说明**: 本阶段完成前不得进入用户故事实现
 
-- [ ] T006 定义 MemoryScopeKey/MemoryProfile/MemoryLoadItem 领域模型于 /home/ubuntu/workspace/ClawX/internal/domain/memory/model.go
-- [ ] T007 [P] 定义 Memory 存储接口（template/journal/audit/digest）于 /home/ubuntu/workspace/ClawX/internal/domain/memory/repository.go
-- [ ] T008 [P] 实现记忆模板与 manifest 文件存储于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/memory_template_file_store.go
-- [ ] T009 [P] 实现记忆日记文件存储于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/memory_journal_file_store.go
-- [ ] T010 [P] 实现记忆审计记录文件存储于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/memory_audit_file_store.go
-- [ ] T011 [P] 实现 digest 作业状态存储于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/memory_digest_file_store.go
-- [ ] T012 扩展配置结构（owner allowlist、budget、digest auto 开关）于 /home/ubuntu/workspace/ClawX/internal/infrastructure/config/config.go
-- [ ] T013 [P] 增加 memory 配置校验单测于 /home/ubuntu/workspace/ClawX/internal/infrastructure/config/config_test.go
-- [ ] T014 实现 MemoryScope 解析器（agent+project+route+chat_mode）于 /home/ubuntu/workspace/ClawX/internal/application/memory/scope_resolver.go
-- [ ] T015 实现 MemoryLoader 基础编排（输入/输出/降级）于 /home/ubuntu/workspace/ClawX/internal/application/memory/loader.go
-- [ ] T016 [P] 增加 MemoryScope 与加载器基础单测于 /home/ubuntu/workspace/ClawX/tests/unit/memory_scope_loader_test.go
+- [X] T006 定义 MemoryScopeKey/MemoryProfile/MemoryLoadItem 领域模型于 /home/ubuntu/workspace/ClawX/internal/domain/memory/model.go
+- [X] T007 [P] 定义 Memory 存储接口（template/journal/audit/digest）于 /home/ubuntu/workspace/ClawX/internal/domain/memory/repository.go
+- [X] T008 [P] 实现记忆模板与 manifest 文件存储于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/memory_template_file_store.go
+- [X] T009 [P] 实现记忆日记文件存储于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/memory_journal_file_store.go
+- [X] T010 [P] 实现记忆审计记录文件存储于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/memory_audit_file_store.go
+- [X] T011 [P] 实现 digest 作业状态存储于 /home/ubuntu/workspace/ClawX/internal/infrastructure/persistence/memory_digest_file_store.go
+- [X] T012 扩展配置结构（owner allowlist、budget、digest auto 开关）于 /home/ubuntu/workspace/ClawX/internal/infrastructure/config/config.go
+- [X] T013 [P] 增加 memory 配置校验单测于 /home/ubuntu/workspace/ClawX/internal/infrastructure/config/config_test.go
+- [X] T014 实现 MemoryScope 解析器（agent+project+route+chat_mode）于 /home/ubuntu/workspace/ClawX/internal/application/memory/scope_resolver.go
+- [X] T015 实现 MemoryLoader 基础编排（输入/输出/降级）于 /home/ubuntu/workspace/ClawX/internal/application/memory/loader.go
+- [X] T016 [P] 增加 MemoryScope 与加载器基础单测于 /home/ubuntu/workspace/ClawX/tests/unit/memory_scope_loader_test.go
 
 **检查点**: 基础能力完成后，用户故事实现可以开始
 

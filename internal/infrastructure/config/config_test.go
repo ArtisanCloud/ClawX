@@ -1147,3 +1147,99 @@ func TestLoadDefaultsProjectConfigWhenMissing(t *testing.T) {
 		t.Fatalf("expected default project id main, got %q", cfg.Projects.DefaultProjectID)
 	}
 }
+
+func TestLoadParsesMemoryConfigFromJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	content := `{
+  "runtime": {
+    "allowedRoots": ["."],
+    "defaultCwd": "."
+  },
+  "execution": {
+    "command": "cat"
+  },
+  "memory": {
+    "ownerAllowlist": [" OwnerA ", "ownerB", "ownera"],
+    "tokenBudget": 8192,
+    "autoDigestEnabled": true
+  }
+}`
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.Memory.TokenBudget != 8192 {
+		t.Fatalf("unexpected memory token budget: %d", cfg.Memory.TokenBudget)
+	}
+	if !cfg.Memory.AutoDigestEnabled {
+		t.Fatalf("expected memory auto digest enabled")
+	}
+	if len(cfg.Memory.OwnerAllowlist) != 2 {
+		t.Fatalf("unexpected owner allowlist size: %d", len(cfg.Memory.OwnerAllowlist))
+	}
+	if cfg.Memory.OwnerAllowlist[0] != "ownera" || cfg.Memory.OwnerAllowlist[1] != "ownerb" {
+		t.Fatalf("unexpected owner allowlist: %#v", cfg.Memory.OwnerAllowlist)
+	}
+}
+
+func TestLoadAppliesMemoryConfigEnvOverrides(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	content := `{
+  "runtime": {
+    "allowedRoots": ["."],
+    "defaultCwd": "."
+  },
+  "execution": {
+    "command": "cat"
+  },
+  "memory": {
+    "ownerAllowlist": ["base"],
+    "tokenBudget": 2048,
+    "autoDigestEnabled": false
+  }
+}`
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	t.Setenv("CLAWX_MEMORY_OWNER_ALLOWLIST", "Alice, BOB")
+	t.Setenv("CLAWX_MEMORY_TOKEN_BUDGET", "4096")
+	t.Setenv("CLAWX_MEMORY_AUTO_DIGEST", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.Memory.TokenBudget != 4096 {
+		t.Fatalf("unexpected memory token budget from env: %d", cfg.Memory.TokenBudget)
+	}
+	if !cfg.Memory.AutoDigestEnabled {
+		t.Fatalf("expected memory auto digest from env")
+	}
+	if len(cfg.Memory.OwnerAllowlist) != 2 {
+		t.Fatalf("unexpected owner allowlist size: %d", len(cfg.Memory.OwnerAllowlist))
+	}
+	if cfg.Memory.OwnerAllowlist[0] != "alice" || cfg.Memory.OwnerAllowlist[1] != "bob" {
+		t.Fatalf("unexpected owner allowlist from env: %#v", cfg.Memory.OwnerAllowlist)
+	}
+}
+
+func TestSnapshotValidateRejectsInvalidMemoryConfig(t *testing.T) {
+	cfg := defaultSnapshot()
+	cfg.Memory.TokenBudget = 0
+
+	err := cfg.Validate()
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got %v", err)
+	}
+}

@@ -176,6 +176,12 @@ type ProjectConfig struct {
 	DefaultProjectID string
 }
 
+type MemoryConfig struct {
+	OwnerAllowlist    []string
+	TokenBudget       int
+	AutoDigestEnabled bool
+}
+
 type Snapshot struct {
 	AllowedRoots                  []string
 	DefaultCWD                    string
@@ -239,6 +245,7 @@ type Snapshot struct {
 	Skills                 SkillConfig
 	IntentRouter           IntentRouterConfig
 	Projects               ProjectConfig
+	Memory                 MemoryConfig
 }
 
 type jsonSnapshot struct {
@@ -252,6 +259,7 @@ type jsonSnapshot struct {
 	Skills       *jsonSkills       `json:"skills"`
 	IntentRouter *jsonIntentRouter `json:"intentRouter"`
 	Projects     *jsonProjects     `json:"projects"`
+	Memory       *jsonMemory       `json:"memory"`
 
 	AllowedRoots                  []string                   `json:"allowed_roots"`
 	DefaultCWD                    string                     `json:"default_cwd"`
@@ -524,6 +532,12 @@ type jsonProjects struct {
 	DefaultProjectID string `json:"defaultProject"`
 }
 
+type jsonMemory struct {
+	OwnerAllowlist    []string `json:"ownerAllowlist"`
+	TokenBudget       int      `json:"tokenBudget"`
+	AutoDigestEnabled *bool    `json:"autoDigestEnabled"`
+}
+
 type BootstrapOptions struct {
 	BaseProfileID         string
 	DefaultProfileID      string
@@ -564,6 +578,7 @@ type fileSnapshot struct {
 	Skills       fileSkills       `json:"skills"`
 	IntentRouter fileIntentRouter `json:"intentRouter"`
 	Projects     fileProjects     `json:"projects"`
+	Memory       fileMemory       `json:"memory"`
 }
 
 type fileRuntime struct {
@@ -805,6 +820,12 @@ type fileProjects struct {
 	DefaultProjectID string `json:"defaultProject"`
 }
 
+type fileMemory struct {
+	OwnerAllowlist    []string `json:"ownerAllowlist"`
+	TokenBudget       int      `json:"tokenBudget"`
+	AutoDigestEnabled bool     `json:"autoDigestEnabled"`
+}
+
 func Load() (Snapshot, error) {
 	if err := EnsureStateLayout(); err != nil {
 		return Snapshot{}, err
@@ -835,6 +856,7 @@ func Load() (Snapshot, error) {
 	cfg.normalizeSkills()
 	cfg.normalizeIntentRouter()
 	cfg.normalizeProjects()
+	cfg.normalizeMemory()
 	if err := cfg.Validate(); err != nil {
 		return Snapshot{}, err
 	}
@@ -1445,7 +1467,8 @@ func shouldParseIntegerByKey(key string) bool {
 	case "runtime.timeoutseconds",
 		"channels.telegram.pollingseconds",
 		"database.port",
-		"skills.pairingttlseconds":
+		"skills.pairingttlseconds",
+		"memory.tokenbudget":
 		return true
 	default:
 		return false
@@ -1593,6 +1616,7 @@ func LoadFromEnv() (Snapshot, error) {
 	cfg.normalizeSkills()
 	cfg.normalizeIntentRouter()
 	cfg.normalizeProjects()
+	cfg.normalizeMemory()
 	if err := cfg.Validate(); err != nil {
 		return Snapshot{}, err
 	}
@@ -1742,6 +1766,11 @@ func defaultFileSnapshot() fileSnapshot {
 		Projects: fileProjects{
 			WorkspaceRoot:    workspaceRoot,
 			DefaultProjectID: "main",
+		},
+		Memory: fileMemory{
+			OwnerAllowlist:    nil,
+			TokenBudget:       4096,
+			AutoDigestEnabled: false,
 		},
 	}
 }
@@ -1948,6 +1977,11 @@ func normalizeFileSnapshot(file *fileSnapshot) {
 	if file.Projects.DefaultProjectID == "" {
 		file.Projects.DefaultProjectID = "main"
 	}
+
+	file.Memory.OwnerAllowlist = normalizeOwnerAllowlist(file.Memory.OwnerAllowlist)
+	if file.Memory.TokenBudget <= 0 {
+		file.Memory.TokenBudget = 4096
+	}
 }
 
 func normalizeFileExtendedChannel(channelName string, channel *fileExtendedChannel) {
@@ -2108,6 +2142,11 @@ func defaultSnapshot() Snapshot {
 		Projects: ProjectConfig{
 			WorkspaceRoot:    workspaceRoot,
 			DefaultProjectID: "main",
+		},
+		Memory: MemoryConfig{
+			OwnerAllowlist:    nil,
+			TokenBudget:       4096,
+			AutoDigestEnabled: false,
 		},
 		ProviderProfiles: make(map[string]ProviderProfile),
 		Agents:           make(map[string]Agent),
@@ -2623,6 +2662,18 @@ func applyStructuredJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 		}
 	}
 
+	if raw.Memory != nil {
+		if raw.Memory.OwnerAllowlist != nil {
+			cfg.Memory.OwnerAllowlist = filterEmpty(raw.Memory.OwnerAllowlist)
+		}
+		if raw.Memory.TokenBudget > 0 {
+			cfg.Memory.TokenBudget = raw.Memory.TokenBudget
+		}
+		if raw.Memory.AutoDigestEnabled != nil {
+			cfg.Memory.AutoDigestEnabled = *raw.Memory.AutoDigestEnabled
+		}
+	}
+
 	if raw.Projects != nil {
 		if strings.TrimSpace(raw.Projects.WorkspaceRoot) != "" {
 			cfg.Projects.WorkspaceRoot = strings.TrimSpace(raw.Projects.WorkspaceRoot)
@@ -2883,6 +2934,19 @@ func applyEnvOverrides(cfg *Snapshot) error {
 	if raw := strings.TrimSpace(os.Getenv("CLAWX_PROJECTS_DEFAULT_PROJECT")); raw != "" {
 		cfg.Projects.DefaultProjectID = raw
 	}
+	if raw, ok := os.LookupEnv("CLAWX_MEMORY_OWNER_ALLOWLIST"); ok {
+		cfg.Memory.OwnerAllowlist = splitList(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_MEMORY_TOKEN_BUDGET")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return fmt.Errorf("parse CLAWX_MEMORY_TOKEN_BUDGET: %w", err)
+		}
+		cfg.Memory.TokenBudget = parsed
+	}
+	if raw, ok := os.LookupEnv("CLAWX_MEMORY_AUTO_DIGEST"); ok {
+		cfg.Memory.AutoDigestEnabled = parseBoolOrDefault(raw, cfg.Memory.AutoDigestEnabled)
+	}
 	return nil
 }
 
@@ -3074,6 +3138,13 @@ func (s *Snapshot) normalizeProjects() {
 	s.Projects.DefaultProjectID = strings.TrimSpace(s.Projects.DefaultProjectID)
 	if s.Projects.DefaultProjectID == "" {
 		s.Projects.DefaultProjectID = "main"
+	}
+}
+
+func (s *Snapshot) normalizeMemory() {
+	s.Memory.OwnerAllowlist = normalizeOwnerAllowlist(s.Memory.OwnerAllowlist)
+	if s.Memory.TokenBudget <= 0 {
+		s.Memory.TokenBudget = 4096
 	}
 }
 
@@ -3687,6 +3758,14 @@ func (s Snapshot) Validate() error {
 	if s.IntentRouter.LLMFallback.ConfidenceThreshold <= 0 || s.IntentRouter.LLMFallback.ConfidenceThreshold > 1 {
 		return ErrInvalidConfig
 	}
+	if s.Memory.TokenBudget <= 0 {
+		return ErrInvalidConfig
+	}
+	for _, owner := range s.Memory.OwnerAllowlist {
+		if strings.TrimSpace(owner) == "" {
+			return ErrInvalidConfig
+		}
+	}
 	return nil
 }
 
@@ -3806,6 +3885,30 @@ func filterEmpty(values []string) []string {
 		if trimmed != "" {
 			result = append(result, trimmed)
 		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func normalizeOwnerAllowlist(values []string) []string {
+	values = filterEmpty(values)
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
 	}
 	if len(result) == 0 {
 		return nil
