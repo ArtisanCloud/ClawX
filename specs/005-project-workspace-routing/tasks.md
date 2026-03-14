@@ -112,6 +112,7 @@
 - [X] T033 [P] [US3] 增加建议切换生成规则单测于 /home/ubuntu/workspace/ClawX/tests/unit/project_switch_proposal_test.go
 - [X] T034 [P] [US3] 增加确认式切换集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_switch_confirm_test.go
 - [X] T035 [P] [US3] 增加 proposal 超时失效测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_switch_proposal_expire_test.go
+- [ ] T053 [P] [US3] 增加 proposal 建议提示频率限流测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_switch_proposal_rate_limit_test.go
 
 ### 实现任务（US3）
 
@@ -119,6 +120,7 @@
 - [X] T037 [US3] 实现 proposal 创建与持久化于 /home/ubuntu/workspace/ClawX/internal/application/project/service_proposal.go
 - [X] T038 [US3] 实现 `/project confirm <proposal_id>` 命令于 /home/ubuntu/workspace/ClawX/cmd/clawx/project.go
 - [X] T039 [US3] 实现 proposal 生命周期回收任务于 /home/ubuntu/workspace/ClawX/internal/application/project/proposal_gc.go
+- [ ] T054 [US3] 实现 proposal 建议频率限流（同 route 冷却窗口）于 /home/ubuntu/workspace/ClawX/internal/application/project/service_proposal.go
 
 **检查点**: US3 完成后，意图切换流程可独立验收
 
@@ -157,6 +159,11 @@
 - [X] T050 更新 Phase 5 阶段计划状态于 /home/ubuntu/workspace/ClawX/docs/plans/phase_5_project_workspace_routing.md
 - [X] T051 运行全量回归并修复问题（`go test ./...`）于 /home/ubuntu/workspace/ClawX/tests/
 - [X] T052 [P] 输出 SC-001~SC-006 指标采集测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_routing_metrics_report_test.go
+- [ ] T055 [P] 增加 `/resume` 项目作用域回归测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_resume_semantics_test.go
+- [ ] T056 [P] 增加 `/switch` 项目作用域回归测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_switch_semantics_test.go
+- [ ] T057 [P] 增加 `/list`、`/current`、`/cancel` 项目作用域回归测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_control_commands_regression_test.go
+- [ ] T058 [P] 增加 projects/bindings/proposals 原子写并发冲突测试于 /home/ubuntu/workspace/ClawX/tests/unit/project_file_store_atomicity_test.go
+- [ ] T059 [P] 增加持久化写失败注入与可追踪错误测试于 /home/ubuntu/workspace/ClawX/tests/integration/project_persistence_failure_trace_test.go
 
 ---
 
@@ -182,9 +189,9 @@
 - Phase 2 中 T008/T009/T010 可并行
 - US1 中 T018/T019/T020 可并行
 - US2 中 T026/T027/T028 可并行
-- US3 中 T033/T034/T035 可并行
+- US3 中 T033/T034/T035/T053 可并行
 - US4 中 T040/T041/T042 可并行
-- Phase 7 中 T047/T048/T052 可并行
+- Phase 7 中 T047/T048/T052/T055/T056/T057/T058/T059 可并行
 
 ---
 
@@ -213,9 +220,9 @@
 
 ## 备注
 
-- 总任务数：52
+- 总任务数：59
 - US1 任务数：8
 - US2 任务数：7
-- US3 任务数：7
+- US3 任务数：9
 - US4 任务数：7
-- 并行机会：10+
+- 并行机会：16+
