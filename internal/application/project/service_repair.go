@@ -29,6 +29,9 @@ func (s *Service) RepairProject(ctx context.Context, projectID string) (projectd
 	if err := os.MkdirAll(record.WorkspacePath, 0o755); err != nil {
 		return projectdomain.Record{}, fmt.Errorf("repair project workspace: %w", err)
 	}
+	if err := s.ensureMemoryTemplate(ctx, projectID, record.WorkspacePath); err != nil {
+		return projectdomain.Record{}, err
+	}
 	record.Status = projectdomain.StatusActive
 	record.UpdatedAt = s.clock()
 	registry.Projects[projectID] = record

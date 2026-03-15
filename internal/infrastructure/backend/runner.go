@@ -156,7 +156,7 @@ func buildCLIExecutor(commandName string, args []string) ExecutorFunc {
 		startedAt := time.Now().UTC()
 		cmd := exec.CommandContext(ctx, commandName, args...)
 		cmd.Dir = request.CWD
-		cmd.Stdin = strings.NewReader(request.Input)
+		cmd.Stdin = strings.NewReader(composeExecutionInput(request))
 
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer
@@ -198,4 +198,16 @@ func defaultBackendSessionID(request execution.Request) string {
 		return request.BackendSessionID
 	}
 	return fmt.Sprintf("backend-%s", request.SessionID)
+}
+
+func composeExecutionInput(request execution.Request) string {
+	memoryContext := strings.TrimSpace(request.MemoryContext)
+	input := strings.TrimSpace(request.Input)
+	if memoryContext == "" {
+		return request.Input
+	}
+	if input == "" {
+		return memoryContext
+	}
+	return memoryContext + "\n\n---\n\n" + request.Input
 }

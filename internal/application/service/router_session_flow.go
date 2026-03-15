@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"clawx/internal/application/command"
 	"clawx/internal/domain/execution"
@@ -35,11 +36,16 @@ func (r *Router) HandleSessionFlow(ctx context.Context, cmd command.SessionComma
 	if err != nil {
 		return SessionFlowResult{}, err
 	}
+	if strings.TrimSpace(lockedSession.AgentID) == "" && strings.TrimSpace(cmd.Backend) != "" {
+		lockedSession.AgentID = strings.TrimSpace(cmd.Backend)
+	}
+	memoryContext := r.buildMemoryContextForSession(ctx, cmd, lockedSession)
 
 	result, execErr := r.backend.Execute(ctx, execution.Request{
 		SessionID:        lockedSession.ID,
 		BackendSessionID: lockedSession.BackendSessionID,
 		CWD:              lockedSession.CWD,
+		MemoryContext:    memoryContext,
 		Input:            cmd.Input,
 		Timeout:          r.cfg.Timeout,
 	})

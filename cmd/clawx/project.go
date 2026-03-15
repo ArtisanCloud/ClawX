@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	memoryapp "clawx/internal/application/memory"
 	projectapp "clawx/internal/application/project"
 	"clawx/internal/application/service"
 	"clawx/internal/infrastructure/config"
@@ -52,5 +53,6 @@ func newProjectCommandService(cfg config.Snapshot) (service.ProjectCommandServic
 		projectapp.WithWorkspaceRoot(workspaceRoot),
 		projectapp.WithDefaultProjectID(defaultProjectID),
 		projectapp.WithProposalTTL(10*time.Minute),
+		projectapp.WithMemoryTemplateManager(memoryapp.NewTemplateManager()),
 	), nil
 }

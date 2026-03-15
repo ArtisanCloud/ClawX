@@ -30,6 +30,9 @@ func (s *Service) CreateProject(ctx context.Context, projectID, name, workspaceP
 	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
 		return projectdomain.Record{}, fmt.Errorf("create project workspace: %w", err)
 	}
+	if err := s.ensureMemoryTemplate(ctx, projectID, workspacePath); err != nil {
+		return projectdomain.Record{}, err
+	}
 
 	registry, _, err := s.loadAndEnsureRegistry(ctx)
 	if err != nil {

@@ -29,11 +29,16 @@ type Service struct {
 	defaultProject string
 	proposalTTL    time.Duration
 	sessionChecker ActiveSessionChecker
+	memoryTemplate MemoryTemplateManager
 }
 
 type Option func(*Service)
 
 type ActiveSessionChecker func(ctx context.Context, projectID string) (bool, error)
+
+type MemoryTemplateManager interface {
+	EnsureProjectTemplate(ctx context.Context, projectID, workspacePath string) error
+}
 
 func WithClock(clock Clock) Option {
 	return func(s *Service) {
@@ -62,6 +67,12 @@ func WithProposalTTL(ttl time.Duration) Option {
 func WithActiveSessionChecker(checker ActiveSessionChecker) Option {
 	return func(s *Service) {
 		s.sessionChecker = checker
+	}
+}
+
+func WithMemoryTemplateManager(manager MemoryTemplateManager) Option {
+	return func(s *Service) {
+		s.memoryTemplate = manager
 	}
 }
 
@@ -155,6 +166,9 @@ func (s *Service) loadAndEnsureRegistry(ctx context.Context) (projectdomain.Regi
 		workspacePath := filepath.Join(s.workspaceRoot, defaultID)
 		if err := os.MkdirAll(workspacePath, 0o755); err != nil {
 			return projectdomain.Registry{}, false, fmt.Errorf("create default project workspace: %w", err)
+		}
+		if err := s.ensureMemoryTemplate(ctx, defaultID, workspacePath); err != nil {
+			return projectdomain.Registry{}, false, err
 		}
 		now := s.clock()
 		registry.Projects[defaultID] = projectdomain.Record{
@@ -275,4 +289,14 @@ func defaultWorkspaceRoot() string {
 		return filepath.Join(".clawx", "workspaces")
 	}
 	return filepath.Join(home, ".clawx", "workspaces")
+}
+
+func (s *Service) ensureMemoryTemplate(ctx context.Context, projectID, workspacePath string) error {
+	if s.memoryTemplate == nil {
+		return nil
+	}
+	if err := s.memoryTemplate.EnsureProjectTemplate(ctx, projectID, workspacePath); err != nil {
+		return fmt.Errorf("bootstrap project memory template: %w", err)
+	}
+	return nil
 }

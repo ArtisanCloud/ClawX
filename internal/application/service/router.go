@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"clawx/internal/application/intent"
+	memoryapp "clawx/internal/application/memory"
 	"clawx/internal/domain/execution"
 	projectdomain "clawx/internal/domain/project"
 	skilldomain "clawx/internal/domain/skill"
@@ -69,6 +70,8 @@ type Router struct {
 	intentPipeline *intent.Pipeline
 	project        ProjectResolver
 	projectControl ProjectCommandService
+	memoryLoader   *memoryapp.Loader
+	scopeResolver  *memoryapp.ScopeResolver
 }
 
 type RouterOption func(*Router)
@@ -88,11 +91,25 @@ func WithProjectResolver(resolver ProjectResolver) RouterOption {
 	}
 }
 
+func WithMemoryLoader(loader *memoryapp.Loader) RouterOption {
+	return func(r *Router) {
+		r.memoryLoader = loader
+	}
+}
+
+func WithMemoryScopeResolver(resolver *memoryapp.ScopeResolver) RouterOption {
+	return func(r *Router) {
+		r.scopeResolver = resolver
+	}
+}
+
 func NewRouter(cfg config.Snapshot, sessionManager *SessionManager, backend execution.Backend, options ...RouterOption) *Router {
 	router := &Router{
 		cfg:            cfg,
 		sessionManager: sessionManager,
 		backend:        backend,
+		memoryLoader:   memoryapp.NewLoader(),
+		scopeResolver:  memoryapp.NewScopeResolver(),
 	}
 	for _, option := range options {
 		if option != nil {

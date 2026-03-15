@@ -60,17 +60,17 @@
 
 ### 测试任务（US1）
 
-- [ ] T017 [P] [US1] 增加记忆模板初始化与自愈单测于 /home/ubuntu/workspace/ClawX/tests/unit/memory_template_bootstrap_test.go
-- [ ] T018 [P] [US1] 增加项目创建触发记忆骨架集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_project_bootstrap_test.go
-- [ ] T019 [P] [US1] 增加首轮执行前记忆加载集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_first_turn_load_test.go
+- [X] T017 [P] [US1] 增加记忆模板初始化与自愈单测于 /home/ubuntu/workspace/ClawX/tests/unit/memory_template_bootstrap_test.go
+- [X] T018 [P] [US1] 增加项目创建触发记忆骨架集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_project_bootstrap_test.go
+- [X] T019 [P] [US1] 增加首轮执行前记忆加载集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_first_turn_load_test.go
 
 ### 实现任务（US1）
 
-- [ ] T020 [US1] 在项目创建流程接入记忆骨架初始化于 /home/ubuntu/workspace/ClawX/internal/application/project/service_create.go
-- [ ] T021 [US1] 在项目修复流程接入记忆骨架自愈于 /home/ubuntu/workspace/ClawX/internal/application/project/service_repair.go
-- [ ] T022 [US1] 实现模板版本与漂移检测逻辑于 /home/ubuntu/workspace/ClawX/internal/application/memory/template_manager.go
-- [ ] T023 [US1] 在会话首轮链路注入 MemoryLoader 于 /home/ubuntu/workspace/ClawX/internal/application/service/router_session_flow.go
-- [ ] T024 [US1] 在后端执行前拼接记忆上下文于 /home/ubuntu/workspace/ClawX/internal/infrastructure/backend/profile_runner.go
+- [X] T020 [US1] 在项目创建流程接入记忆骨架初始化于 /home/ubuntu/workspace/ClawX/internal/application/project/service_create.go
+- [X] T021 [US1] 在项目修复流程接入记忆骨架自愈于 /home/ubuntu/workspace/ClawX/internal/application/project/service_repair.go
+- [X] T022 [US1] 实现模板版本与漂移检测逻辑于 /home/ubuntu/workspace/ClawX/internal/application/memory/template_manager.go
+- [X] T023 [US1] 在会话首轮链路注入 MemoryLoader 于 /home/ubuntu/workspace/ClawX/internal/application/service/router_session_flow.go
+- [X] T024 [US1] 在后端执行前拼接记忆上下文于 /home/ubuntu/workspace/ClawX/internal/infrastructure/backend/profile_runner.go
 
 **检查点**: US1 完成后，应可独立演示“创建即有骨架 + 首轮可加载”
 
