@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,6 +31,10 @@ func (r *Router) buildMemoryContextForSession(ctx context.Context, cmd command.S
 	if stat, err := os.Stat(projectRoot); err != nil || !stat.IsDir() {
 		return ""
 	}
+	guard, err := memoryapp.NewPathGuard(projectRoot)
+	if err != nil {
+		return ""
+	}
 
 	agentID := strings.TrimSpace(record.AgentID)
 	if agentID == "" {
@@ -55,53 +60,45 @@ func (r *Router) buildMemoryContextForSession(ctx context.Context, cmd command.S
 	}
 	profile := memorydomain.MemoryProfile{
 		ScopeKey:         scope,
-		LoadOrder:        []memorydomain.Layer{memorydomain.LayerProjectShare, memorydomain.LayerMainPrivate},
+		LoadOrder:        []memorydomain.Layer{memorydomain.LayerAgentPrivate, memorydomain.LayerProjectShare, memorydomain.LayerMainPrivate},
 		TokenBudget:      budget,
 		ACLMode:          memorydomain.ACLModeStrict,
 		AllowMainPrivate: true,
 	}
 
-	candidates := buildProjectMemoryCandidates(projectRoot)
-	if len(candidates) == 0 {
-		return ""
-	}
-
-	result, err := r.memoryLoader.Load(ctx, memoryapp.LoaderInput{
-		ScopeKey:   scope,
-		Profile:    profile,
-		Candidates: candidates,
-	})
+	candidates, denied, err := memoryapp.BuildLayeredCandidates(scope, guard, time.Now().UTC())
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(result.PromptContext)
-}
 
-func buildProjectMemoryCandidates(projectRoot string) []memorydomain.MemoryLoadItem {
-	ordered := []struct {
-		layer memorydomain.Layer
-		path  string
-	}{
-		{layer: memorydomain.LayerProjectShare, path: "IDENTITY.md"},
-		{layer: memorydomain.LayerProjectShare, path: "SOUL.md"},
-		{layer: memorydomain.LayerProjectShare, path: "USER.md"},
-		{layer: memorydomain.LayerProjectShare, path: "TOOLS.md"},
-		{layer: memorydomain.LayerProjectShare, path: "AGENTS.md"},
-		{layer: memorydomain.LayerProjectShare, path: "HEARTBEAT.md"},
-		{layer: memorydomain.LayerMainPrivate, path: "MEMORY.md"},
-		{layer: memorydomain.LayerProjectShare, path: filepath.ToSlash(filepath.Join("memory", time.Now().UTC().Format("2006-01-02")+".md"))},
-	}
-
-	items := make([]memorydomain.MemoryLoadItem, 0, len(ordered))
-	for idx, candidate := range ordered {
-		absPath := filepath.Join(projectRoot, filepath.FromSlash(candidate.path))
-		if stat, err := os.Stat(absPath); err == nil && !stat.IsDir() {
-			items = append(items, memorydomain.MemoryLoadItem{
-				Layer:    candidate.layer,
-				Path:     absPath,
-				Priority: idx + 1,
-			})
+	result := memoryapp.LoaderOutput{}
+	if len(candidates) > 0 {
+		result, err = r.memoryLoader.Load(ctx, memoryapp.LoaderInput{
+			ScopeKey:   scope,
+			Profile:    profile,
+			Candidates: candidates,
+		})
+		if err != nil {
+			return ""
 		}
 	}
-	return items
+	audit := memoryapp.BuildAuditFields(scope, profile, result, denied)
+	if len(audit.DeniedFiles) > 0 || audit.ErrorSummary != "" {
+		log.Printf(
+			"memory_load_audit: project_id=%s agent_id=%s memory_scope=%q memory_acl_mode=%s cross_agent_denied=%d cross_project_denied=%d memory_loaded_files=%q memory_denied_files=%q error_summary=%q",
+			scope.ProjectID,
+			scope.AgentID,
+			audit.MemoryScope,
+			audit.MemoryACLMode,
+			audit.CrossAgentDeniedCount,
+			audit.CrossProjectDeniedCount,
+			audit.LoadedFiles,
+			audit.DeniedFiles,
+			audit.ErrorSummary,
+		)
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(result.PromptContext)
 }

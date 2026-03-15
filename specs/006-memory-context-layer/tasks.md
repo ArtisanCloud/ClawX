@@ -84,17 +84,17 @@
 
 ### 测试任务（US2）
 
-- [ ] T025 [P] [US2] 增加同项目多 agent 私有隔离集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_agent_isolation_test.go
-- [ ] T026 [P] [US2] 增加 agent 私有目录缺失自动初始化测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_agent_bootstrap_test.go
-- [ ] T027 [P] [US2] 增加跨 agent 路径访问拒绝契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_agent_acl_contract_test.go
-- [ ] T028 [P] [US2] 增加跨项目记忆访问拒绝集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_cross_project_isolation_test.go
+- [X] T025 [P] [US2] 增加同项目多 agent 私有隔离集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_agent_isolation_test.go
+- [X] T026 [P] [US2] 增加 agent 私有目录缺失自动初始化测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_agent_bootstrap_test.go
+- [X] T027 [P] [US2] 增加跨 agent 路径访问拒绝契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_agent_acl_contract_test.go
+- [X] T028 [P] [US2] 增加跨项目记忆访问拒绝集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_cross_project_isolation_test.go
 
 ### 实现任务（US2）
 
-- [ ] T029 [US2] 实现 agent 私有路径解析与越界防护于 /home/ubuntu/workspace/ClawX/internal/application/memory/path_guard.go
-- [ ] T030 [US2] 在加载顺序中接入 `agent_private -> project_shared` 规则于 /home/ubuntu/workspace/ClawX/internal/application/memory/loader_layers.go
-- [ ] T031 [US2] 实现默认写回 agent 私有日记策略于 /home/ubuntu/workspace/ClawX/internal/application/memory/write_policy.go
-- [ ] T032 [US2] 输出跨 agent 拒绝审计字段于 /home/ubuntu/workspace/ClawX/internal/application/memory/audit.go
+- [X] T029 [US2] 实现 agent 私有路径解析与越界防护于 /home/ubuntu/workspace/ClawX/internal/application/memory/path_guard.go
+- [X] T030 [US2] 在加载顺序中接入 `agent_private -> project_shared` 规则于 /home/ubuntu/workspace/ClawX/internal/application/memory/loader_layers.go
+- [X] T031 [US2] 实现默认写回 agent 私有日记策略于 /home/ubuntu/workspace/ClawX/internal/application/memory/write_policy.go
+- [X] T032 [US2] 输出跨 agent 拒绝审计字段于 /home/ubuntu/workspace/ClawX/internal/application/memory/audit.go
 
 **检查点**: US2 完成后，应满足“同项目多 agent 不串读”
 

@@ -18,7 +18,7 @@ import (
 
 func TestMemoryFirstTurnLoadInjectsContextOnce(t *testing.T) {
 	ctx := context.Background()
-	router, projectService, backendSpy := newMemoryExecutionRouterForIntegration(t)
+	router, projectService, backendSpy, _ := newMemoryExecutionRouterForIntegration(t)
 
 	conversationID := "memory-first-turn-conversation"
 	windowID := "memory-first-turn-window"
@@ -81,7 +81,7 @@ func TestMemoryFirstTurnLoadInjectsContextOnce(t *testing.T) {
 	}
 }
 
-func newMemoryExecutionRouterForIntegration(t *testing.T) (*service.Router, *projectapp.Service, *recordingMemoryBackend) {
+func newMemoryExecutionRouterForIntegration(t *testing.T) (*service.Router, *projectapp.Service, *recordingMemoryBackend, string) {
 	t.Helper()
 
 	tempDir := t.TempDir()
@@ -124,7 +124,7 @@ func newMemoryExecutionRouterForIntegration(t *testing.T) (*service.Router, *pro
 		Memory: config.MemoryConfig{TokenBudget: 4096},
 	}, manager, backendSpy, service.WithProjectResolver(projectService))
 
-	return router, projectService, backendSpy
+	return router, projectService, backendSpy, workspaceRoot
 }
 
 type recordingMemoryBackend struct {
@@ -177,4 +177,10 @@ func (b *recordingMemoryBackend) RequestAt(t *testing.T, index int) execution.Re
 		t.Fatalf("request index out of range: %d (len=%d)", index, len(b.requests))
 	}
 	return b.requests[index]
+}
+
+func (b *recordingMemoryBackend) RequestCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.requests)
 }
