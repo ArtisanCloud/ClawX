@@ -39,13 +39,15 @@ func (r *Router) HandleSessionFlow(ctx context.Context, cmd command.SessionComma
 	if strings.TrimSpace(lockedSession.AgentID) == "" && strings.TrimSpace(cmd.Backend) != "" {
 		lockedSession.AgentID = strings.TrimSpace(cmd.Backend)
 	}
-	memoryContext := r.buildMemoryContextForSession(ctx, cmd, lockedSession)
+	memoryLoad := r.buildMemoryContextForSession(ctx, cmd, lockedSession)
 
 	result, execErr := r.backend.Execute(ctx, execution.Request{
 		SessionID:        lockedSession.ID,
 		BackendSessionID: lockedSession.BackendSessionID,
 		CWD:              lockedSession.CWD,
-		MemoryContext:    memoryContext,
+		MemoryContext:    memoryLoad.PromptContext,
+		MemoryScope:      memoryLoad.MemoryScope,
+		MemoryACLMode:    memoryLoad.MemoryACLMode,
 		Input:            cmd.Input,
 		Timeout:          r.cfg.Timeout,
 	})
@@ -94,13 +96,16 @@ func (r *Router) resolveSession(ctx context.Context, cmd command.SessionCommand)
 		}
 		if errors.Is(err, session.ErrSessionNotFound) {
 			return r.sessionManager.CreateSession(ctx, command.SessionCommand{
-				Mode:           command.ModeNew,
-				ConversationID: cmd.ConversationID,
-				WindowID:       cmd.WindowID,
-				ProjectID:      cmd.ProjectID,
-				Input:          cmd.Input,
-				Backend:        cmd.Backend,
-				CWD:            cmd.CWD,
+				Mode:            command.ModeNew,
+				ConversationID:  cmd.ConversationID,
+				WindowID:        cmd.WindowID,
+				ProjectID:       cmd.ProjectID,
+				RouteKey:        cmd.RouteKey,
+				UserID:          cmd.UserID,
+				IsDirectMessage: cmd.IsDirectMessage,
+				Input:           cmd.Input,
+				Backend:         cmd.Backend,
+				CWD:             cmd.CWD,
 			})
 		}
 		return session.Record{}, err

@@ -20,7 +20,7 @@ type AuditFields struct {
 
 func BuildAuditFields(scope memorydomain.MemoryScopeKey, profile memorydomain.MemoryProfile, output LoaderOutput, denied []DeniedCandidate) AuditFields {
 	fields := AuditFields{
-		MemoryScope:   fmt.Sprintf("agent=%s project=%s route=%s", scope.AgentID, scope.ProjectID, scope.RouteKey),
+		MemoryScope:   fmt.Sprintf("agent=%s project=%s route=%s chat_mode=%s", scope.AgentID, scope.ProjectID, scope.RouteKey, scope.ChatMode),
 		MemoryACLMode: string(profile.ACLMode),
 		LoadedFiles:   uniqueStrings(output.LoadedFiles),
 		ErrorSummary:  strings.TrimSpace(output.ErrorSummary),

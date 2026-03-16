@@ -20,6 +20,9 @@ type SessionCommand struct {
 	ConversationID  string
 	WindowID        string
 	ProjectID       string
+	RouteKey        string
+	UserID          string
+	IsDirectMessage bool
 	ResumeSessionID string
 	Input           string
 	Backend         string
@@ -31,6 +34,8 @@ func (c SessionCommand) Normalize() (SessionCommand, error) {
 	normalized.ConversationID = strings.TrimSpace(normalized.ConversationID)
 	normalized.WindowID = strings.TrimSpace(normalized.WindowID)
 	normalized.ProjectID = strings.TrimSpace(normalized.ProjectID)
+	normalized.RouteKey = strings.TrimSpace(normalized.RouteKey)
+	normalized.UserID = strings.TrimSpace(normalized.UserID)
 	normalized.ResumeSessionID = strings.TrimSpace(normalized.ResumeSessionID)
 	normalized.Input = strings.TrimSpace(normalized.Input)
 	normalized.Backend = strings.TrimSpace(normalized.Backend)

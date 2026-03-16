@@ -1823,20 +1823,23 @@ func handleTelegramInbound(
 		executeInput := buildExecutionInput(decision)
 		log.Printf("telegram execute begin: channel=telegram instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, runtime.cwd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
-			Mode:           command.ModeContinue,
-			ConversationID: decision.ConversationID,
-			WindowID:       decision.WindowID,
-			ProjectID:      decision.ProjectID,
-			Input:          executeInput,
-			Backend:        runtime.backendName,
-			CWD:            runtime.cwd,
+			Mode:            command.ModeContinue,
+			ConversationID:  decision.ConversationID,
+			WindowID:        decision.WindowID,
+			ProjectID:       decision.ProjectID,
+			RouteKey:        decision.RouteKey,
+			UserID:          decision.Message.UserID,
+			IsDirectMessage: decision.Message.ContextFlags.IsDirectMessage,
+			Input:           executeInput,
+			Backend:         runtime.backendName,
+			CWD:             runtime.cwd,
 		})
 		if err != nil {
 			log.Printf("telegram execute failed: channel=telegram instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
 			sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
 		}
-		log.Printf("telegram execute done: channel=telegram instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s session_id=%s backend_session_id=%s state=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
+		log.Printf("telegram execute done: channel=telegram instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s session_id=%s backend_session_id=%s state=%s memory_scope=%q memory_acl_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, flowResult.Execution.MemoryScope, flowResult.Execution.MemoryACLMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
@@ -1913,20 +1916,23 @@ func handleFeishuInbound(
 		executeInput := buildExecutionInput(decision)
 		log.Printf("feishu execute begin: channel=feishu instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, runtime.cwd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
-			Mode:           command.ModeContinue,
-			ConversationID: decision.ConversationID,
-			WindowID:       decision.WindowID,
-			ProjectID:      decision.ProjectID,
-			Input:          executeInput,
-			Backend:        runtime.backendName,
-			CWD:            runtime.cwd,
+			Mode:            command.ModeContinue,
+			ConversationID:  decision.ConversationID,
+			WindowID:        decision.WindowID,
+			ProjectID:       decision.ProjectID,
+			RouteKey:        decision.RouteKey,
+			UserID:          decision.Message.UserID,
+			IsDirectMessage: decision.Message.ContextFlags.IsDirectMessage,
+			Input:           executeInput,
+			Backend:         runtime.backendName,
+			CWD:             runtime.cwd,
 		})
 		if err != nil {
 			log.Printf("feishu execute failed: channel=feishu instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
 			sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
 		}
-		log.Printf("feishu execute done: channel=feishu instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s session_id=%s backend_session_id=%s state=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
+		log.Printf("feishu execute done: channel=feishu instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s session_id=%s backend_session_id=%s state=%s memory_scope=%q memory_acl_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, flowResult.Execution.MemoryScope, flowResult.Execution.MemoryACLMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
@@ -2003,20 +2009,23 @@ func handleWeComInbound(
 		executeInput := buildExecutionInput(decision)
 		log.Printf("wecom execute begin: channel=wecom instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, runtime.cwd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
-			Mode:           command.ModeContinue,
-			ConversationID: decision.ConversationID,
-			WindowID:       decision.WindowID,
-			ProjectID:      decision.ProjectID,
-			Input:          executeInput,
-			Backend:        runtime.backendName,
-			CWD:            runtime.cwd,
+			Mode:            command.ModeContinue,
+			ConversationID:  decision.ConversationID,
+			WindowID:        decision.WindowID,
+			ProjectID:       decision.ProjectID,
+			RouteKey:        decision.RouteKey,
+			UserID:          decision.Message.UserID,
+			IsDirectMessage: decision.Message.ContextFlags.IsDirectMessage,
+			Input:           executeInput,
+			Backend:         runtime.backendName,
+			CWD:             runtime.cwd,
 		})
 		if err != nil {
 			log.Printf("wecom execute failed: channel=wecom instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
 			sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
 		}
-		log.Printf("wecom execute done: channel=wecom instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s session_id=%s backend_session_id=%s state=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
+		log.Printf("wecom execute done: channel=wecom instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s session_id=%s backend_session_id=%s state=%s memory_scope=%q memory_acl_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, flowResult.Execution.MemoryScope, flowResult.Execution.MemoryACLMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
@@ -2096,20 +2105,23 @@ func handleDiscordInbound(
 		stopTyping := startDiscordTypingLoop(ctx, adapter, envelope.Target)
 		defer stopTyping()
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
-			Mode:           command.ModeContinue,
-			ConversationID: decision.ConversationID,
-			WindowID:       decision.WindowID,
-			ProjectID:      decision.ProjectID,
-			Input:          executeInput,
-			Backend:        runtime.backendName,
-			CWD:            runtime.cwd,
+			Mode:            command.ModeContinue,
+			ConversationID:  decision.ConversationID,
+			WindowID:        decision.WindowID,
+			ProjectID:       decision.ProjectID,
+			RouteKey:        decision.RouteKey,
+			UserID:          decision.Message.UserID,
+			IsDirectMessage: decision.Message.ContextFlags.IsDirectMessage,
+			Input:           executeInput,
+			Backend:         runtime.backendName,
+			CWD:             runtime.cwd,
 		})
 		if err != nil {
 			log.Printf("discord execute failed: channel=discord instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, "-", runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
 			sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
 		}
-		log.Printf("discord execute done: channel=discord instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s session_id=%s backend_session_id=%s state=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, "-", runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
+		log.Printf("discord execute done: channel=discord instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s session_id=%s backend_session_id=%s state=%s memory_scope=%q memory_acl_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, "-", runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, flowResult.Execution.MemoryScope, flowResult.Execution.MemoryACLMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 

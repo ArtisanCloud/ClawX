@@ -39,13 +39,16 @@ func TestMemoryFirstTurnLoadInjectsContextOnce(t *testing.T) {
 	}
 
 	first, err := router.HandleSessionFlow(ctx, command.SessionCommand{
-		Mode:           command.ModeContinue,
-		ConversationID: conversationID,
-		WindowID:       windowID,
-		ProjectID:      "memo",
-		Input:          "first-task",
-		Backend:        "main",
-		CWD:            ".",
+		Mode:            command.ModeContinue,
+		ConversationID:  conversationID,
+		WindowID:        windowID,
+		ProjectID:       "memo",
+		Input:           "first-task",
+		Backend:         "main",
+		RouteKey:        routeKey,
+		UserID:          "memory-first-turn-user",
+		IsDirectMessage: true,
+		CWD:             ".",
 	})
 	if err != nil {
 		t.Fatalf("first session flow: %v", err)
@@ -63,13 +66,16 @@ func TestMemoryFirstTurnLoadInjectsContextOnce(t *testing.T) {
 	}
 
 	_, err = router.HandleSessionFlow(ctx, command.SessionCommand{
-		Mode:           command.ModeContinue,
-		ConversationID: conversationID,
-		WindowID:       windowID,
-		ProjectID:      "memo",
-		Input:          "second-task",
-		Backend:        "main",
-		CWD:            ".",
+		Mode:            command.ModeContinue,
+		ConversationID:  conversationID,
+		WindowID:        windowID,
+		ProjectID:       "memo",
+		Input:           "second-task",
+		Backend:         "main",
+		RouteKey:        routeKey,
+		UserID:          "memory-first-turn-user",
+		IsDirectMessage: true,
+		CWD:             ".",
 	})
 	if err != nil {
 		t.Fatalf("second session flow: %v", err)
@@ -82,6 +88,10 @@ func TestMemoryFirstTurnLoadInjectsContextOnce(t *testing.T) {
 }
 
 func newMemoryExecutionRouterForIntegration(t *testing.T) (*service.Router, *projectapp.Service, *recordingMemoryBackend, string) {
+	return newMemoryExecutionRouterForIntegrationWithMemoryConfig(t, config.MemoryConfig{TokenBudget: 4096})
+}
+
+func newMemoryExecutionRouterForIntegrationWithMemoryConfig(t *testing.T, memoryCfg config.MemoryConfig) (*service.Router, *projectapp.Service, *recordingMemoryBackend, string) {
 	t.Helper()
 
 	tempDir := t.TempDir()
@@ -112,6 +122,9 @@ func newMemoryExecutionRouterForIntegration(t *testing.T) (*service.Router, *pro
 	repo := persistence.NewSessionMemoryRepository()
 	manager := service.NewSessionManager(repo, repo, nil)
 	backendSpy := &recordingMemoryBackend{name: "memory-first-turn"}
+	if memoryCfg.TokenBudget <= 0 {
+		memoryCfg.TokenBudget = 4096
+	}
 	router := service.NewRouter(config.Snapshot{
 		AllowedRoots:    []string{"."},
 		DefaultCWD:      ".",
@@ -121,7 +134,7 @@ func newMemoryExecutionRouterForIntegration(t *testing.T) (*service.Router, *pro
 			WorkspaceRoot:    workspaceRoot,
 			DefaultProjectID: "main",
 		},
-		Memory: config.MemoryConfig{TokenBudget: 4096},
+		Memory: memoryCfg,
 	}, manager, backendSpy, service.WithProjectResolver(projectService))
 
 	return router, projectService, backendSpy, workspaceRoot

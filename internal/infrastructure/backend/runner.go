@@ -82,6 +82,8 @@ func (r *DirectRunner) Execute(ctx context.Context, request execution.Request) (
 		if err := r.validateCWD(request.CWD); err != nil {
 			return execution.Result{
 				BackendSessionID: request.BackendSessionID,
+				MemoryScope:      request.MemoryScope,
+				MemoryACLMode:    request.MemoryACLMode,
 				State:            execution.ResultFailed,
 				StartedAt:        time.Now().UTC(),
 				CompletedAt:      time.Now().UTC(),
@@ -94,6 +96,8 @@ func (r *DirectRunner) Execute(ctx context.Context, request execution.Request) (
 	if err != nil {
 		return execution.Result{
 			BackendSessionID: request.BackendSessionID,
+			MemoryScope:      request.MemoryScope,
+			MemoryACLMode:    request.MemoryACLMode,
 			State:            mapErrorToResultState(err),
 			StartedAt:        time.Now().UTC(),
 			CompletedAt:      time.Now().UTC(),
@@ -106,6 +110,12 @@ func (r *DirectRunner) Execute(ctx context.Context, request execution.Request) (
 	}
 	if result.State == "" {
 		result.State = execution.ResultSuccess
+	}
+	if strings.TrimSpace(result.MemoryScope) == "" {
+		result.MemoryScope = strings.TrimSpace(request.MemoryScope)
+	}
+	if strings.TrimSpace(result.MemoryACLMode) == "" {
+		result.MemoryACLMode = strings.TrimSpace(request.MemoryACLMode)
 	}
 	if result.StartedAt.IsZero() {
 		result.StartedAt = time.Now().UTC()
