@@ -26,33 +26,33 @@ sudo systemctl status postgresql --no-pager
 
 ## 3. 创建业务账号与密码（示例）
 ```bash
-sudo -u postgres psql -c "CREATE ROLE synapsex LOGIN PASSWORD 'your_password';"
-sudo -u postgres psql -c "ALTER ROLE synapsex CREATEDB;"
+sudo -u postgres psql -c "CREATE ROLE clawx LOGIN PASSWORD 'your_password';"
+sudo -u postgres psql -c "ALTER ROLE clawx CREATEDB;"
 ```
 
 ## 4. 可选：手动创建数据库
 ```bash
-sudo -u postgres createdb -O synapsex synapse_x
+sudo -u postgres createdb -O clawx claw_x
 ```
 
 ## 5. 验证账号可连通
 ```bash
-PGPASSWORD=your_password psql -h 127.0.0.1 -p 5432 -U synapsex -d postgres -c "SELECT 1;"
+PGPASSWORD=your_password psql -h 127.0.0.1 -p 5432 -U clawx -d postgres -c "SELECT 1;"
 ```
 
-## 6. 在 SynapseX 配置中启用数据库
+## 6. 在 ClawX 配置中启用数据库
 运行：
 
 ```bash
-go run ./cmd/synapsex
+go run ./cmd/clawx
 ```
 
 数据库相关建议填写：
 - `启用 PostgreSQL 持久化 Session`: `是`
 - `Host`: `127.0.0.1`
 - `Port`: `5432`
-- `Database Name`: `synapse_x`
-- `Database User`: `synapsex`
+- `Database Name`: `claw_x`
+- `Database User`: `clawx`
 - `Database Password`: 你的密码
 - `SSL Mode`: `disable`（本机联调常用）
 - `启动时自动创建数据库并执行迁移`: `是`
@@ -62,15 +62,15 @@ go run ./cmd/synapsex
 - 发送 `/new` 后，数据库里应有会话数据：
 
 ```bash
-PGPASSWORD=your_password psql -h 127.0.0.1 -p 5432 -U synapsex -d synapse_x -c "SELECT id,conversation_id,status,last_used_at FROM synapsex_sessions ORDER BY last_used_at DESC LIMIT 5;"
+PGPASSWORD=your_password psql -h 127.0.0.1 -p 5432 -U clawx -d claw_x -c "SELECT id,conversation_id,status,last_used_at FROM clawx_sessions ORDER BY last_used_at DESC LIMIT 5;"
 ```
 
 ## 8. 可选：使用 Make 执行迁移/种子/刷新
 
 ```bash
-make db-create DB_USER=synapsex DB_PASSWORD=your_password
-make db-migrate DB_USER=synapsex DB_PASSWORD=your_password
-make db-seed DB_USER=synapsex DB_PASSWORD=your_password
-make db-refresh DB_USER=synapsex DB_PASSWORD=your_password
-make db-status DB_USER=synapsex DB_PASSWORD=your_password
+make db-create DB_USER=clawx DB_PASSWORD=your_password
+make db-migrate DB_USER=clawx DB_PASSWORD=your_password
+make db-seed DB_USER=clawx DB_PASSWORD=your_password
+make db-refresh DB_USER=clawx DB_PASSWORD=your_password
+make db-status DB_USER=clawx DB_PASSWORD=your_password
 ```

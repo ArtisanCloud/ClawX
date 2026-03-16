@@ -4,7 +4,7 @@
 - 验证配置指令权限控制。
 
 ## 步骤
-1. 设置环境变量：`SYNAPSEX_CONFIG_ADMIN_USERS=<你的用户ID>`
+1. 设置环境变量：`CLAWX_CONFIG_ADMIN_USERS=<你的用户ID>`
 2. 用非白名单用户发送：`/config plan ...`
 
 ## 预期

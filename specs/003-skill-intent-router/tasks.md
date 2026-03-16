@@ -24,8 +24,8 @@
 
 - [X] T001 创建技能与意图模块目录骨架于 internal/domain/skill/、internal/application/intent/、internal/application/skillregistry/、internal/infrastructure/skills/
 - [X] T002 [P] 新增技能与意图配置结构占位于 internal/infrastructure/config/config.go
-- [X] T003 [P] 新增技能相关 CLI 子命令入口骨架于 cmd/synapsex/skill_cli.go
-- [X] T004 在程序启动流程中预留 Skill Registry 初始化与热刷新挂载点于 cmd/synapsex/main.go
+- [X] T003 [P] 新增技能相关 CLI 子命令入口骨架于 cmd/clawx/skill_cli.go
+- [X] T004 在程序启动流程中预留 Skill Registry 初始化与热刷新挂载点于 cmd/clawx/main.go
 
 ---
 
@@ -54,8 +54,8 @@
 - [X] T012 [P] [US1] 实现多来源扫描（user/workspace/builtin）于 internal/infrastructure/skills/discovery.go
 - [X] T013 [US1] 实现同名冲突决策与 `shadowed` 标记逻辑于 internal/application/skillregistry/conflict_resolver.go
 - [X] T014 [US1] 实现 Registry 刷新编排与快照发布于 internal/application/skillregistry/refresh.go
-- [X] T015 [US1] 实现 `skill list` 命令输出于 cmd/synapsex/skill_cli.go
-- [X] T016 [US1] 实现 `skill reload` 命令与运行时生效于 cmd/synapsex/skill_cli.go
+- [X] T015 [US1] 实现 `skill list` 命令输出于 cmd/clawx/skill_cli.go
+- [X] T016 [US1] 实现 `skill reload` 命令与运行时生效于 cmd/clawx/skill_cli.go
 - [X] T017 [US1] 补充 US1 集成测试（加载/冲突/状态）于 tests/integration/skill_registry_load_test.go
 
 **检查点**: US1 完成后，应可独立演示 Skill 发现、校验与状态可观测
@@ -74,7 +74,7 @@
 - [X] T021 [US2] 实现 LLM 兜底匹配接口与默认实现于 internal/application/intent/llm_fallback.go
 - [X] T022 [US2] 实现多候选自动选择规则（禁止二次询问）于 internal/application/intent/selector.go
 - [X] T023 [US2] 将 Intent Router 接入现有路由主流程于 internal/application/service/router.go
-- [X] T024 [US2] 在 Discord/Telegram 入站处理中接入 Skill 路径分支于 cmd/synapsex/main.go
+- [X] T024 [US2] 在 Discord/Telegram 入站处理中接入 Skill 路径分支于 cmd/clawx/main.go
 - [X] T025 [US2] 补充 US2 集成测试（优先级、回退、多候选自动选择）于 tests/integration/intent_router_flow_test.go
 - [X] T026 [US2] 增加 LLM 兜底阈值配置与默认值（0.72）于 internal/infrastructure/config/config.go 和 internal/application/intent/llm_fallback.go
 - [X] T027 [US2] 补充低置信阈值回退集成测试于 tests/integration/intent_router_threshold_test.go
@@ -92,8 +92,8 @@
 - [X] T028 [P] [US3] 扩展技能权限配置结构（enabled/disabled/allowlist/default_mode）于 internal/infrastructure/config/config.go
 - [X] T029 [P] [US3] 实现 Skill 权限评估器于 internal/application/intent/permission_checker.go
 - [X] T030 [US3] 在路由流程中接入权限拒绝分支与统一错误信息于 internal/application/service/router.go
-- [X] T031 [US3] 实现 `skill enable <name>` 命令于 cmd/synapsex/skill_cli.go
-- [X] T032 [US3] 实现 `skill disable <name>` 命令于 cmd/synapsex/skill_cli.go
+- [X] T031 [US3] 实现 `skill enable <name>` 命令于 cmd/clawx/skill_cli.go
+- [X] T032 [US3] 实现 `skill disable <name>` 命令于 cmd/clawx/skill_cli.go
 - [X] T033 [US3] 增加路由审计日志字段（intent.kind/reason/skill/confidence）于 internal/application/service/router.go
 - [X] T034 [US3] 补充 US3 集成测试（默认策略、白名单、禁用）于 tests/integration/skill_permission_policy_test.go
 - [X] T035 [US3] 实现拒绝错误分类映射（permission_denied/skill_not_found/skill_disabled/skill_invalid/pairing_expired）于 internal/application/intent/permission_checker.go 和 internal/interfaces/chat/error_response.go

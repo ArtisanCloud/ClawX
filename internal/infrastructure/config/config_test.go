@@ -110,8 +110,8 @@ func TestLoadAllowsEnvOverrideOnTopOfConfigJSON(t *testing.T) {
 		t.Fatalf("write config.json: %v", err)
 	}
 
-	t.Setenv("SYNAPSEX_EXEC_COMMAND", "printf")
-	t.Setenv("SYNAPSEX_HTTP_LISTEN_ADDR", ":28080")
+	t.Setenv("CLAWX_EXEC_COMMAND", "printf")
+	t.Setenv("CLAWX_HTTP_LISTEN_ADDR", ":28080")
 
 	cfg, err := Load()
 	if err != nil {
@@ -147,7 +147,7 @@ func TestLoadIgnoresDotEnvWhenConfigExistsByDefault(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write config.json: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte("SYNAPSEX_DISCORD_ENABLED=true\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte("CLAWX_DISCORD_ENABLED=true\n"), 0o644); err != nil {
 		t.Fatalf("write .env: %v", err)
 	}
 
@@ -352,6 +352,196 @@ func TestLoadParsesChannelInstancesAndAgentBindings(t *testing.T) {
 	}
 }
 
+func TestLoadParsesFeishuAndWeComInstances(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	content := `{
+  "providers": {
+    "profiles": {
+      "codex": {
+        "kind": "codex-cli",
+        "command": "codex"
+      }
+    }
+  },
+  "agents": {
+    "default": "main",
+    "list": [
+      {
+        "id": "main",
+        "profile": "codex",
+        "workspace": ".",
+        "default": true
+      }
+    ]
+  },
+  "runtime": {
+    "allowedRoots": ["."],
+    "defaultCwd": "."
+  },
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "defaultAgent": "main",
+      "instances": [
+        {
+          "id": "feishu-default",
+          "enabled": true,
+          "mode": "webhook",
+          "appId": "app-id",
+          "appSecret": "app-secret",
+          "verificationToken": "verify-token",
+          "encryptKey": "encrypt-key",
+          "defaultAgent": "main"
+        }
+      ]
+    },
+    "wecom": {
+      "enabled": true,
+      "defaultAgent": "main",
+      "instances": [
+        {
+          "id": "wecom-default",
+          "enabled": true,
+          "mode": "webhook",
+          "corpId": "corp-id",
+          "agentId": "agent-id",
+          "secret": "secret-value",
+          "token": "token-value",
+          "encodingAesKey": "encoding-key",
+          "defaultAgent": "main"
+        }
+      ]
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if !cfg.FeishuEnabled || len(cfg.FeishuInstances) != 1 {
+		t.Fatalf("unexpected feishu config: enabled=%v instances=%d", cfg.FeishuEnabled, len(cfg.FeishuInstances))
+	}
+	if cfg.FeishuInstances[0].ID != "feishu-default" {
+		t.Fatalf("unexpected feishu instance id: %q", cfg.FeishuInstances[0].ID)
+	}
+	if !cfg.WeComEnabled || len(cfg.WeComInstances) != 1 {
+		t.Fatalf("unexpected wecom config: enabled=%v instances=%d", cfg.WeComEnabled, len(cfg.WeComInstances))
+	}
+	if cfg.WeComInstances[0].ID != "wecom-default" {
+		t.Fatalf("unexpected wecom instance id: %q", cfg.WeComInstances[0].ID)
+	}
+}
+
+func TestLoadParsesExtendedWaveChannelConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	content := `{
+  "providers": {
+    "profiles": {
+      "codex": {
+        "kind": "codex-cli",
+        "command": "codex"
+      }
+    }
+  },
+  "agents": {
+    "default": "main",
+    "list": [
+      {
+        "id": "main",
+        "profile": "codex",
+        "workspace": ".",
+        "default": true
+      }
+    ]
+  },
+  "runtime": {
+    "allowedRoots": ["."],
+    "defaultCwd": "."
+  },
+  "channels": {
+    "slack": {
+      "enabled": true,
+      "defaultAgent": "main",
+      "instances": [
+        {
+          "id": "slack-prod",
+          "enabled": true,
+          "defaultAgent": "main"
+        },
+        {
+          "enabled": false
+        }
+      ]
+    },
+    "nextcloud-talk": {
+      "enabled": false,
+      "instances": [
+        {
+          "enabled": true
+        }
+      ]
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	slack, ok := cfg.ExtendedChannels["slack"]
+	if !ok {
+		t.Fatalf("expected slack extended channel to be present")
+	}
+	if !slack.Enabled {
+		t.Fatalf("expected slack channel enabled")
+	}
+	if slack.DefaultAgentID != "main" {
+		t.Fatalf("unexpected slack default agent: %q", slack.DefaultAgentID)
+	}
+	if len(slack.Instances) != 2 {
+		t.Fatalf("unexpected slack instances: %d", len(slack.Instances))
+	}
+	if slack.Instances[0].ID != "slack-prod" {
+		t.Fatalf("unexpected slack instance id: %q", slack.Instances[0].ID)
+	}
+	if slack.Instances[1].ID == "" {
+		t.Fatalf("expected generated id for slack second instance")
+	}
+	if slack.Instances[1].DefaultAgentID != "main" {
+		t.Fatalf("expected fallback default agent for slack second instance")
+	}
+	if !cfg.IsChannelEnabled("slack") {
+		t.Fatalf("expected IsChannelEnabled(slack)=true")
+	}
+
+	nextcloud, ok := cfg.ExtendedChannels["nextcloud-talk"]
+	if !ok {
+		t.Fatalf("expected nextcloud-talk channel")
+	}
+	if len(nextcloud.Instances) != 1 {
+		t.Fatalf("unexpected nextcloud-talk instances: %d", len(nextcloud.Instances))
+	}
+	if nextcloud.Instances[0].ID == "" {
+		t.Fatalf("expected generated id for nextcloud-talk instance")
+	}
+	if nextcloud.Instances[0].DefaultAgentID != "main" {
+		t.Fatalf("expected fallback default agent for nextcloud-talk instance")
+	}
+}
+
 func TestLoadRejectsUnknownChannelAgentBinding(t *testing.T) {
 	tempDir := t.TempDir()
 	chdirForTest(t, tempDir)
@@ -405,6 +595,41 @@ func TestLoadRejectsUnknownChannelAgentBinding(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsUnknownExtendedChannelAgentBinding(t *testing.T) {
+	cfg := defaultSnapshot()
+	cfg.ProviderProfiles = map[string]ProviderProfile{
+		"codex": {
+			ID:      "codex",
+			Kind:    "codex-cli",
+			Command: "codex",
+		},
+	}
+	cfg.Agents = map[string]Agent{
+		"main": {
+			ID:        "main",
+			ProfileID: "codex",
+			Workspace: ".",
+			Timeout:   30,
+		},
+	}
+	cfg.DefaultAgentID = "main"
+	cfg.ExtendedChannels = map[string]ExtendedChannelConfig{
+		"slack": {
+			Enabled:        true,
+			DefaultAgentID: "missing-agent",
+			Instances: []ExtendedChannelInstance{
+				{ID: "slack-1", Enabled: true, DefaultAgentID: "main"},
+			},
+		},
+	}
+	cfg.normalizeChannelInstances()
+
+	err := cfg.Validate()
+	if !errors.Is(err, ErrUnknownAgent) {
+		t.Fatalf("expected ErrUnknownAgent, got %v", err)
+	}
+}
+
 func TestUpsertAgentUsesSuggestedWorkspace(t *testing.T) {
 	tempDir := t.TempDir()
 	chdirForTest(t, tempDir)
@@ -430,7 +655,7 @@ func TestUpsertAgentUsesSuggestedWorkspace(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected project-alpha agent")
 	}
-	wantWorkspace := filepath.Join(homeDir, ".synapsex", "workspaces", "project-alpha")
+	wantWorkspace := filepath.Join(homeDir, ".clawx", "workspaces", "project-alpha")
 	if agent.Workspace != wantWorkspace {
 		t.Fatalf("unexpected workspace: got %q want %q", agent.Workspace, wantWorkspace)
 	}
@@ -464,6 +689,218 @@ func TestSetDefaultAgentUpdatesDefault(t *testing.T) {
 	}
 }
 
+func TestSetValueByDotKeyUpdatesTelegramIncrementally(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	path, created, err := EnsureDefaultFile()
+	if err != nil {
+		t.Fatalf("ensure default file: %v", err)
+	}
+	if !created || path != "config.json" {
+		t.Fatalf("expected default config.json to be created, created=%v path=%q", created, path)
+	}
+
+	if _, err := SetValueByDotKey("channels.discord.enabled", "true"); err != nil {
+		t.Fatalf("set discord enabled: %v", err)
+	}
+	if _, err := SetValueByDotKey("channels.discord.botToken", "discord-token"); err != nil {
+		t.Fatalf("set discord token: %v", err)
+	}
+	if _, err := SetValueByDotKey("channels.telegram.enabled", "true"); err != nil {
+		t.Fatalf("set telegram enabled: %v", err)
+	}
+	if _, err := SetValueByDotKey("channels.telegram.token", "telegram-token"); err != nil {
+		t.Fatalf("set telegram token: %v", err)
+	}
+	if _, err := SetValueByDotKey("channels.telegram.botUsername", "my_bot"); err != nil {
+		t.Fatalf("set telegram username: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.ActiveAgent == nil || cfg.ActiveAgent.ID != "main" {
+		t.Fatalf("expected default main agent to remain, got %#v", cfg.ActiveAgent)
+	}
+	if !cfg.DiscordEnabled || cfg.DiscordBotToken != "discord-token" {
+		t.Fatalf("expected discord config to remain set, enabled=%v token=%q", cfg.DiscordEnabled, cfg.DiscordBotToken)
+	}
+	if !cfg.TelegramEnabled || cfg.TelegramToken != "telegram-token" {
+		t.Fatalf("expected telegram to be updated, enabled=%v token=%q", cfg.TelegramEnabled, cfg.TelegramToken)
+	}
+	if cfg.TelegramBotUsername != "my_bot" {
+		t.Fatalf("unexpected telegram username: %q", cfg.TelegramBotUsername)
+	}
+}
+
+func TestSetValuesByDotKeyAppliesSingleChannelPatchWithoutOverwritingOthers(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	if _, _, err := EnsureDefaultFile(); err != nil {
+		t.Fatalf("ensure default file: %v", err)
+	}
+	if _, err := SetValuesByDotKey(map[string]string{
+		"channels.telegram.enabled": "true",
+		"channels.telegram.token":   "telegram-token-old",
+		"channels.discord.enabled":  "true",
+		"channels.discord.botToken": "discord-token-old",
+	}); err != nil {
+		t.Fatalf("seed channel values: %v", err)
+	}
+
+	if _, err := SetValuesByDotKey(map[string]string{
+		"channels.wecom.enabled":        "true",
+		"channels.wecom.mode":           "webhook",
+		"channels.wecom.corpId":         "ww_new",
+		"channels.wecom.agentId":        "1000002",
+		"channels.wecom.secret":         "secret_new",
+		"channels.wecom.token":          "token_new",
+		"channels.wecom.encodingAesKey": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG",
+	}); err != nil {
+		t.Fatalf("set wecom values: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.TelegramToken != "telegram-token-old" {
+		t.Fatalf("telegram token should be preserved, got %q", cfg.TelegramToken)
+	}
+	if cfg.DiscordBotToken != "discord-token-old" {
+		t.Fatalf("discord token should be preserved, got %q", cfg.DiscordBotToken)
+	}
+	if cfg.WeComCorpID != "ww_new" {
+		t.Fatalf("wecom corp id should be updated, got %q", cfg.WeComCorpID)
+	}
+}
+
+func TestGetValueByDotKeySupportsNestedAndRoot(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	if _, _, err := EnsureDefaultFile(); err != nil {
+		t.Fatalf("ensure default file: %v", err)
+	}
+	if _, err := SetValueByDotKey("channels.telegram.enabled", "true"); err != nil {
+		t.Fatalf("set telegram enabled: %v", err)
+	}
+
+	value, err := GetValueByDotKey("channels.telegram.enabled")
+	if err != nil {
+		t.Fatalf("get nested key: %v", err)
+	}
+	enabled, ok := value.(bool)
+	if !ok || !enabled {
+		t.Fatalf("expected bool true for telegram enabled, got %#v", value)
+	}
+
+	root, err := GetValueByDotKey("")
+	if err != nil {
+		t.Fatalf("get root config: %v", err)
+	}
+	if _, ok := root.(map[string]any); !ok {
+		t.Fatalf("expected root get to return map, got %T", root)
+	}
+}
+
+func TestGetValueByDotKeyMissingReturnsNotFound(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	if _, _, err := EnsureDefaultFile(); err != nil {
+		t.Fatalf("ensure default file: %v", err)
+	}
+
+	_, err := GetValueByDotKey("channels.telegram.not_exists")
+	if !errors.Is(err, ErrConfigKeyNotFound) {
+		t.Fatalf("expected ErrConfigKeyNotFound, got %v", err)
+	}
+}
+
+func TestValidateAllowsTelegramWebhookMode(t *testing.T) {
+	cfg := defaultSnapshot()
+	cfg.TelegramInstances = []TelegramInstance{
+		{
+			ID:                      "telegram-default",
+			Enabled:                 true,
+			Mode:                    "webhook",
+			Token:                   "token-1",
+			WebhookURL:              "https://example.com/webhook/tg",
+			WebhookPath:             "/webhooks/telegram",
+			RequireCommandOrMention: true,
+			PollingTimeout:          30,
+			DefaultAgentID:          "main",
+		},
+	}
+	cfg.normalizeChannelInstances()
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate webhook mode: %v", err)
+	}
+}
+
+func TestValidateRejectsTelegramWebhookWithoutURL(t *testing.T) {
+	cfg := defaultSnapshot()
+	cfg.TelegramInstances = []TelegramInstance{
+		{
+			ID:                      "telegram-default",
+			Enabled:                 true,
+			Mode:                    "webhook",
+			Token:                   "token-1",
+			WebhookPath:             "/webhooks/telegram",
+			RequireCommandOrMention: true,
+			PollingTimeout:          30,
+			DefaultAgentID:          "main",
+		},
+	}
+	cfg.normalizeChannelInstances()
+
+	err := cfg.Validate()
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got %v", err)
+	}
+}
+
+func TestValidateRejectsFeishuWebhookWithoutCredentials(t *testing.T) {
+	cfg := defaultSnapshot()
+	cfg.FeishuInstances = []FeishuInstance{
+		{
+			ID:             "feishu-default",
+			Enabled:        true,
+			Mode:           "webhook",
+			DefaultAgentID: "main",
+		},
+	}
+	cfg.normalizeChannelInstances()
+
+	err := cfg.Validate()
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got %v", err)
+	}
+}
+
+func TestValidateRejectsWeComWebhookWithoutCredentials(t *testing.T) {
+	cfg := defaultSnapshot()
+	cfg.WeComInstances = []WeComInstance{
+		{
+			ID:             "wecom-default",
+			Enabled:        true,
+			Mode:           "webhook",
+			DefaultAgentID: "main",
+		},
+	}
+	cfg.normalizeChannelInstances()
+
+	err := cfg.Validate()
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got %v", err)
+	}
+}
+
 func TestWriteBootstrapFileWithDatabaseConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	chdirForTest(t, tempDir)
@@ -474,7 +911,7 @@ func TestWriteBootstrapFileWithDatabaseConfig(t *testing.T) {
 		DatabaseDriver:     "postgres",
 		DatabaseHost:       "127.0.0.1",
 		DatabasePort:       5432,
-		DatabaseName:       "synapse_x",
+		DatabaseName:       "claw_x",
 		DatabaseUser:       "postgres",
 		DatabasePassword:   "secret",
 		DatabaseSSLMode:    "disable",
@@ -495,7 +932,7 @@ func TestWriteBootstrapFileWithDatabaseConfig(t *testing.T) {
 	if cfg.Database.Driver != "postgres" {
 		t.Fatalf("unexpected database driver: %q", cfg.Database.Driver)
 	}
-	if cfg.Database.Name != "synapse_x" {
+	if cfg.Database.Name != "claw_x" {
 		t.Fatalf("unexpected database name: %q", cfg.Database.Name)
 	}
 	if cfg.Database.User != "postgres" {
@@ -511,7 +948,7 @@ func TestEnsureStateLayoutMigratesLegacyWorkspaceRootAndConfigPaths(t *testing.T
 	chdirForTest(t, tempDir)
 
 	homeDir := filepath.Join(tempDir, "home")
-	stateDir := filepath.Join(homeDir, ".synapsex")
+	stateDir := filepath.Join(homeDir, ".clawx")
 	legacyRoot := filepath.Join(stateDir, "workworkspace")
 	legacyMain := filepath.Join(legacyRoot, "main")
 	if err := os.MkdirAll(legacyMain, 0o755); err != nil {
@@ -585,7 +1022,7 @@ func TestEnsureStateLayoutCreatesStarterSkill(t *testing.T) {
 		t.Fatalf("ensure state layout: %v", err)
 	}
 
-	manifestPath := filepath.Join(os.Getenv("HOME"), ".synapsex", "skills", "echo", "SKILL.md")
+	manifestPath := filepath.Join(os.Getenv("HOME"), ".clawx", "skills", "echo", "SKILL.md")
 	body, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatalf("read starter skill manifest: %v", err)
@@ -603,7 +1040,7 @@ func TestEnsureStateLayoutDoesNotOverwriteStarterSkill(t *testing.T) {
 	tempDir := t.TempDir()
 	chdirForTest(t, tempDir)
 
-	manifestPath := filepath.Join(os.Getenv("HOME"), ".synapsex", "skills", "echo", "SKILL.md")
+	manifestPath := filepath.Join(os.Getenv("HOME"), ".clawx", "skills", "echo", "SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
 		t.Fatalf("mkdir starter skill dir: %v", err)
 	}
@@ -628,7 +1065,7 @@ func TestEnsureStateLayoutDoesNotOverwriteStarterSkill(t *testing.T) {
 func chdirForTest(t *testing.T, dir string) {
 	t.Helper()
 
-	t.Setenv("SYNAPSEX_CONFIG", "config.json")
+	t.Setenv("CLAWX_CONFIG", "config.json")
 	homeDir := filepath.Join(dir, "home")
 	if err := os.MkdirAll(homeDir, 0o755); err != nil {
 		t.Fatalf("mkdir home: %v", err)
@@ -645,4 +1082,164 @@ func chdirForTest(t *testing.T, dir string) {
 	t.Cleanup(func() {
 		_ = os.Chdir(previous)
 	})
+}
+
+func TestLoadParsesProjectConfigFromJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	content := `{
+  "runtime": {
+    "allowedRoots": ["."],
+    "defaultCwd": "."
+  },
+  "execution": {
+    "command": "cat"
+  },
+  "projects": {
+    "workspaceRoot": "/tmp/clawx-workspaces",
+    "defaultProject": "bid"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.Projects.WorkspaceRoot != "/tmp/clawx-workspaces" {
+		t.Fatalf("unexpected projects workspace root: %q", cfg.Projects.WorkspaceRoot)
+	}
+	if cfg.Projects.DefaultProjectID != "bid" {
+		t.Fatalf("unexpected default project id: %q", cfg.Projects.DefaultProjectID)
+	}
+}
+
+func TestLoadDefaultsProjectConfigWhenMissing(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	content := `{
+  "runtime": {
+    "allowedRoots": ["."],
+    "defaultCwd": "."
+  },
+  "execution": {
+    "command": "cat"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if strings.TrimSpace(cfg.Projects.WorkspaceRoot) == "" {
+		t.Fatalf("expected default projects workspace root")
+	}
+	if cfg.Projects.DefaultProjectID != "main" {
+		t.Fatalf("expected default project id main, got %q", cfg.Projects.DefaultProjectID)
+	}
+}
+
+func TestLoadParsesMemoryConfigFromJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	content := `{
+  "runtime": {
+    "allowedRoots": ["."],
+    "defaultCwd": "."
+  },
+  "execution": {
+    "command": "cat"
+  },
+  "memory": {
+    "ownerAllowlist": [" OwnerA ", "ownerB", "ownera"],
+    "tokenBudget": 8192,
+    "autoDigestEnabled": true
+  }
+}`
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.Memory.TokenBudget != 8192 {
+		t.Fatalf("unexpected memory token budget: %d", cfg.Memory.TokenBudget)
+	}
+	if !cfg.Memory.AutoDigestEnabled {
+		t.Fatalf("expected memory auto digest enabled")
+	}
+	if len(cfg.Memory.OwnerAllowlist) != 2 {
+		t.Fatalf("unexpected owner allowlist size: %d", len(cfg.Memory.OwnerAllowlist))
+	}
+	if cfg.Memory.OwnerAllowlist[0] != "ownera" || cfg.Memory.OwnerAllowlist[1] != "ownerb" {
+		t.Fatalf("unexpected owner allowlist: %#v", cfg.Memory.OwnerAllowlist)
+	}
+}
+
+func TestLoadAppliesMemoryConfigEnvOverrides(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	content := `{
+  "runtime": {
+    "allowedRoots": ["."],
+    "defaultCwd": "."
+  },
+  "execution": {
+    "command": "cat"
+  },
+  "memory": {
+    "ownerAllowlist": ["base"],
+    "tokenBudget": 2048,
+    "autoDigestEnabled": false
+  }
+}`
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	t.Setenv("CLAWX_MEMORY_OWNER_ALLOWLIST", "Alice, BOB")
+	t.Setenv("CLAWX_MEMORY_TOKEN_BUDGET", "4096")
+	t.Setenv("CLAWX_MEMORY_AUTO_DIGEST", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.Memory.TokenBudget != 4096 {
+		t.Fatalf("unexpected memory token budget from env: %d", cfg.Memory.TokenBudget)
+	}
+	if !cfg.Memory.AutoDigestEnabled {
+		t.Fatalf("expected memory auto digest from env")
+	}
+	if len(cfg.Memory.OwnerAllowlist) != 2 {
+		t.Fatalf("unexpected owner allowlist size: %d", len(cfg.Memory.OwnerAllowlist))
+	}
+	if cfg.Memory.OwnerAllowlist[0] != "alice" || cfg.Memory.OwnerAllowlist[1] != "bob" {
+		t.Fatalf("unexpected owner allowlist from env: %#v", cfg.Memory.OwnerAllowlist)
+	}
+}
+
+func TestSnapshotValidateRejectsInvalidMemoryConfig(t *testing.T) {
+	cfg := defaultSnapshot()
+	cfg.Memory.TokenBudget = 0
+
+	err := cfg.Validate()
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got %v", err)
+	}
 }

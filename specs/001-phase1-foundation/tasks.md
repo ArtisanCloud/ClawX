@@ -24,9 +24,9 @@
 
 **目的**: 建立第一阶段实现所需的 Go 项目骨架与基础目录
 
-- [X] T001 创建 Go 入口与基础目录结构于 cmd/synapsex/、internal/、tests/
+- [X] T001 创建 Go 入口与基础目录结构于 cmd/clawx/、internal/、tests/
 - [X] T002 初始化 Go 模块并声明基础依赖于 go.mod
-- [X] T003 [P] 创建应用启动入口骨架于 cmd/synapsex/main.go
+- [X] T003 [P] 创建应用启动入口骨架于 cmd/clawx/main.go
 - [X] T004 [P] 创建 DDD 分层目录占位文件于 internal/domain/.keep、internal/application/.keep、internal/infrastructure/.keep、internal/interfaces/.keep
 - [X] T005 [P] 创建基础测试目录占位文件于 tests/unit/.keep、tests/integration/.keep、tests/contract/.keep
 
@@ -70,7 +70,7 @@
 - [X] T022 [US1] 在会话管理服务中实现当前会话继续执行逻辑于 internal/application/service/session_manager_continue.go
 - [X] T023 [US1] 在路由服务中实现“新建 / 恢复 / 继续 / 会话繁忙拒绝”判定流程于 internal/application/service/router_session_flow.go
 - [X] T024 [US1] 在后端适配器中实现超时与取消控制于 internal/infrastructure/backend/timeout.go
-- [X] T025 [US1] 将会话主链路接入程序启动入口于 cmd/synapsex/main.go
+- [X] T025 [US1] 将会话主链路接入程序启动入口于 cmd/clawx/main.go
 
 **检查点**: 此时用户故事 1 应可独立运行并完成 MVP 验证
 
@@ -110,7 +110,7 @@
 - [X] T036 [US3] 实现 Telegram 渠道适配器 `send_text` / `send_error` 基础发送能力于 internal/interfaces/chat/telegram/adapter.go
 - [X] T037 [US3] 在渠道适配层实现统一入站消息归一化于 internal/interfaces/chat/normalize.go
 - [X] T038 [US3] 在输出分段器中实现发送失败重试与部分失败提示于 internal/application/service/output_delivery.go
-- [X] T039 [US3] 将渠道适配器与路由主链路接入程序启动入口于 cmd/synapsex/main.go
+- [X] T039 [US3] 将渠道适配器与路由主链路接入程序启动入口于 cmd/clawx/main.go
 
 **检查点**: 此时三个用户故事都应具备独立可验证能力
 
@@ -138,7 +138,7 @@
 
 **⚠️ 阻塞规则**: 在本阶段完成前，不应开始 Phase 2 的代码实现；第二阶段文档可以准备，但不应提前切换代码主线
 
-- [X] T047 将程序启动入口升级为常驻服务启动形态，并加入生命周期管理于 cmd/synapsex/main.go
+- [X] T047 将程序启动入口升级为常驻服务启动形态，并加入生命周期管理于 cmd/clawx/main.go
 - [X] T048 将健康检查处理器接入真实对外服务入口，并提供可访问的探针路径于 internal/interfaces/admin/health_handler.go
 - [X] T049 为真实渠道接入补齐运行配置项（token、模式、启用开关、触发范围）于 internal/infrastructure/config/config.go
 - [X] T050 选择一个渠道优先完成真实 SDK 接入（建议 Telegram 或 Discord 二选一），实现真实入站监听与出站发送于 internal/interfaces/chat/

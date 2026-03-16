@@ -11,7 +11,7 @@
 在用户技能目录创建：
 
 ```text
-~/.synapsex/skills/echo/SKILL.md
+~/.clawx/skills/echo/SKILL.md
 ```
 
 示例内容：
@@ -28,7 +28,7 @@ description: 回显输入内容
 ## 3. 启动服务
 
 ```bash
-go run ./cmd/synapsex
+go run ./cmd/clawx
 ```
 
 确认服务正常启动，并可看到健康日志或渠道适配器启动日志。
@@ -42,8 +42,8 @@ go run ./cmd/synapsex
 可执行：
 
 ```bash
-go run ./cmd/synapsex skill list
-go run ./cmd/synapsex skill reload
+go run ./cmd/clawx skill list
+go run ./cmd/clawx skill reload
 ```
 
 若状态异常：

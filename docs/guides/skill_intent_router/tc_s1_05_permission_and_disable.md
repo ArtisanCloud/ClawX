@@ -4,9 +4,9 @@
 - 验证未授权请求会被拒绝，禁用 Skill 不可执行。
 
 ## 步骤
-1. 执行：`go run ./cmd/synapsex skill disable echo`
+1. 执行：`go run ./cmd/clawx skill disable echo`
 2. 在渠道发送：`skill echo test-disabled`
-3. 执行：`go run ./cmd/synapsex skill enable echo`
+3. 执行：`go run ./cmd/clawx skill enable echo`
 4. 配置一个未授权用户或频道后，再发送：`skill echo test-permission`
 
 ## 预期

@@ -20,9 +20,9 @@
 2. 能返回文件列表和结构化说明，而不是固定模板回包。
 3. 能基于仓库真实文件返回摘要，说明已具备项目上下文读取能力。
 4. 日志中的执行记录包含 `agent=main`、`profile_kind=codex-cli`、`profile_command=codex`，且 `state=success`。
-5. 在同一个 SynapseX 会话内，`backend_session_id` 保持一致（表示复用同一 Codex thread）。
+5. 在同一个 ClawX 会话内，`backend_session_id` 保持一致（表示复用同一 Codex thread）。
 
 ## 失败排查
-1. 若路径不对，检查 `~/.synapsex/config.json` 中 `agents.list` 里 `main.workspace`。
+1. 若路径不对，检查 `~/.clawx/config.json` 中 `agents.list` 里 `main.workspace`。
 2. 若没有开发任务结果，检查本机 `codex` 命令是否可执行。
 3. 若回复超时，优先看服务日志中的路由和发送错误。

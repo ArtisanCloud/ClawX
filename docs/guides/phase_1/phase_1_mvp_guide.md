@@ -6,7 +6,7 @@
 - 本文默认不启用数据库。
 
 ## 结果判定
-- 你在 Discord 私聊 Bot 发送 `/new`、普通开发指令，能收到 SynapseX 回复。
+- 你在 Discord 私聊 Bot 发送 `/new`、普通开发指令，能收到 ClawX 回复。
 - 服务端日志出现 Discord 入站和路由日志，并且没有发送失败错误。
 
 ## Step 1: 前置条件
@@ -19,10 +19,10 @@
 执行：
 
 ```bash
-go run ./cmd/synapsex
+go run ./cmd/clawx
 ```
 
-当 `~/.synapsex/config.json` 不存在时，会自动进入引导。建议选择：
+当 `~/.clawx/config.json` 不存在时，会自动进入引导。建议选择：
 1. 默认执行器：`Codex`
 2. Channel：`只配置 Discord`
 3. 填写 `Discord Bot Token`
@@ -38,14 +38,14 @@ go run ./cmd/synapsex
 确认文件存在：
 
 ```bash
-ls -la ~/.synapsex/config.json
+ls -la ~/.clawx/config.json
 ```
 
 至少确认这些关键项：
 - `agents.default` 是 `main`
 - `agents.list` 里有 `id: "main"`
 - `agents.list[main].profile` 是 `codex`
-- `agents.list[main].workspace` 指向 `~/.synapsex/workspaces/main`（或你手动指定的路径）
+- `agents.list[main].workspace` 指向 `~/.clawx/workspaces/main`（或你手动指定的路径）
 - `channels.discord.enabled` 为 `true`
 - `database.enabled` 为 `false`
 
@@ -53,13 +53,13 @@ ls -la ~/.synapsex/config.json
 执行：
 
 ```bash
-go run ./cmd/synapsex
+go run ./cmd/clawx
 ```
 
 预期日志包含：
 
 ```text
-synapsex service started with ... runtime(s); default agent "main"
+clawx service started with ... runtime(s); default agent "main"
 session store initialized: driver=file state_dir=...
 discord gateway adapter started
 discord gateway ready: bot_user_id=...
@@ -75,7 +75,7 @@ health probe available at http://:8080/healthz
 预期：
 1. `/new` 返回会话已创建（session id）。
 2. 第二条消息触发执行并回传文本结果。
-3. 本地生成会话文件：`~/.synapsex/agents/main/sessions/sessions.json` 与对应 `*.jsonl`。
+3. 本地生成会话文件：`~/.clawx/agents/main/sessions/sessions.json` 与对应 `*.jsonl`。
 
 如果你只想先测控制命令，再发：
 1. `/list`
@@ -101,32 +101,32 @@ health probe available at http://:8080/healthz
 追踪建议：
 1. 服务日志建议落盘：
 ```bash
-mkdir -p ~/.synapsex/logs
-go run ./cmd/synapsex 2>&1 | tee -a ~/.synapsex/logs/service.log
+mkdir -p ~/.clawx/logs
+go run ./cmd/clawx 2>&1 | tee -a ~/.clawx/logs/service.log
 ```
 2. 按 session 检索：
 ```bash
-rg "sess-|backend_session_id|discord execute" ~/.synapsex/logs/service.log
+rg "sess-|backend_session_id|discord execute" ~/.clawx/logs/service.log
 ```
 3. 查看 Codex 执行索引：
 ```bash
-tail -n 20 ~/.synapsex/logs/index.jsonl
+tail -n 20 ~/.clawx/logs/index.jsonl
 ```
 4. 用 `session_id` 追溯 Codex 运行日志：
 ```bash
-cat ~/.synapsex/logs/codex/<session_id>.jsonl
+cat ~/.clawx/logs/codex/<session_id>.jsonl
 ```
 
 更完整的排障路径见：`../log_tracing.md`。
 
 ## Step 7: 目录命名修正说明
-- 当前默认 workspace 根目录是：`~/.synapsex/workspaces`。
-- 如果你的历史配置还在用 `~/.synapsex/workworkspace`，服务启动会自动迁移并更新配置。
+- 当前默认 workspace 根目录是：`~/.clawx/workspaces`。
+- 如果你的历史配置还在用 `~/.clawx/workworkspace`，服务启动会自动迁移并更新配置。
 - 若发生同名冲突，系统保留 `workspaces` 现有内容，旧目录冲突项作为备份保留。
 - 建议手工更新 `main` 的 workspace 后重启：
 
 ```bash
-go run ./cmd/synapsex config agent add --id main --profile codex --workspace /home/ubuntu/.synapsex/workspaces/main --default
+go run ./cmd/clawx config agent add --id main --profile codex --workspace /home/ubuntu/.clawx/workspaces/main --default
 ```
 
 ## 当前阶段边界

@@ -12,6 +12,7 @@ type ControlKind string
 const (
 	ControlNew     ControlKind = "new"
 	ControlResume  ControlKind = "resume"
+	ControlSwitch  ControlKind = "switch"
 	ControlList    ControlKind = "list"
 	ControlCancel  ControlKind = "cancel"
 	ControlCurrent ControlKind = "current"
@@ -20,17 +21,28 @@ const (
 type ControlCommand struct {
 	Kind            ControlKind
 	ConversationID  string
+	WindowID        string
 	TargetSessionID string
 }
 
-func ParseControlCommand(raw, conversationID string) (ControlCommand, error) {
+func ParseControlCommand(raw, conversationID string, windowID ...string) (ControlCommand, error) {
 	fields := strings.Fields(strings.TrimSpace(raw))
 	if len(fields) == 0 {
 		return ControlCommand{}, ErrInvalidControlCommand
 	}
 
+	normalizedConversationID := strings.TrimSpace(conversationID)
+	normalizedWindowID := ""
+	if len(windowID) > 0 {
+		normalizedWindowID = strings.TrimSpace(windowID[0])
+	}
+	if normalizedWindowID == "" && normalizedConversationID != "" {
+		normalizedWindowID = "compat:" + normalizedConversationID
+	}
+
 	command := ControlCommand{
-		ConversationID: strings.TrimSpace(conversationID),
+		ConversationID: normalizedConversationID,
+		WindowID:       normalizedWindowID,
 	}
 
 	switch normalizeControlName(fields[0]) {
@@ -38,6 +50,8 @@ func ParseControlCommand(raw, conversationID string) (ControlCommand, error) {
 		command.Kind = ControlNew
 	case "resume":
 		command.Kind = ControlResume
+	case "switch":
+		command.Kind = ControlSwitch
 	case "list":
 		command.Kind = ControlList
 	case "cancel":
@@ -52,7 +66,7 @@ func ParseControlCommand(raw, conversationID string) (ControlCommand, error) {
 		return ControlCommand{}, ErrInvalidControlCommand
 	}
 
-	if command.Kind == ControlResume {
+	if command.Kind == ControlResume || command.Kind == ControlSwitch {
 		if len(fields) < 2 {
 			return ControlCommand{}, ErrInvalidControlCommand
 		}

@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	"synapsex/internal/domain/execution"
-	"synapsex/internal/domain/session"
+	"clawx/internal/domain/execution"
+	"clawx/internal/domain/session"
 )
 
 func (m *SessionManager) CancelExecution(ctx context.Context, backend execution.Backend, sessionID string) (session.Record, error) {

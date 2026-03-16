@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	chatiface "synapsex/internal/interfaces/chat"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 const (
@@ -185,8 +185,8 @@ func (a *Adapter) listenOnce(ctx context.Context, handler InboundHandler) error 
 		Intents: intentGuildMessages | intentDirectMessages | intentMessageContent,
 		Properties: identifyProperties{
 			OS:      "linux",
-			Browser: "synapsex",
-			Device:  "synapsex",
+			Browser: "clawx",
+			Device:  "clawx",
 		},
 	}}); err != nil {
 		return err
@@ -457,6 +457,12 @@ func interactionToCommandText(data discordInteractionData) (string, bool, error)
 			return "", false, fmt.Errorf("discord interaction /resume missing session_id option")
 		}
 		return "/resume " + sessionID, true, nil
+	case "switch":
+		sessionID := strings.TrimSpace(interactionOptionValue(data.Options, "session_id"))
+		if sessionID == "" {
+			return "", false, fmt.Errorf("discord interaction /switch missing session_id option")
+		}
+		return "/switch " + sessionID, true, nil
 	case "sx-skill":
 		name := strings.TrimSpace(interactionOptionValue(data.Options, "name"))
 		if name == "" {
@@ -665,18 +671,31 @@ func (a *Adapter) syncSlashCommands(ctx context.Context) error {
 		},
 		{
 			Type:        discordApplicationCommandTypeChatInput,
+			Name:        "switch",
+			Description: "切换当前会话",
+			Options: []discordApplicationCommandOption{
+				{
+					Type:        discordApplicationCommandOptionTypeString,
+					Name:        "session_id",
+					Description: "会话ID，例如 sess-xxxx",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Type:        discordApplicationCommandTypeChatInput,
 			Name:        "cancel",
 			Description: "取消当前会话执行",
 		},
 		{
 			Type:        discordApplicationCommandTypeChatInput,
 			Name:        "sx-skills",
-			Description: "列出 SynapseX 技能目录",
+			Description: "列出 ClawX 技能目录",
 		},
 		{
 			Type:        discordApplicationCommandTypeChatInput,
 			Name:        "sx-skill",
-			Description: "强制使用 SynapseX 技能",
+			Description: "强制使用 ClawX 技能",
 			Options: []discordApplicationCommandOption{
 				{
 					Type:        discordApplicationCommandOptionTypeString,

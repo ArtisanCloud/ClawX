@@ -5,7 +5,7 @@
 
 ## 步骤
 1. 执行：`go test ./...`
-2. 执行：`go run ./cmd/synapsex skill list`
+2. 执行：`go run ./cmd/clawx skill list`
 
 ## 预期
 1. `go test ./...` 全部通过。

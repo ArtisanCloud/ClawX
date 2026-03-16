@@ -12,7 +12,7 @@
 1. 在 Discord 私聊 Bot 发送：`/new`
 2. 继续发送：`请先执行 pwd，并返回当前工作目录绝对路径`
 3. 按第 2 步返回的目录继续发送二选一指令：
-   - 若目录是项目根（例如 `/home/ubuntu/workspace/SynapseX`）：`请读取 docs/guides/phase_1/README.md 第一行并原样返回`
+   - 若目录是项目根（例如 `/home/ubuntu/workspace/ClawX`）：`请读取 docs/guides/phase_1/README.md 第一行并原样返回`
    - 若目录不是项目根：`请列出当前目录前 5 个文件名`
 4. 观察服务端日志是否出现 `discord execute begin` 与 `discord execute done`
 

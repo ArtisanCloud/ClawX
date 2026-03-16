@@ -5,7 +5,7 @@
 
 ## 摘要
 
-本阶段实现 SynapseX 的最小可运行基座：通过直连执行链路将受支持聊天渠道中的请求映射到受控执行会话，保证单窗口单会话、会话互斥、超时取消、长输出分段，以及 Discord 与 Telegram 的基础接入能力。技术方案采用 Go 语言，并按 DDD 分层组织代码，优先建立稳定的 `Router -> Session Manager -> Backend Adapter` 主链路，再补齐渠道适配、输出处理与运维基线。
+本阶段实现 ClawX 的最小可运行基座：通过直连执行链路将受支持聊天渠道中的请求映射到受控执行会话，保证单窗口单会话、会话互斥、超时取消、长输出分段，以及 Discord 与 Telegram 的基础接入能力。技术方案采用 Go 语言，并按 DDD 分层组织代码，优先建立稳定的 `Router -> Session Manager -> Backend Adapter` 主链路，再补齐渠道适配、输出处理与运维基线。
 
 ## 技术上下文
 
@@ -54,7 +54,7 @@ specs/001-phase1-foundation/
 ```text
 .
 ├── cmd/
-│   └── synapsex/
+│   └── clawx/
 │       └── main.go
 ├── internal/
 │   ├── domain/

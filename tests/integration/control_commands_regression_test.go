@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"synapsex/internal/application/service"
-	chatiface "synapsex/internal/interfaces/chat"
+	"clawx/internal/application/service"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 func TestControlCommandsRegression(t *testing.T) {
@@ -18,7 +18,7 @@ do not hijack control command`)
 		return nil
 	}, nil)
 
-	cases := []string{"/new", "/list", "/cancel", "/resume sess-1", "new", "list", "cancel"}
+	cases := []string{"/new", "/list", "/cancel", "/resume sess-1", "/switch sess-1", "new", "list", "cancel", "switch sess-1"}
 	for _, text := range cases {
 		t.Run(text, func(t *testing.T) {
 			message := mustNormalizeMessage(t, chatiface.NormalizeInput{

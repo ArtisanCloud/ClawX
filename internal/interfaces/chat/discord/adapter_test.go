@@ -195,6 +195,16 @@ func TestInteractionToCommandText(t *testing.T) {
 		t.Fatalf("unexpected /resume mapping: got=%q ok=%v err=%v", got, ok, err)
 	}
 
+	got, ok, err = interactionToCommandText(discordInteractionData{
+		Name: "switch",
+		Options: []discordInteractionOption{
+			{Name: "session_id", Type: discordApplicationCommandOptionTypeString, Value: raw},
+		},
+	})
+	if err != nil || !ok || got != "/switch sess-1" {
+		t.Fatalf("unexpected /switch mapping: got=%q ok=%v err=%v", got, ok, err)
+	}
+
 	got, ok, err = interactionToCommandText(discordInteractionData{Name: "sx-skills"})
 	if err != nil || !ok || got != "/sx-skills" {
 		t.Fatalf("unexpected /sx-skills mapping: got=%q ok=%v err=%v", got, ok, err)

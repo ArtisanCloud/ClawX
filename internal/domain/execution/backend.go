@@ -9,6 +9,9 @@ type Request struct {
 	SessionID        string
 	BackendSessionID string
 	CWD              string
+	MemoryContext    string
+	MemoryScope      string
+	MemoryACLMode    string
 	Input            string
 	Timeout          time.Duration
 }
@@ -16,6 +19,8 @@ type Request struct {
 type Result struct {
 	BackendSessionID string
 	Output           string
+	MemoryScope      string
+	MemoryACLMode    string
 	State            ResultState
 	StartedAt        time.Time
 	CompletedAt      time.Time
@@ -28,4 +33,3 @@ type Backend interface {
 	Cancel(ctx context.Context, sessionID string) error
 	HealthCheck(ctx context.Context) error
 }
-

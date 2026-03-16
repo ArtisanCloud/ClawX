@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	skillsinfra "synapsex/internal/infrastructure/skills"
+	skillsinfra "clawx/internal/infrastructure/skills"
 )
 
 func TestDMPairingLifecycleTransitions(t *testing.T) {

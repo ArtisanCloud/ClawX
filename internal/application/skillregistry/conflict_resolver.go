@@ -3,7 +3,7 @@ package skillregistry
 import (
 	"sort"
 
-	skilldomain "synapsex/internal/domain/skill"
+	skilldomain "clawx/internal/domain/skill"
 )
 
 func resolveConflicts(entries []skilldomain.CatalogEntry) []skilldomain.CatalogEntry {

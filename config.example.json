@@ -1,9 +1,9 @@
 {
   "runtime": {
     "allowedRoots": [
-      "/path/to/home/.synapsex/workspaces"
+      "/path/to/home/.clawx/workspaces"
     ],
-    "defaultCwd": "/path/to/home/.synapsex/workspaces/main",
+    "defaultCwd": "/path/to/home/.clawx/workspaces/main",
     "timeoutSeconds": 600
   },
   "providers": {
@@ -40,20 +40,20 @@
       {
         "id": "main",
         "profile": "codex",
-        "workspace": "/path/to/home/.synapsex/workspaces/main",
+        "workspace": "/path/to/home/.clawx/workspaces/main",
         "timeoutSeconds": 600,
         "default": true
       },
       {
         "id": "docs-agent",
         "profile": "claude",
-        "workspace": "/path/to/home/.synapsex/workspaces/docs-agent",
+        "workspace": "/path/to/home/.clawx/workspaces/docs-agent",
         "timeoutSeconds": 600
       },
       {
         "id": "local-smoke",
         "profile": "local-smoke",
-        "workspace": "/path/to/home/.synapsex/workspaces/local-smoke",
+        "workspace": "/path/to/home/.clawx/workspaces/local-smoke",
         "timeoutSeconds": 600
       }
     ]
@@ -120,8 +120,8 @@
   "skills": {
     "enabled": true,
     "sources": {
-      "userDir": "/path/to/home/.synapsex/skills",
-      "workspaceDir": ".synapsex/skills",
+      "userDir": "/path/to/home/.clawx/skills",
+      "workspaceDir": ".clawx/skills",
       "builtinEnabled": true,
       "builtinDir": "internal/skills/builtin"
     },
@@ -152,7 +152,7 @@
     "driver": "postgres",
     "host": "127.0.0.1",
     "port": 5432,
-    "name": "synapse_x",
+    "name": "claw_x",
     "user": "postgres",
     "password": "",
     "sslMode": "disable",

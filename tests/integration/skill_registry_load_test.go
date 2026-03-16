@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	skilldomain "synapsex/internal/domain/skill"
+	skilldomain "clawx/internal/domain/skill"
 )
 
 func TestSkillRegistryLoadAndConflictState(t *testing.T) {
@@ -17,12 +17,12 @@ aliases:
   - repeat
 ---
 请回显用户输入`)
-		writeSkillFile(t, root, "workspace/.synapsex/skills/echo/SKILL.md", `---
+		writeSkillFile(t, root, "workspace/.clawx/skills/echo/SKILL.md", `---
 name: echo
 description: workspace echo
 ---
 这是低优先级 echo`)
-		writeSkillFile(t, root, "workspace/.synapsex/skills/broken/SKILL.md", `---
+		writeSkillFile(t, root, "workspace/.clawx/skills/broken/SKILL.md", `---
 name: broken
 ---
 缺少 description`)

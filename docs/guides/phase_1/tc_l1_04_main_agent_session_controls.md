@@ -21,4 +21,4 @@
 4. `/cancel` 能结束当前会话任务，不影响服务进程存活。
 
 ## 说明
-- 这一组命令是 SynapseX 会话层命令，不是 Codex CLI 自身的 `/new`。
+- 这一组命令是 ClawX 会话层命令，不是 Codex CLI 自身的 `/new`。

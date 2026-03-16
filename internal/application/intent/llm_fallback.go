@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	skilldomain "synapsex/internal/domain/skill"
+	skilldomain "clawx/internal/domain/skill"
 )
 
 type LLMFallback interface {

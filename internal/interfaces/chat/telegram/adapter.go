@@ -3,10 +3,12 @@ package telegram
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -14,15 +16,28 @@ import (
 	"sync"
 	"time"
 
-	chatiface "synapsex/internal/interfaces/chat"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 const MaxMessageLength = 4096
 
+const (
+	sendMessageRetries  = 3
+	sendMessageBackoff  = 300 * time.Millisecond
+	sendMessageMaxDelay = 2 * time.Second
+	setWebhookRetries   = 3
+	setWebhookBackoff   = 300 * time.Millisecond
+	setWebhookMaxDelay  = 2 * time.Second
+)
+
 var (
-	ErrMessageTooLong      = errors.New("telegram message exceeds limit")
-	ErrMissingToken        = errors.New("telegram bot token is required")
-	ErrUnknownSessionRoute = errors.New("telegram session target is not bound")
+	ErrMessageTooLong        = errors.New("telegram message exceeds limit")
+	ErrMissingToken          = errors.New("telegram bot token is required")
+	ErrUnknownSessionRoute   = errors.New("telegram session target is not bound")
+	ErrInvalidWebhook        = errors.New("invalid telegram webhook request")
+	ErrWebhookMethod         = errors.New("telegram webhook method is not allowed")
+	ErrWebhookUnauthorized   = errors.New("telegram webhook secret mismatch")
+	ErrWebhookReplayRejected = errors.New("telegram webhook replay rejected")
 )
 
 type Options struct {
@@ -30,6 +45,7 @@ type Options struct {
 	BaseURL               string
 	BotUsername           string
 	PollTimeout           time.Duration
+	WebhookSecretToken    string
 	AllowedChatIDs        []string
 	RequireCommandMention bool
 	HTTPClient            *http.Client
@@ -44,6 +60,7 @@ type Target struct {
 type InboundEnvelope struct {
 	Message chatiface.Message
 	Target  Target
+	EventID string
 }
 
 type InboundHandler func(ctx context.Context, envelope InboundEnvelope) error
@@ -53,6 +70,7 @@ type Adapter struct {
 	baseURL               string
 	botUsername           string
 	pollTimeout           time.Duration
+	webhookSecretToken    string
 	requireCommandMention bool
 	client                *http.Client
 	allowedChatIDs        map[int64]struct{}
@@ -60,6 +78,7 @@ type Adapter struct {
 	mu             sync.Mutex
 	nextUpdateID   int64
 	sessionTargets map[string]Target
+	webhookReplay  map[string]time.Time
 }
 
 func NewAdapter(options Options) (*Adapter, error) {
@@ -88,10 +107,12 @@ func NewAdapter(options Options) (*Adapter, error) {
 		baseURL:               strings.TrimRight(baseURL, "/"),
 		botUsername:           strings.TrimPrefix(strings.TrimSpace(options.BotUsername), "@"),
 		pollTimeout:           pollTimeout,
+		webhookSecretToken:    strings.TrimSpace(options.WebhookSecretToken),
 		requireCommandMention: options.RequireCommandMention,
 		client:                client,
 		allowedChatIDs:        buildAllowedChatIDSet(options.AllowedChatIDs),
 		sessionTargets:        make(map[string]Target),
+		webhookReplay:         make(map[string]time.Time),
 	}, nil
 }
 
@@ -117,7 +138,7 @@ func (a *Adapter) Listen(ctx context.Context, handler InboundHandler) error {
 			if update.Message == nil {
 				continue
 			}
-			envelope, ok, err := a.normalizeUpdate(*update.Message)
+			envelope, ok, err := a.normalizeUpdate(update)
 			if err != nil {
 				return err
 			}
@@ -129,6 +150,112 @@ func (a *Adapter) Listen(ctx context.Context, handler InboundHandler) error {
 			}
 		}
 	}
+}
+
+func (a *Adapter) SetWebhook(ctx context.Context, webhookURL string) error {
+	webhookURL = strings.TrimSpace(webhookURL)
+	if webhookURL == "" {
+		return fmt.Errorf("telegram webhook url is required")
+	}
+
+	backoff := setWebhookBackoff
+	var lastErr error
+	for attempt := 0; attempt < setWebhookRetries; attempt++ {
+		err := a.setWebhookOnce(ctx, webhookURL)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !isRetryableSetWebhookError(err) || attempt == setWebhookRetries-1 {
+			return err
+		}
+		if sleepErr := sleepWithContext(ctx, backoff); sleepErr != nil {
+			return sleepErr
+		}
+		backoff *= 2
+		if backoff > setWebhookMaxDelay {
+			backoff = setWebhookMaxDelay
+		}
+	}
+	return lastErr
+}
+
+func (a *Adapter) setWebhookOnce(ctx context.Context, webhookURL string) error {
+	payload := setWebhookRequest{
+		URL: webhookURL,
+	}
+	if token := strings.TrimSpace(a.webhookSecretToken); token != "" {
+		payload.SecretToken = token
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("%s/bot%s/setWebhook", a.baseURL, a.token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= http.StatusInternalServerError {
+		return fmt.Errorf("telegram setWebhook http status %d", resp.StatusCode)
+	}
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	var payloadResponse apiResponse
+	if err := json.Unmarshal(responseBody, &payloadResponse); err != nil {
+		return err
+	}
+	if !payloadResponse.OK {
+		return fmt.Errorf("telegram setWebhook failed: %s", strings.TrimSpace(payloadResponse.Description))
+	}
+	return nil
+}
+
+func (a *Adapter) ParseWebhookRequest(r *http.Request) (InboundEnvelope, bool, error) {
+	if r == nil {
+		return InboundEnvelope{}, false, ErrInvalidWebhook
+	}
+	if r.Method != http.MethodPost {
+		return InboundEnvelope{}, false, ErrWebhookMethod
+	}
+
+	expectedSecret := strings.TrimSpace(a.webhookSecretToken)
+	if expectedSecret != "" {
+		provided := strings.TrimSpace(r.Header.Get("X-Telegram-Bot-Api-Secret-Token"))
+		if subtle.ConstantTimeCompare([]byte(expectedSecret), []byte(provided)) != 1 {
+			return InboundEnvelope{}, false, ErrWebhookUnauthorized
+		}
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		return InboundEnvelope{}, false, fmt.Errorf("%w: read body: %v", ErrInvalidWebhook, err)
+	}
+
+	var update telegramUpdate
+	if err := json.Unmarshal(body, &update); err != nil {
+		return InboundEnvelope{}, false, fmt.Errorf("%w: decode payload: %v", ErrInvalidWebhook, err)
+	}
+	if update.Message == nil {
+		return InboundEnvelope{}, false, nil
+	}
+	eventID := buildTelegramEventID(update)
+	if !a.acceptWebhookEvent(eventID, time.Now().UTC()) {
+		return InboundEnvelope{}, false, ErrWebhookReplayRejected
+	}
+	return a.normalizeUpdate(update)
 }
 
 func (a *Adapter) BindSession(sessionID string, target Target) {
@@ -187,7 +314,11 @@ func (a *Adapter) lookupTarget(sessionID string) (Target, error) {
 	return target, nil
 }
 
-func (a *Adapter) normalizeUpdate(message telegramMessage) (InboundEnvelope, bool, error) {
+func (a *Adapter) normalizeUpdate(update telegramUpdate) (InboundEnvelope, bool, error) {
+	if update.Message == nil {
+		return InboundEnvelope{}, false, nil
+	}
+	message := *update.Message
 	if strings.TrimSpace(message.Text) == "" {
 		return InboundEnvelope{}, false, nil
 	}
@@ -221,7 +352,40 @@ func (a *Adapter) normalizeUpdate(message telegramMessage) (InboundEnvelope, boo
 	return InboundEnvelope{
 		Message: normalized,
 		Target:  target,
+		EventID: buildTelegramEventID(update),
 	}, true, nil
+}
+
+func (a *Adapter) acceptWebhookEvent(eventID string, now time.Time) bool {
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		return true
+	}
+	cutoff := now.Add(-15 * time.Minute)
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	for key, seenAt := range a.webhookReplay {
+		if seenAt.Before(cutoff) {
+			delete(a.webhookReplay, key)
+		}
+	}
+	if seenAt, exists := a.webhookReplay[eventID]; exists && !seenAt.Before(cutoff) {
+		return false
+	}
+	a.webhookReplay[eventID] = now
+	return true
+}
+
+func buildTelegramEventID(update telegramUpdate) string {
+	if update.UpdateID > 0 {
+		return strconv.FormatInt(update.UpdateID, 10)
+	}
+	if update.Message != nil && update.Message.MessageID > 0 {
+		return fmt.Sprintf("%d:%d", update.Message.Chat.ID, update.Message.MessageID)
+	}
+	return ""
 }
 
 func (a *Adapter) prepareText(raw string, isDirect bool) (string, bool) {
@@ -316,6 +480,29 @@ func (a *Adapter) sendMessage(ctx context.Context, target Target, text string) e
 		return ErrMessageTooLong
 	}
 
+	backoff := sendMessageBackoff
+	var lastErr error
+	for attempt := 0; attempt < sendMessageRetries; attempt++ {
+		err := a.sendMessageOnce(ctx, target, text)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !isRetryableSendMessageError(err) || attempt == sendMessageRetries-1 {
+			return err
+		}
+		if sleepErr := sleepWithContext(ctx, backoff); sleepErr != nil {
+			return sleepErr
+		}
+		backoff *= 2
+		if backoff > sendMessageMaxDelay {
+			backoff = sendMessageMaxDelay
+		}
+	}
+	return lastErr
+}
+
+func (a *Adapter) sendMessageOnce(ctx context.Context, target Target, text string) error {
 	payload := sendMessageRequest{
 		ChatID:           target.ChatID,
 		Text:             text,
@@ -356,6 +543,62 @@ func (a *Adapter) sendMessage(ctx context.Context, target Target, text string) e
 		return fmt.Errorf("telegram sendMessage failed: %s", strings.TrimSpace(payloadResponse.Description))
 	}
 	return nil
+}
+
+func isRetryableSendMessageError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(err.Error())), "telegram sendmessage failed:") {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "connection reset by peer") ||
+		strings.Contains(text, "broken pipe") ||
+		strings.Contains(text, "eof") ||
+		strings.Contains(text, "timeout")
+}
+
+func isRetryableSetWebhookError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(err.Error())), "telegram setwebhook failed:") {
+		return false
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "connection reset by peer") ||
+		strings.Contains(text, "broken pipe") ||
+		strings.Contains(text, "eof") ||
+		strings.Contains(text, "timeout") ||
+		strings.Contains(text, "http status 5")
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (a *Adapter) currentOffset() int64 {
@@ -458,4 +701,9 @@ type sendMessageRequest struct {
 	Text             string `json:"text"`
 	ReplyToMessageID int64  `json:"reply_to_message_id,omitempty"`
 	MessageThreadID  int64  `json:"message_thread_id,omitempty"`
+}
+
+type setWebhookRequest struct {
+	URL         string `json:"url"`
+	SecretToken string `json:"secret_token,omitempty"`
 }

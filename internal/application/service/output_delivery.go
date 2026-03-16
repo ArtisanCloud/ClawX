@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	"synapsex/internal/domain/execution"
-	"synapsex/internal/interfaces/chat"
+	"clawx/internal/domain/execution"
+	"clawx/internal/interfaces/chat"
 )
 
 type DeliveryReport struct {

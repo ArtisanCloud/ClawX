@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
-	"synapsex/internal/application/command"
-	"synapsex/internal/domain/execution"
-	"synapsex/internal/domain/session"
+	"clawx/internal/application/command"
+	"clawx/internal/domain/execution"
+	"clawx/internal/domain/session"
 )
 
 type SessionFlowResult struct {
@@ -20,6 +21,8 @@ func (r *Router) HandleSessionFlow(ctx context.Context, cmd command.SessionComma
 	if err != nil {
 		return SessionFlowResult{}, err
 	}
+	cmd.ProjectID = normalizeSessionProjectID(cmd.ProjectID)
+	cmd.WindowID = buildSessionScopeWindowID(cmd.WindowID, cmd.ProjectID)
 
 	record, err := r.resolveSession(ctx, cmd)
 	if err != nil {
@@ -33,11 +36,18 @@ func (r *Router) HandleSessionFlow(ctx context.Context, cmd command.SessionComma
 	if err != nil {
 		return SessionFlowResult{}, err
 	}
+	if strings.TrimSpace(lockedSession.AgentID) == "" && strings.TrimSpace(cmd.Backend) != "" {
+		lockedSession.AgentID = strings.TrimSpace(cmd.Backend)
+	}
+	memoryLoad := r.buildMemoryContextForSession(ctx, cmd, lockedSession)
 
 	result, execErr := r.backend.Execute(ctx, execution.Request{
 		SessionID:        lockedSession.ID,
 		BackendSessionID: lockedSession.BackendSessionID,
 		CWD:              lockedSession.CWD,
+		MemoryContext:    memoryLoad.PromptContext,
+		MemoryScope:      memoryLoad.MemoryScope,
+		MemoryACLMode:    memoryLoad.MemoryACLMode,
 		Input:            cmd.Input,
 		Timeout:          r.cfg.Timeout,
 	})
@@ -61,6 +71,11 @@ func (r *Router) HandleSessionFlow(ctx context.Context, cmd command.SessionComma
 	if err != nil {
 		return SessionFlowResult{}, err
 	}
+	if result.State == execution.ResultSuccess {
+		if _, err := r.sessionManager.BindWindowToSession(ctx, cmd.WindowID, cmd.ConversationID, updatedSession.ID); err != nil {
+			return SessionFlowResult{}, err
+		}
+	}
 
 	return SessionFlowResult{
 		Session:   updatedSession,
@@ -81,11 +96,16 @@ func (r *Router) resolveSession(ctx context.Context, cmd command.SessionCommand)
 		}
 		if errors.Is(err, session.ErrSessionNotFound) {
 			return r.sessionManager.CreateSession(ctx, command.SessionCommand{
-				Mode:           command.ModeNew,
-				ConversationID: cmd.ConversationID,
-				Input:          cmd.Input,
-				Backend:        cmd.Backend,
-				CWD:            cmd.CWD,
+				Mode:            command.ModeNew,
+				ConversationID:  cmd.ConversationID,
+				WindowID:        cmd.WindowID,
+				ProjectID:       cmd.ProjectID,
+				RouteKey:        cmd.RouteKey,
+				UserID:          cmd.UserID,
+				IsDirectMessage: cmd.IsDirectMessage,
+				Input:           cmd.Input,
+				Backend:         cmd.Backend,
+				CWD:             cmd.CWD,
 			})
 		}
 		return session.Record{}, err

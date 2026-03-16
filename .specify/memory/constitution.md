@@ -1,7 +1,7 @@
-# SynapseX Constitution
+# ClawX Constitution
 
 ## Project Mission
-- SynapseX is a remote AI CLI control gateway for professional developers.
+- ClawX is a remote AI CLI control gateway for professional developers.
 - The current product goal is to map chat messages into controlled remote execution against the project-supported CLI backend.
 - The current delivery focus is to make remote CLI control stable, session-safe, observable, and operable on Linux.
 
@@ -11,7 +11,8 @@
 - Remote control of the supported CLI backend through chat-driven interaction.
 - Session creation, resume, switching, cancellation, and isolation.
 - Streaming or chunked output return with ordering guarantees.
-- Discord Bot and Telegram Bot as the primary channels.
+- Discord Bot and Telegram Bot as baseline channels.
+- Additional channels are allowed only when explicitly scoped by `docs/plans/` and backed by aligned `spec/plan/tasks`.
 - Linux deployment, configuration, logging, and basic health checks.
 - Scoped Skill Registry + Intent Router for Claude Code compatible skills, with explicit governance and bounded routing behavior.
 
@@ -63,7 +64,7 @@
 
 ### VI. Reference Is Input, Never Authority
 - `docs/reference/` exists only for local research, comparison, and temporary architectural inspiration.
-- Reference materials may inform design thinking, but they must be translated into SynapseX-native decisions before they affect product code or official docs.
+- Reference materials may inform design thinking, but they must be translated into ClawX-native decisions before they affect product code or official docs.
 - No implementation may copy product rules, naming, architecture, or behavior directly from reference materials without first defining the equivalent rule in `docs/features/` or `docs/plans/`.
 - Reference materials must never override this constitution, feature docs, phase plans, or stable project docs.
 
@@ -169,8 +170,11 @@
 ## Channel Rules
 
 ### Supported Channels
-- Discord Bot
-- Telegram Bot
+- Baseline:
+  - Discord Bot
+  - Telegram Bot
+- Expansion rule:
+  - New channels may be introduced by approved phase plan and aligned specification artifacts.
 
 ### Shared Channel Semantics
 - Each channel must normalize inbound messages into a unified internal shape:
@@ -327,8 +331,9 @@
   - the canonical source for architecture decisions
   - the direct source for generated specs
   - the only source used to justify implementation behavior
-- If reference materials influence a design, the resulting rule must be restated in SynapseX-owned documentation before implementation is considered aligned.
-- Official docs must not rely on external project names, external file paths, or reference-specific terminology unless the document is explicitly marked as research.
+- If reference materials influence a design, the resulting rule must be restated in ClawX-owned documentation before implementation is considered aligned.
+- Official docs may mention external products only as comparative context.
+- Normative requirements must be restated in ClawX-native terms and must not depend on external project naming or paths for correctness.
 - `docs/reference/` should remain excluded from normal product governance and should not be treated as part of the versioned product specification surface.
 
 ### Change Workflow

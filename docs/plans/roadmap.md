@@ -7,7 +7,8 @@
 | Phase 1 | 打稳最短执行链路 | 路由、会话管理、后端适配、单窗口单会话（不依赖数据库） |
 | Phase 2 | 默认支持多窗口、多会话 | Window Context、多窗口绑定、多会话切换、本地文件持久化 |
 | Phase 3 | 引入轻量多 Agent | Agent Registry、运行模板、默认 Agent、可选 Binding |
-| Phase 4 | 稳定性与运行化 | 持久化增强（可选 SQLite/外部 DB）、监控、操作手册、更多入口扩展 |
+| Phase 4 | 渠道扩展与接入稳定 | Wave 1: Telegram webhook/polling、Feishu/WeCom、增量渠道配置；Wave 2~4: 按 OpenClaw 对齐清单扩展其余渠道 |
+| Phase 5 | 项目空间隔离与路由 | `project` 维度路由、`/project` 命令闭环、同 bot 多项目 workspace 隔离、confirm-first 项目切换建议 |
 
 ## 规则
 - 每个阶段只引入当前必须的复杂度。

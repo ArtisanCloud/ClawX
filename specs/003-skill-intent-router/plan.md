@@ -11,8 +11,8 @@
 ## 技术上下文
 
 **Language/Version**: Go 1.23  
-**Primary Dependencies**: Go 标准库、现有 SynapseX DDD 模块、现有 Discord/Telegram 适配层、现有配置与持久化组件  
-**Storage**: 本地文件存储（`~/.synapsex`）+ 现有会话存储；Skill 索引以文件缓存形式维护  
+**Primary Dependencies**: Go 标准库、现有 ClawX DDD 模块、现有 Discord/Telegram 适配层、现有配置与持久化组件  
+**Storage**: 本地文件存储（`~/.clawx`）+ 现有会话存储；Skill 索引以文件缓存形式维护  
 **Testing**: Go 原生 `testing`（单元/集成/契约）+ `go test ./...`  
 **Target Platform**: Linux 服务器  
 **Project Type**: 聊天驱动后端服务 / CLI 控制网关  
@@ -62,7 +62,7 @@ specs/003-skill-intent-router/
 ```text
 .
 ├── cmd/
-│   └── synapsex/
+│   └── clawx/
 │       └── main.go
 ├── internal/
 │   ├── domain/
@@ -97,7 +97,7 @@ specs/003-skill-intent-router/
 - 已交付 Skill Registry 主链路：扫描、解析、冲突处理、状态落盘、刷新生效。
 - 已交付 Intent Router 主链路：控制命令优先、显式 `/skill`、规则匹配、LLM 兜底、阈值回退。
 - 已交付治理能力：`enable/disable`、默认权限检查、拒绝错误分类、DM pairing 生命周期存储。
-- 已交付 CLI：`synapsex skill list|reload|enable|disable`。
+- 已交付 CLI：`clawx skill list|reload|enable|disable`。
 - 已交付测试覆盖：新增 7 个集成测试与 2 个契约测试，`go test ./...` 通过。
 
 ## 风险清单（当前）

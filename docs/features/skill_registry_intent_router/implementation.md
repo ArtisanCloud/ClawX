@@ -14,7 +14,7 @@
   - `SKILL.md` frontmatter 解析。
   - 多来源扫描。
   - 索引原子写入与 DM pairing 文件存储。
-- `cmd/synapsex`:
+- `cmd/clawx`:
   - 新增 `skill` CLI 子命令。
   - 启动时注入 Skill Registry + Intent Router。
   - Discord/Telegram 入站分支支持 `kind=skill`。
@@ -25,8 +25,8 @@
   "skills": {
     "enabled": true,
     "sources": {
-      "userDir": "~/.synapsex/skills",
-      "workspaceDir": ".synapsex/skills",
+      "userDir": "~/.clawx/skills",
+      "workspaceDir": ".clawx/skills",
       "builtinEnabled": true,
       "builtinDir": "internal/skills/builtin"
     },
@@ -49,10 +49,10 @@
 ```
 
 ## CLI 命令
-- `synapsex skill list`
-- `synapsex skill reload`
-- `synapsex skill enable <name>`
-- `synapsex skill disable <name>`
+- `clawx skill list`
+- `clawx skill reload`
+- `clawx skill enable <name>`
+- `clawx skill disable <name>`
 
 ## 日志字段
 - `conversation_id`

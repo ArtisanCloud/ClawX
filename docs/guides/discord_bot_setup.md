@@ -3,7 +3,7 @@
 ## 目标
 - 说明如何创建 Discord Bot。
 - 说明如何提前准备 Discord 接入所需的账号和权限。
-- 明确当前 SynapseX 在 Discord 上的支持状态，避免误判为已经可直接联调。
+- 明确当前 ClawX 在 Discord 上的支持状态，避免误判为已经可直接联调。
 
 ## 当前支持状态
 - 当前分支已提供 `Bot Token + Gateway WebSocket` 运行时代码。
@@ -64,7 +64,7 @@
 
 这样联调时不需要再回头补账号信息。
 
-## 第六步：配置 SynapseX
+## 第六步：配置 ClawX
 在 `config.json` 中填写：
 
 ```json
@@ -95,8 +95,8 @@
 执行：
 
 ```bash
-go run ./cmd/synapsex config
-go run ./cmd/synapsex
+go run ./cmd/clawx config
+go run ./cmd/clawx
 ```
 
 如果 `config.json` 不存在，第一条命令会进入交互式向导；如果你直接执行第二条，程序也会先进入向导，完成后继续启动。
@@ -105,7 +105,7 @@ go run ./cmd/synapsex
 
 ```text
 discord gateway adapter started
-synapsex service started with agent "main" using profile "codex"
+clawx service started with agent "main" using profile "codex"
 ```
 
 ## 第八步：最小人工联调

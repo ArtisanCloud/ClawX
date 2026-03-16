@@ -1,8 +1,8 @@
 DB_HOST ?= 127.0.0.1
 DB_PORT ?= 5432
-DB_USER ?= synapsex
+DB_USER ?= clawx
 DB_PASSWORD ?=
-DB_NAME ?= synapse_x
+DB_NAME ?= claw_x
 DB_SSLMODE ?= disable
 
 MIGRATIONS_DIR ?= database/migrations

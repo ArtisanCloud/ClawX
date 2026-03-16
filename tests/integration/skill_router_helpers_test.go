@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"synapsex/internal/application/intent"
-	"synapsex/internal/application/service"
-	"synapsex/internal/application/skillregistry"
-	"synapsex/internal/domain/execution"
-	skilldomain "synapsex/internal/domain/skill"
-	"synapsex/internal/infrastructure/config"
-	"synapsex/internal/infrastructure/persistence"
-	skillsinfra "synapsex/internal/infrastructure/skills"
-	chatiface "synapsex/internal/interfaces/chat"
+	"clawx/internal/application/intent"
+	"clawx/internal/application/service"
+	"clawx/internal/application/skillregistry"
+	"clawx/internal/domain/execution"
+	skilldomain "clawx/internal/domain/skill"
+	"clawx/internal/infrastructure/config"
+	"clawx/internal/infrastructure/persistence"
+	skillsinfra "clawx/internal/infrastructure/skills"
+	chatiface "clawx/internal/interfaces/chat"
 )
 
 type skillTestStack struct {
@@ -30,7 +30,7 @@ func newSkillTestStack(t *testing.T, setup func(root string) error, disabled []s
 	root := t.TempDir()
 	userSkills := filepath.Join(root, "user-skills")
 	workspace := filepath.Join(root, "workspace")
-	workspaceSkills := filepath.Join(workspace, ".synapsex", "skills")
+	workspaceSkills := filepath.Join(workspace, ".clawx", "skills")
 	indexPath := filepath.Join(root, "skills_index.json")
 	if err := os.MkdirAll(userSkills, 0o755); err != nil {
 		t.Fatalf("mkdir user skills: %v", err)
@@ -54,7 +54,7 @@ func newSkillTestStack(t *testing.T, setup func(root string) error, disabled []s
 			Enabled: true,
 			Sources: config.SkillSources{
 				UserDir:        userSkills,
-				WorkspaceDir:   ".synapsex/skills",
+				WorkspaceDir:   ".clawx/skills",
 				BuiltinEnabled: false,
 			},
 			DisabledNames: disabled,

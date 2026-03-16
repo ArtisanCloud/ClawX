@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"synapsex/internal/domain/execution"
+	"clawx/internal/domain/execution"
 )
 
 type Profile struct {
@@ -58,7 +58,7 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 
 		startedAt := time.Now().UTC()
 		existingThreadID := normalizeCodexThreadID(request.BackendSessionID)
-		outputFile, err := os.CreateTemp("", "synapsex-codex-last-*.txt")
+		outputFile, err := os.CreateTemp("", "clawx-codex-last-*.txt")
 		if err != nil {
 			return execution.Result{}, err
 		}
@@ -66,6 +66,7 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 		_ = outputFile.Close()
 		defer os.Remove(outputPath)
 
+		composedInput := composeExecutionInput(request)
 		cmdArgs := []string{"exec"}
 		if existingThreadID != "" {
 			cmdArgs = append(cmdArgs, "resume")
@@ -78,7 +79,7 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 		if existingThreadID != "" {
 			cmdArgs = append(cmdArgs, existingThreadID)
 		}
-		cmdArgs = append(cmdArgs, request.Input)
+		cmdArgs = append(cmdArgs, composedInput)
 
 		cmd := exec.CommandContext(ctx, commandName, cmdArgs...)
 		cmd.Dir = request.CWD
@@ -179,12 +180,13 @@ func buildClaudeCLIExecutor(profile Profile) ExecutorFunc {
 		}
 
 		startedAt := time.Now().UTC()
+		composedInput := composeExecutionInput(request)
 		cmdArgs := append([]string(nil), args...)
 		cmdArgs = append(cmdArgs, "--print", "--output-format", "text", "--no-session-persistence")
 		if profile.Model != "" {
 			cmdArgs = append(cmdArgs, "--model", profile.Model)
 		}
-		cmdArgs = append(cmdArgs, request.Input)
+		cmdArgs = append(cmdArgs, composedInput)
 
 		cmd := exec.CommandContext(ctx, commandName, cmdArgs...)
 		cmd.Dir = request.CWD

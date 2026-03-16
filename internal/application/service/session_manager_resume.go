@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"synapsex/internal/application/command"
-	"synapsex/internal/domain/session"
+	"clawx/internal/application/command"
+	"clawx/internal/domain/session"
 )
 
 var ErrConversationMismatch = errors.New("session does not belong to the active conversation")
@@ -15,6 +15,8 @@ func (m *SessionManager) ResumeSession(ctx context.Context, cmd command.SessionC
 	if err != nil {
 		return session.Record{}, err
 	}
+	cmd.ProjectID = normalizeSessionProjectID(cmd.ProjectID)
+	cmd.WindowID = buildSessionScopeWindowID(cmd.WindowID, cmd.ProjectID)
 
 	record, err := m.repository.GetByID(ctx, trimSessionID(cmd.ResumeSessionID))
 	if err != nil {
@@ -23,11 +25,17 @@ func (m *SessionManager) ResumeSession(ctx context.Context, cmd command.SessionC
 	if record.ConversationID != cmd.ConversationID {
 		return session.Record{}, ErrConversationMismatch
 	}
+	if !sessionBelongsToProject(record.ID, cmd.ProjectID) {
+		return session.Record{}, session.ErrSessionNotFound
+	}
 
+	record.WindowID = cmd.WindowID
 	record.Touch(m.clock())
 	if err := m.repository.Save(ctx, record); err != nil {
 		return session.Record{}, err
 	}
+	if _, err := m.BindWindowToSession(ctx, cmd.WindowID, cmd.ConversationID, record.ID); err != nil {
+		return session.Record{}, err
+	}
 	return record, nil
 }
-

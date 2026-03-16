@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	skilldomain "synapsex/internal/domain/skill"
-	skillsinfra "synapsex/internal/infrastructure/skills"
+	skilldomain "clawx/internal/domain/skill"
+	skillsinfra "clawx/internal/infrastructure/skills"
 )
 
 func BuildSnapshot(

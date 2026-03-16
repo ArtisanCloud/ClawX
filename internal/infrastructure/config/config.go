@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -20,6 +21,29 @@ var (
 	ErrForbiddenCWD        = errors.New("cwd is outside allowed roots")
 	ErrUnknownAgent        = errors.New("default agent is not defined")
 	ErrUnknownAgentProfile = errors.New("agent references an unknown provider profile")
+	ErrConfigKeyNotFound   = errors.New("config key not found")
+
+	waveExtendedChannelKeys = []string{
+		"slack",
+		"whatsapp",
+		"signal",
+		"googlechat",
+		"irc",
+		"matrix",
+		"mattermost",
+		"msteams",
+		"nextcloud-talk",
+		"line",
+		"nostr",
+		"synology-chat",
+		"twitch",
+		"zalo",
+		"zalouser",
+		"bluebubbles",
+		"imessage-legacy",
+		"tlon",
+		"webchat",
+	}
 )
 
 type ProviderProfile struct {
@@ -72,8 +96,48 @@ type TelegramInstance struct {
 	AllowedChatIDs          []string
 	RequireCommandOrMention bool
 	PollingTimeout          time.Duration
+	WebhookURL              string
+	WebhookPath             string
+	WebhookSecret           string
 	DefaultAgentID          string
 	AgentBindings           map[string]string
+}
+
+type FeishuInstance struct {
+	ID                string
+	Enabled           bool
+	Mode              string
+	AppID             string
+	AppSecret         string
+	VerificationToken string
+	EncryptKey        string
+	DefaultAgentID    string
+	AgentBindings     map[string]string
+}
+
+type WeComInstance struct {
+	ID             string
+	Enabled        bool
+	Mode           string
+	CorpID         string
+	AgentID        string
+	Secret         string
+	Token          string
+	EncodingAESKey string
+	DefaultAgentID string
+	AgentBindings  map[string]string
+}
+
+type ExtendedChannelInstance struct {
+	ID             string
+	Enabled        bool
+	DefaultAgentID string
+}
+
+type ExtendedChannelConfig struct {
+	Enabled        bool
+	DefaultAgentID string
+	Instances      []ExtendedChannelInstance
 }
 
 type SkillSources struct {
@@ -107,6 +171,17 @@ type IntentRouterConfig struct {
 	LLMFallback LLMFallbackConfig
 }
 
+type ProjectConfig struct {
+	WorkspaceRoot    string
+	DefaultProjectID string
+}
+
+type MemoryConfig struct {
+	OwnerAllowlist    []string
+	TokenBudget       int
+	AutoDigestEnabled bool
+}
+
 type Snapshot struct {
 	AllowedRoots                  []string
 	DefaultCWD                    string
@@ -127,6 +202,22 @@ type Snapshot struct {
 	TelegramAllowedChatIDs        []string
 	TelegramRequireCommandMention bool
 	TelegramPollingTimeout        time.Duration
+	TelegramWebhookURL            string
+	TelegramWebhookPath           string
+	TelegramWebhookSecret         string
+	FeishuEnabled                 bool
+	FeishuMode                    string
+	FeishuAppID                   string
+	FeishuAppSecret               string
+	FeishuVerificationToken       string
+	FeishuEncryptKey              string
+	WeComEnabled                  bool
+	WeComMode                     string
+	WeComCorpID                   string
+	WeComAgentID                  string
+	WeComSecret                   string
+	WeComToken                    string
+	WeComEncodingAESKey           string
 	HealthProbeEnabled            bool
 	HTTPListenAddr                string
 	HealthProbePath               string
@@ -144,8 +235,17 @@ type Snapshot struct {
 	DiscordAgentBindings   map[string]string
 	TelegramDefaultAgentID string
 	TelegramAgentBindings  map[string]string
+	FeishuInstances        []FeishuInstance
+	FeishuDefaultAgentID   string
+	FeishuAgentBindings    map[string]string
+	WeComInstances         []WeComInstance
+	WeComDefaultAgentID    string
+	WeComAgentBindings     map[string]string
+	ExtendedChannels       map[string]ExtendedChannelConfig
 	Skills                 SkillConfig
 	IntentRouter           IntentRouterConfig
+	Projects               ProjectConfig
+	Memory                 MemoryConfig
 }
 
 type jsonSnapshot struct {
@@ -158,6 +258,8 @@ type jsonSnapshot struct {
 	Database     *jsonDatabase     `json:"database"`
 	Skills       *jsonSkills       `json:"skills"`
 	IntentRouter *jsonIntentRouter `json:"intentRouter"`
+	Projects     *jsonProjects     `json:"projects"`
+	Memory       *jsonMemory       `json:"memory"`
 
 	AllowedRoots                  []string                   `json:"allowed_roots"`
 	DefaultCWD                    string                     `json:"default_cwd"`
@@ -178,6 +280,9 @@ type jsonSnapshot struct {
 	TelegramAllowedChatIDs        []string                   `json:"telegram_allowed_chat_ids"`
 	TelegramRequireCommandMention *bool                      `json:"telegram_require_command_or_mention"`
 	TelegramPollingSeconds        int                        `json:"telegram_polling_seconds"`
+	TelegramWebhookURL            string                     `json:"telegram_webhook_url"`
+	TelegramWebhookPath           string                     `json:"telegram_webhook_path"`
+	TelegramWebhookSecret         string                     `json:"telegram_webhook_secret"`
 	HealthProbeEnabled            *bool                      `json:"health_probe_enabled"`
 	HTTPListenAddr                string                     `json:"http_listen_addr"`
 	HealthProbePath               string                     `json:"health_path"`
@@ -226,8 +331,29 @@ type jsonAgent struct {
 }
 
 type jsonChannels struct {
-	Discord  *jsonDiscordChannel  `json:"discord"`
-	Telegram *jsonTelegramChannel `json:"telegram"`
+	Discord        *jsonDiscordChannel  `json:"discord"`
+	Telegram       *jsonTelegramChannel `json:"telegram"`
+	Feishu         *jsonFeishuChannel   `json:"feishu"`
+	WeCom          *jsonWeComChannel    `json:"wecom"`
+	Slack          *jsonExtendedChannel `json:"slack"`
+	WhatsApp       *jsonExtendedChannel `json:"whatsapp"`
+	Signal         *jsonExtendedChannel `json:"signal"`
+	GoogleChat     *jsonExtendedChannel `json:"googlechat"`
+	IRC            *jsonExtendedChannel `json:"irc"`
+	Matrix         *jsonExtendedChannel `json:"matrix"`
+	Mattermost     *jsonExtendedChannel `json:"mattermost"`
+	MSTeams        *jsonExtendedChannel `json:"msteams"`
+	NextcloudTalk  *jsonExtendedChannel `json:"nextcloud-talk"`
+	Line           *jsonExtendedChannel `json:"line"`
+	Nostr          *jsonExtendedChannel `json:"nostr"`
+	SynologyChat   *jsonExtendedChannel `json:"synology-chat"`
+	Twitch         *jsonExtendedChannel `json:"twitch"`
+	Zalo           *jsonExtendedChannel `json:"zalo"`
+	ZaloUser       *jsonExtendedChannel `json:"zalouser"`
+	BlueBubbles    *jsonExtendedChannel `json:"bluebubbles"`
+	IMessageLegacy *jsonExtendedChannel `json:"imessage-legacy"`
+	Tlon           *jsonExtendedChannel `json:"tlon"`
+	WebChat        *jsonExtendedChannel `json:"webchat"`
 }
 
 type jsonDiscordChannel struct {
@@ -262,6 +388,9 @@ type jsonTelegramChannel struct {
 	AllowedChatIDs          []string               `json:"allowedChatIds"`
 	RequireCommandOrMention *bool                  `json:"requireCommandOrMention"`
 	PollingSeconds          int                    `json:"pollingSeconds"`
+	WebhookURL              string                 `json:"webhookUrl"`
+	WebhookPath             string                 `json:"webhookPath"`
+	WebhookSecret           string                 `json:"webhookSecret"`
 	DefaultAgent            string                 `json:"defaultAgent"`
 	AgentBindings           map[string]string      `json:"agentBindings"`
 	Instances               []jsonTelegramInstance `json:"instances"`
@@ -276,8 +405,73 @@ type jsonTelegramInstance struct {
 	AllowedChatIDs          []string          `json:"allowedChatIds"`
 	RequireCommandOrMention *bool             `json:"requireCommandOrMention"`
 	PollingSeconds          int               `json:"pollingSeconds"`
+	WebhookURL              string            `json:"webhookUrl"`
+	WebhookPath             string            `json:"webhookPath"`
+	WebhookSecret           string            `json:"webhookSecret"`
 	DefaultAgent            string            `json:"defaultAgent"`
 	AgentBindings           map[string]string `json:"agentBindings"`
+}
+
+type jsonFeishuChannel struct {
+	Enabled           *bool                `json:"enabled"`
+	Mode              string               `json:"mode"`
+	AppID             string               `json:"appId"`
+	AppSecret         string               `json:"appSecret"`
+	VerificationToken string               `json:"verificationToken"`
+	EncryptKey        string               `json:"encryptKey"`
+	DefaultAgent      string               `json:"defaultAgent"`
+	AgentBindings     map[string]string    `json:"agentBindings"`
+	Instances         []jsonFeishuInstance `json:"instances"`
+}
+
+type jsonFeishuInstance struct {
+	ID                string            `json:"id"`
+	Enabled           *bool             `json:"enabled"`
+	Mode              string            `json:"mode"`
+	AppID             string            `json:"appId"`
+	AppSecret         string            `json:"appSecret"`
+	VerificationToken string            `json:"verificationToken"`
+	EncryptKey        string            `json:"encryptKey"`
+	DefaultAgent      string            `json:"defaultAgent"`
+	AgentBindings     map[string]string `json:"agentBindings"`
+}
+
+type jsonWeComChannel struct {
+	Enabled        *bool               `json:"enabled"`
+	Mode           string              `json:"mode"`
+	CorpID         string              `json:"corpId"`
+	AgentID        string              `json:"agentId"`
+	Secret         string              `json:"secret"`
+	Token          string              `json:"token"`
+	EncodingAESKey string              `json:"encodingAesKey"`
+	DefaultAgent   string              `json:"defaultAgent"`
+	AgentBindings  map[string]string   `json:"agentBindings"`
+	Instances      []jsonWeComInstance `json:"instances"`
+}
+
+type jsonWeComInstance struct {
+	ID             string            `json:"id"`
+	Enabled        *bool             `json:"enabled"`
+	Mode           string            `json:"mode"`
+	CorpID         string            `json:"corpId"`
+	AgentID        string            `json:"agentId"`
+	Secret         string            `json:"secret"`
+	Token          string            `json:"token"`
+	EncodingAESKey string            `json:"encodingAesKey"`
+	DefaultAgent   string            `json:"defaultAgent"`
+	AgentBindings  map[string]string `json:"agentBindings"`
+}
+
+type jsonExtendedChannel struct {
+	Enabled      *bool                         `json:"enabled"`
+	DefaultAgent string                        `json:"defaultAgent"`
+	Instances    []jsonExtendedChannelInstance `json:"instances"`
+}
+
+type jsonExtendedChannelInstance struct {
+	ID           string `json:"id"`
+	Enabled      *bool  `json:"enabled"`
+	DefaultAgent string `json:"defaultAgent"`
 }
 
 type jsonGateway struct {
@@ -333,6 +527,17 @@ type jsonIntentLLMFallback struct {
 	ConfidenceThreshold float64 `json:"confidenceThreshold"`
 }
 
+type jsonProjects struct {
+	WorkspaceRoot    string `json:"workspaceRoot"`
+	DefaultProjectID string `json:"defaultProject"`
+}
+
+type jsonMemory struct {
+	OwnerAllowlist    []string `json:"ownerAllowlist"`
+	TokenBudget       int      `json:"tokenBudget"`
+	AutoDigestEnabled *bool    `json:"autoDigestEnabled"`
+}
+
 type BootstrapOptions struct {
 	BaseProfileID         string
 	DefaultProfileID      string
@@ -372,6 +577,8 @@ type fileSnapshot struct {
 	Database     fileDatabase     `json:"database"`
 	Skills       fileSkills       `json:"skills"`
 	IntentRouter fileIntentRouter `json:"intentRouter"`
+	Projects     fileProjects     `json:"projects"`
+	Memory       fileMemory       `json:"memory"`
 }
 
 type fileRuntime struct {
@@ -412,8 +619,29 @@ type fileExecution struct {
 }
 
 type fileChannels struct {
-	Discord  fileDiscordChannel  `json:"discord"`
-	Telegram fileTelegramChannel `json:"telegram"`
+	Discord        fileDiscordChannel   `json:"discord"`
+	Telegram       fileTelegramChannel  `json:"telegram"`
+	Feishu         fileFeishuChannel    `json:"feishu"`
+	WeCom          fileWeComChannel     `json:"wecom"`
+	Slack          *fileExtendedChannel `json:"slack,omitempty"`
+	WhatsApp       *fileExtendedChannel `json:"whatsapp,omitempty"`
+	Signal         *fileExtendedChannel `json:"signal,omitempty"`
+	GoogleChat     *fileExtendedChannel `json:"googlechat,omitempty"`
+	IRC            *fileExtendedChannel `json:"irc,omitempty"`
+	Matrix         *fileExtendedChannel `json:"matrix,omitempty"`
+	Mattermost     *fileExtendedChannel `json:"mattermost,omitempty"`
+	MSTeams        *fileExtendedChannel `json:"msteams,omitempty"`
+	NextcloudTalk  *fileExtendedChannel `json:"nextcloud-talk,omitempty"`
+	Line           *fileExtendedChannel `json:"line,omitempty"`
+	Nostr          *fileExtendedChannel `json:"nostr,omitempty"`
+	SynologyChat   *fileExtendedChannel `json:"synology-chat,omitempty"`
+	Twitch         *fileExtendedChannel `json:"twitch,omitempty"`
+	Zalo           *fileExtendedChannel `json:"zalo,omitempty"`
+	ZaloUser       *fileExtendedChannel `json:"zalouser,omitempty"`
+	BlueBubbles    *fileExtendedChannel `json:"bluebubbles,omitempty"`
+	IMessageLegacy *fileExtendedChannel `json:"imessage-legacy,omitempty"`
+	Tlon           *fileExtendedChannel `json:"tlon,omitempty"`
+	WebChat        *fileExtendedChannel `json:"webchat,omitempty"`
 }
 
 type fileDiscordChannel struct {
@@ -448,6 +676,9 @@ type fileTelegramChannel struct {
 	AllowedChatIDs          []string               `json:"allowedChatIds"`
 	RequireCommandOrMention bool                   `json:"requireCommandOrMention"`
 	PollingSeconds          int                    `json:"pollingSeconds"`
+	WebhookURL              string                 `json:"webhookUrl,omitempty"`
+	WebhookPath             string                 `json:"webhookPath,omitempty"`
+	WebhookSecret           string                 `json:"webhookSecret,omitempty"`
 	DefaultAgent            string                 `json:"defaultAgent,omitempty"`
 	AgentBindings           map[string]string      `json:"agentBindings,omitempty"`
 	Instances               []fileTelegramInstance `json:"instances,omitempty"`
@@ -462,8 +693,73 @@ type fileTelegramInstance struct {
 	AllowedChatIDs          []string          `json:"allowedChatIds,omitempty"`
 	RequireCommandOrMention bool              `json:"requireCommandOrMention"`
 	PollingSeconds          int               `json:"pollingSeconds"`
+	WebhookURL              string            `json:"webhookUrl,omitempty"`
+	WebhookPath             string            `json:"webhookPath,omitempty"`
+	WebhookSecret           string            `json:"webhookSecret,omitempty"`
 	DefaultAgent            string            `json:"defaultAgent,omitempty"`
 	AgentBindings           map[string]string `json:"agentBindings,omitempty"`
+}
+
+type fileFeishuChannel struct {
+	Enabled           bool                 `json:"enabled"`
+	Mode              string               `json:"mode"`
+	AppID             string               `json:"appId"`
+	AppSecret         string               `json:"appSecret"`
+	VerificationToken string               `json:"verificationToken"`
+	EncryptKey        string               `json:"encryptKey,omitempty"`
+	DefaultAgent      string               `json:"defaultAgent,omitempty"`
+	AgentBindings     map[string]string    `json:"agentBindings,omitempty"`
+	Instances         []fileFeishuInstance `json:"instances,omitempty"`
+}
+
+type fileFeishuInstance struct {
+	ID                string            `json:"id"`
+	Enabled           bool              `json:"enabled"`
+	Mode              string            `json:"mode"`
+	AppID             string            `json:"appId"`
+	AppSecret         string            `json:"appSecret"`
+	VerificationToken string            `json:"verificationToken"`
+	EncryptKey        string            `json:"encryptKey,omitempty"`
+	DefaultAgent      string            `json:"defaultAgent,omitempty"`
+	AgentBindings     map[string]string `json:"agentBindings,omitempty"`
+}
+
+type fileWeComChannel struct {
+	Enabled        bool                `json:"enabled"`
+	Mode           string              `json:"mode"`
+	CorpID         string              `json:"corpId"`
+	AgentID        string              `json:"agentId"`
+	Secret         string              `json:"secret"`
+	Token          string              `json:"token"`
+	EncodingAESKey string              `json:"encodingAesKey"`
+	DefaultAgent   string              `json:"defaultAgent,omitempty"`
+	AgentBindings  map[string]string   `json:"agentBindings,omitempty"`
+	Instances      []fileWeComInstance `json:"instances,omitempty"`
+}
+
+type fileWeComInstance struct {
+	ID             string            `json:"id"`
+	Enabled        bool              `json:"enabled"`
+	Mode           string            `json:"mode"`
+	CorpID         string            `json:"corpId"`
+	AgentID        string            `json:"agentId"`
+	Secret         string            `json:"secret"`
+	Token          string            `json:"token"`
+	EncodingAESKey string            `json:"encodingAesKey"`
+	DefaultAgent   string            `json:"defaultAgent,omitempty"`
+	AgentBindings  map[string]string `json:"agentBindings,omitempty"`
+}
+
+type fileExtendedChannel struct {
+	Enabled      bool                          `json:"enabled"`
+	DefaultAgent string                        `json:"defaultAgent,omitempty"`
+	Instances    []fileExtendedChannelInstance `json:"instances,omitempty"`
+}
+
+type fileExtendedChannelInstance struct {
+	ID           string `json:"id"`
+	Enabled      bool   `json:"enabled"`
+	DefaultAgent string `json:"defaultAgent,omitempty"`
 }
 
 type fileGateway struct {
@@ -519,6 +815,17 @@ type fileIntentLLMFallback struct {
 	ConfidenceThreshold float64 `json:"confidenceThreshold"`
 }
 
+type fileProjects struct {
+	WorkspaceRoot    string `json:"workspaceRoot"`
+	DefaultProjectID string `json:"defaultProject"`
+}
+
+type fileMemory struct {
+	OwnerAllowlist    []string `json:"ownerAllowlist"`
+	TokenBudget       int      `json:"tokenBudget"`
+	AutoDigestEnabled bool     `json:"autoDigestEnabled"`
+}
+
 func Load() (Snapshot, error) {
 	if err := EnsureStateLayout(); err != nil {
 		return Snapshot{}, err
@@ -548,6 +855,8 @@ func Load() (Snapshot, error) {
 	cfg.normalizeDatabase()
 	cfg.normalizeSkills()
 	cfg.normalizeIntentRouter()
+	cfg.normalizeProjects()
+	cfg.normalizeMemory()
 	if err := cfg.Validate(); err != nil {
 		return Snapshot{}, err
 	}
@@ -958,6 +1267,223 @@ func SetDefaultAgent(agentID string) (string, error) {
 	return path, nil
 }
 
+func GetValueByDotKey(key string) (any, error) {
+	path := configPath()
+	file, err := readOrDefaultFileSnapshot(path)
+	if err != nil {
+		return nil, err
+	}
+
+	root, err := fileSnapshotToMap(file)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(key) == "" {
+		return root, nil
+	}
+
+	value, ok, err := getNestedMapValue(root, key)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrConfigKeyNotFound
+	}
+	return value, nil
+}
+
+func SetValueByDotKey(key, rawValue string) (string, error) {
+	return SetValuesByDotKey(map[string]string{key: rawValue})
+}
+
+func SetValuesByDotKey(updates map[string]string) (string, error) {
+	if len(updates) == 0 {
+		return "", fmt.Errorf("config updates are required")
+	}
+
+	path := configPath()
+	file, err := readOrDefaultFileSnapshot(path)
+	if err != nil {
+		return "", err
+	}
+
+	root, err := fileSnapshotToMap(file)
+	if err != nil {
+		return "", err
+	}
+
+	keys := make([]string, 0, len(updates))
+	for key := range updates {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			return "", fmt.Errorf("config key is required")
+		}
+		keys = append(keys, trimmed)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		if err := setNestedMapValue(root, key, coerceDotKeyValueForKey(key, updates[key])); err != nil {
+			return "", err
+		}
+	}
+
+	updated, err := mapToFileSnapshot(root)
+	if err != nil {
+		return "", err
+	}
+	if err := writeFileSnapshot(path, updated); err != nil {
+		return "", fmt.Errorf("write config: %w", err)
+	}
+	return path, nil
+}
+
+func fileSnapshotToMap(file fileSnapshot) (map[string]any, error) {
+	data, err := json.Marshal(file)
+	if err != nil {
+		return nil, fmt.Errorf("marshal config snapshot: %w", err)
+	}
+
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil, fmt.Errorf("decode config snapshot map: %w", err)
+	}
+	return root, nil
+}
+
+func mapToFileSnapshot(root map[string]any) (fileSnapshot, error) {
+	data, err := json.Marshal(root)
+	if err != nil {
+		return fileSnapshot{}, fmt.Errorf("marshal config map: %w", err)
+	}
+
+	var file fileSnapshot
+	if err := json.Unmarshal(data, &file); err != nil {
+		return fileSnapshot{}, fmt.Errorf("invalid config mutation: %w", err)
+	}
+	return file, nil
+}
+
+func splitDotKeyPath(key string) ([]string, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, fmt.Errorf("config key is required")
+	}
+
+	parts := strings.Split(key, ".")
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			return nil, fmt.Errorf("invalid config key %q", key)
+		}
+	}
+	return parts, nil
+}
+
+func getNestedMapValue(root map[string]any, key string) (any, bool, error) {
+	parts, err := splitDotKeyPath(key)
+	if err != nil {
+		return nil, false, err
+	}
+
+	current := any(root)
+	for _, part := range parts {
+		node, ok := current.(map[string]any)
+		if !ok {
+			return nil, false, nil
+		}
+		next, ok := node[part]
+		if !ok {
+			return nil, false, nil
+		}
+		current = next
+	}
+	return current, true, nil
+}
+
+func setNestedMapValue(root map[string]any, key string, value any) error {
+	parts, err := splitDotKeyPath(key)
+	if err != nil {
+		return err
+	}
+
+	current := root
+	for _, part := range parts[:len(parts)-1] {
+		existing, ok := current[part]
+		if !ok {
+			child := map[string]any{}
+			current[part] = child
+			current = child
+			continue
+		}
+
+		child, ok := existing.(map[string]any)
+		if !ok {
+			return fmt.Errorf("config key %q has non-object parent at %q", key, part)
+		}
+		current = child
+	}
+
+	current[parts[len(parts)-1]] = value
+	return nil
+}
+
+func coerceDotKeyValueForKey(key, rawValue string) any {
+	key = strings.ToLower(strings.TrimSpace(key))
+	trimmed := strings.TrimSpace(rawValue)
+	if trimmed == "" {
+		return ""
+	}
+
+	// Accept JSON literals for objects/arrays/quoted strings.
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "\"") {
+		var decoded any
+		if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
+			return decoded
+		}
+	}
+
+	switch strings.ToLower(trimmed) {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+
+	if shouldParseIntegerByKey(key) {
+		if value, err := strconv.Atoi(trimmed); err == nil {
+			return value
+		}
+	}
+	if shouldParseFloatByKey(key) && strings.ContainsAny(trimmed, ".eE") {
+		if value, err := strconv.ParseFloat(trimmed, 64); err == nil {
+			return value
+		}
+	}
+	return rawValue
+}
+
+func shouldParseIntegerByKey(key string) bool {
+	switch key {
+	case "runtime.timeoutseconds",
+		"channels.telegram.pollingseconds",
+		"database.port",
+		"skills.pairingttlseconds",
+		"memory.tokenbudget":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldParseFloatByKey(key string) bool {
+	switch key {
+	case "intentrouter.llmfallback.confidencethreshold":
+		return true
+	default:
+		return false
+	}
+}
+
 func SetSkillDisabledNames(names []string) (string, error) {
 	path := configPath()
 	file, err := readOrDefaultFileSnapshot(path)
@@ -1042,7 +1568,7 @@ func WriteBootstrapFile(opts BootstrapOptions) (string, error) {
 	}
 	dbName := strings.TrimSpace(opts.DatabaseName)
 	if dbName == "" {
-		dbName = "synapse_x"
+		dbName = "claw_x"
 	}
 	dbUser := strings.TrimSpace(opts.DatabaseUser)
 	if dbUser == "" {
@@ -1089,6 +1615,8 @@ func LoadFromEnv() (Snapshot, error) {
 	cfg.normalizeDatabase()
 	cfg.normalizeSkills()
 	cfg.normalizeIntentRouter()
+	cfg.normalizeProjects()
+	cfg.normalizeMemory()
 	if err := cfg.Validate(); err != nil {
 		return Snapshot{}, err
 	}
@@ -1169,7 +1697,29 @@ func defaultFileSnapshot() fileSnapshot {
 				AllowedChatIDs:          []string{},
 				RequireCommandOrMention: true,
 				PollingSeconds:          30,
+				WebhookURL:              "",
+				WebhookPath:             "/webhooks/telegram",
+				WebhookSecret:           "",
 				DefaultAgent:            "main",
+			},
+			Feishu: fileFeishuChannel{
+				Enabled:           false,
+				Mode:              "webhook",
+				AppID:             "",
+				AppSecret:         "",
+				VerificationToken: "",
+				EncryptKey:        "",
+				DefaultAgent:      "main",
+			},
+			WeCom: fileWeComChannel{
+				Enabled:        false,
+				Mode:           "webhook",
+				CorpID:         "",
+				AgentID:        "",
+				Secret:         "",
+				Token:          "",
+				EncodingAESKey: "",
+				DefaultAgent:   "main",
 			},
 		},
 		Gateway: fileGateway{
@@ -1184,7 +1734,7 @@ func defaultFileSnapshot() fileSnapshot {
 			Driver:     "postgres",
 			Host:       "127.0.0.1",
 			Port:       5432,
-			Name:       "synapse_x",
+			Name:       "claw_x",
 			User:       "postgres",
 			Password:   "",
 			SSLMode:    "disable",
@@ -1194,7 +1744,7 @@ func defaultFileSnapshot() fileSnapshot {
 			Enabled: true,
 			Sources: fileSkillSources{
 				UserDir:        defaultSkillsRoot(),
-				WorkspaceDir:   ".synapsex/skills",
+				WorkspaceDir:   ".clawx/skills",
 				BuiltinEnabled: true,
 				BuiltinDir:     "internal/skills/builtin",
 			},
@@ -1213,6 +1763,15 @@ func defaultFileSnapshot() fileSnapshot {
 				ConfidenceThreshold: 0.72,
 			},
 		},
+		Projects: fileProjects{
+			WorkspaceRoot:    workspaceRoot,
+			DefaultProjectID: "main",
+		},
+		Memory: fileMemory{
+			OwnerAllowlist:    nil,
+			TokenBudget:       4096,
+			AutoDigestEnabled: false,
+		},
 	}
 }
 
@@ -1230,7 +1789,41 @@ func writeFileSnapshot(path string, file fileSnapshot) error {
 			return fmt.Errorf("create config directory: %w", err)
 		}
 	}
-	if err := os.WriteFile(path, buffer.Bytes(), 0o644); err != nil {
+	tempFile, err := os.CreateTemp(dir, ".config-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp config file: %w", err)
+	}
+	tempName := tempFile.Name()
+	cleanupTemp := func() {
+		_ = tempFile.Close()
+		_ = os.Remove(tempName)
+	}
+	if _, err := tempFile.Write(buffer.Bytes()); err != nil {
+		cleanupTemp()
+		return fmt.Errorf("write temp config file: %w", err)
+	}
+	if err := tempFile.Chmod(0o644); err != nil {
+		cleanupTemp()
+		return fmt.Errorf("chmod temp config file: %w", err)
+	}
+	if err := tempFile.Sync(); err != nil {
+		cleanupTemp()
+		return fmt.Errorf("sync temp config file: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempName)
+		return fmt.Errorf("close temp config file: %w", err)
+	}
+	if err := os.Rename(tempName, path); err != nil {
+		_ = os.Remove(tempName)
+		return fmt.Errorf("replace config file: %w", err)
+	}
+	dirHandle, err := os.Open(dir)
+	if err != nil {
+		return nil
+	}
+	defer dirHandle.Close()
+	if err := dirHandle.Sync(); err != nil {
 		return err
 	}
 	return nil
@@ -1264,6 +1857,63 @@ func normalizeFileSnapshot(file *fileSnapshot) {
 		return
 	}
 
+	file.Channels.Telegram.Mode = strings.ToLower(strings.TrimSpace(file.Channels.Telegram.Mode))
+	if file.Channels.Telegram.Mode == "" {
+		file.Channels.Telegram.Mode = "polling"
+	}
+	if file.Channels.Telegram.PollingSeconds <= 0 {
+		file.Channels.Telegram.PollingSeconds = 30
+	}
+	file.Channels.Telegram.WebhookPath = normalizeWebhookPath(file.Channels.Telegram.WebhookPath)
+	if file.Channels.Telegram.WebhookPath == "" {
+		file.Channels.Telegram.WebhookPath = "/webhooks/telegram"
+	}
+	file.Channels.Telegram.DefaultAgent = strings.TrimSpace(file.Channels.Telegram.DefaultAgent)
+	if file.Channels.Telegram.DefaultAgent == "" {
+		file.Channels.Telegram.DefaultAgent = "main"
+	}
+	file.Channels.Telegram.AgentBindings = filterBindingMap(file.Channels.Telegram.AgentBindings)
+
+	file.Channels.Feishu.Mode = strings.ToLower(strings.TrimSpace(file.Channels.Feishu.Mode))
+	if file.Channels.Feishu.Mode == "" {
+		file.Channels.Feishu.Mode = "webhook"
+	}
+	file.Channels.Feishu.DefaultAgent = strings.TrimSpace(file.Channels.Feishu.DefaultAgent)
+	if file.Channels.Feishu.DefaultAgent == "" {
+		file.Channels.Feishu.DefaultAgent = "main"
+	}
+	file.Channels.Feishu.AgentBindings = filterBindingMap(file.Channels.Feishu.AgentBindings)
+
+	file.Channels.WeCom.Mode = strings.ToLower(strings.TrimSpace(file.Channels.WeCom.Mode))
+	if file.Channels.WeCom.Mode == "" {
+		file.Channels.WeCom.Mode = "webhook"
+	}
+	file.Channels.WeCom.DefaultAgent = strings.TrimSpace(file.Channels.WeCom.DefaultAgent)
+	if file.Channels.WeCom.DefaultAgent == "" {
+		file.Channels.WeCom.DefaultAgent = "main"
+	}
+	file.Channels.WeCom.AgentBindings = filterBindingMap(file.Channels.WeCom.AgentBindings)
+
+	normalizeFileExtendedChannel("slack", file.Channels.Slack)
+	normalizeFileExtendedChannel("whatsapp", file.Channels.WhatsApp)
+	normalizeFileExtendedChannel("signal", file.Channels.Signal)
+	normalizeFileExtendedChannel("googlechat", file.Channels.GoogleChat)
+	normalizeFileExtendedChannel("irc", file.Channels.IRC)
+	normalizeFileExtendedChannel("matrix", file.Channels.Matrix)
+	normalizeFileExtendedChannel("mattermost", file.Channels.Mattermost)
+	normalizeFileExtendedChannel("msteams", file.Channels.MSTeams)
+	normalizeFileExtendedChannel("nextcloud-talk", file.Channels.NextcloudTalk)
+	normalizeFileExtendedChannel("line", file.Channels.Line)
+	normalizeFileExtendedChannel("nostr", file.Channels.Nostr)
+	normalizeFileExtendedChannel("synology-chat", file.Channels.SynologyChat)
+	normalizeFileExtendedChannel("twitch", file.Channels.Twitch)
+	normalizeFileExtendedChannel("zalo", file.Channels.Zalo)
+	normalizeFileExtendedChannel("zalouser", file.Channels.ZaloUser)
+	normalizeFileExtendedChannel("bluebubbles", file.Channels.BlueBubbles)
+	normalizeFileExtendedChannel("imessage-legacy", file.Channels.IMessageLegacy)
+	normalizeFileExtendedChannel("tlon", file.Channels.Tlon)
+	normalizeFileExtendedChannel("webchat", file.Channels.WebChat)
+
 	file.Database.Driver = strings.ToLower(strings.TrimSpace(file.Database.Driver))
 	if file.Database.Driver == "" {
 		file.Database.Driver = "postgres"
@@ -1277,7 +1927,7 @@ func normalizeFileSnapshot(file *fileSnapshot) {
 	}
 	file.Database.Name = strings.TrimSpace(file.Database.Name)
 	if file.Database.Name == "" {
-		file.Database.Name = "synapse_x"
+		file.Database.Name = "claw_x"
 	}
 	file.Database.User = strings.TrimSpace(file.Database.User)
 	if file.Database.User == "" {
@@ -1294,7 +1944,7 @@ func normalizeFileSnapshot(file *fileSnapshot) {
 	}
 	file.Skills.Sources.WorkspaceDir = strings.TrimSpace(file.Skills.Sources.WorkspaceDir)
 	if file.Skills.Sources.WorkspaceDir == "" {
-		file.Skills.Sources.WorkspaceDir = ".synapsex/skills"
+		file.Skills.Sources.WorkspaceDir = ".clawx/skills"
 	}
 	file.Skills.Sources.BuiltinDir = strings.TrimSpace(file.Skills.Sources.BuiltinDir)
 	if file.Skills.Sources.BuiltinDir == "" {
@@ -1318,6 +1968,74 @@ func normalizeFileSnapshot(file *fileSnapshot) {
 	if file.IntentRouter.LLMFallback.ConfidenceThreshold <= 0 || file.IntentRouter.LLMFallback.ConfidenceThreshold > 1 {
 		file.IntentRouter.LLMFallback.ConfidenceThreshold = 0.72
 	}
+
+	file.Projects.WorkspaceRoot = strings.TrimSpace(file.Projects.WorkspaceRoot)
+	if file.Projects.WorkspaceRoot == "" {
+		file.Projects.WorkspaceRoot = defaultWorkspaceRoot()
+	}
+	file.Projects.DefaultProjectID = strings.TrimSpace(file.Projects.DefaultProjectID)
+	if file.Projects.DefaultProjectID == "" {
+		file.Projects.DefaultProjectID = "main"
+	}
+
+	file.Memory.OwnerAllowlist = normalizeOwnerAllowlist(file.Memory.OwnerAllowlist)
+	if file.Memory.TokenBudget <= 0 {
+		file.Memory.TokenBudget = 4096
+	}
+}
+
+func normalizeFileExtendedChannel(channelName string, channel *fileExtendedChannel) {
+	if channel == nil {
+		return
+	}
+	channelName = normalizeChannelKey(channelName)
+	channel.DefaultAgent = strings.TrimSpace(channel.DefaultAgent)
+	if channel.DefaultAgent == "" {
+		channel.DefaultAgent = "main"
+	}
+	channel.Instances = normalizeFileExtendedInstances(channelName, channel.Instances, channel.DefaultAgent)
+	channel.Enabled = hasEnabledFileExtendedInstance(channel.Instances) || channel.Enabled
+}
+
+func normalizeFileExtendedInstances(channelName string, values []fileExtendedChannelInstance, fallbackAgent string) []fileExtendedChannelInstance {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]fileExtendedChannelInstance, 0, len(values))
+	seen := make(map[string]int, len(values))
+	fallbackAgent = strings.TrimSpace(fallbackAgent)
+	if fallbackAgent == "" {
+		fallbackAgent = "main"
+	}
+
+	for idx, raw := range values {
+		item := raw
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = fmt.Sprintf("%s-%d", channelName, idx+1)
+		}
+		seen[id]++
+		if seen[id] > 1 {
+			id = fmt.Sprintf("%s-%d", id, seen[id])
+		}
+
+		item.ID = id
+		item.DefaultAgent = strings.TrimSpace(item.DefaultAgent)
+		if item.DefaultAgent == "" {
+			item.DefaultAgent = fallbackAgent
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func hasEnabledFileExtendedInstance(values []fileExtendedChannelInstance) bool {
+	for _, item := range values {
+		if item.Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 func setDefaultFlag(agents *fileAgents, defaultID string) {
@@ -1379,6 +2097,11 @@ func defaultSnapshot() Snapshot {
 		TelegramMode:                  "polling",
 		TelegramRequireCommandMention: true,
 		TelegramPollingTimeout:        30 * time.Second,
+		TelegramWebhookPath:           "/webhooks/telegram",
+		FeishuEnabled:                 false,
+		FeishuMode:                    "webhook",
+		WeComEnabled:                  false,
+		WeComMode:                     "webhook",
 		HealthProbeEnabled:            true,
 		HTTPListenAddr:                ":8080",
 		HealthProbePath:               "/healthz",
@@ -1387,7 +2110,7 @@ func defaultSnapshot() Snapshot {
 			Driver:     "postgres",
 			Host:       "127.0.0.1",
 			Port:       5432,
-			Name:       "synapse_x",
+			Name:       "claw_x",
 			User:       "postgres",
 			Password:   "",
 			SSLMode:    "disable",
@@ -1397,7 +2120,7 @@ func defaultSnapshot() Snapshot {
 			Enabled: true,
 			Sources: SkillSources{
 				UserDir:        defaultSkillsRoot(),
-				WorkspaceDir:   ".synapsex/skills",
+				WorkspaceDir:   ".clawx/skills",
 				BuiltinEnabled: true,
 				BuiltinDir:     "internal/skills/builtin",
 			},
@@ -1416,13 +2139,22 @@ func defaultSnapshot() Snapshot {
 				ConfidenceThreshold: 0.72,
 			},
 		},
+		Projects: ProjectConfig{
+			WorkspaceRoot:    workspaceRoot,
+			DefaultProjectID: "main",
+		},
+		Memory: MemoryConfig{
+			OwnerAllowlist:    nil,
+			TokenBudget:       4096,
+			AutoDigestEnabled: false,
+		},
 		ProviderProfiles: make(map[string]ProviderProfile),
 		Agents:           make(map[string]Agent),
 	}
 }
 
 func configPath() string {
-	if explicit := strings.TrimSpace(os.Getenv("SYNAPSEX_CONFIG")); explicit != "" {
+	if explicit := strings.TrimSpace(os.Getenv("CLAWX_CONFIG")); explicit != "" {
 		return explicit
 	}
 	return filepath.Join(stateDir(), "config.json")
@@ -1435,13 +2167,13 @@ func configDotEnvPath(configPath string) string {
 func stateDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
-		return filepath.Join(".synapsex")
+		return filepath.Join(".clawx")
 	}
-	return filepath.Join(home, ".synapsex")
+	return filepath.Join(home, ".clawx")
 }
 
 func shouldLoadDotEnv(path string) bool {
-	if parseBoolOrDefault(os.Getenv("SYNAPSEX_LOAD_DOTENV"), false) {
+	if parseBoolOrDefault(os.Getenv("CLAWX_LOAD_DOTENV"), false) {
 		return true
 	}
 	_, err := os.Stat(path)
@@ -1534,6 +2266,15 @@ func applyLegacyJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 	}
 	if raw.TelegramPollingSeconds > 0 {
 		cfg.TelegramPollingTimeout = time.Duration(raw.TelegramPollingSeconds) * time.Second
+	}
+	if strings.TrimSpace(raw.TelegramWebhookURL) != "" {
+		cfg.TelegramWebhookURL = strings.TrimSpace(raw.TelegramWebhookURL)
+	}
+	if strings.TrimSpace(raw.TelegramWebhookPath) != "" {
+		cfg.TelegramWebhookPath = normalizeWebhookPath(raw.TelegramWebhookPath)
+	}
+	if strings.TrimSpace(raw.TelegramWebhookSecret) != "" {
+		cfg.TelegramWebhookSecret = strings.TrimSpace(raw.TelegramWebhookSecret)
 	}
 	if raw.HealthProbeEnabled != nil {
 		cfg.HealthProbeEnabled = *raw.HealthProbeEnabled
@@ -1652,6 +2393,15 @@ func applyStructuredJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 			if telegram.PollingSeconds > 0 {
 				cfg.TelegramPollingTimeout = time.Duration(telegram.PollingSeconds) * time.Second
 			}
+			if strings.TrimSpace(telegram.WebhookURL) != "" {
+				cfg.TelegramWebhookURL = strings.TrimSpace(telegram.WebhookURL)
+			}
+			if strings.TrimSpace(telegram.WebhookPath) != "" {
+				cfg.TelegramWebhookPath = normalizeWebhookPath(telegram.WebhookPath)
+			}
+			if strings.TrimSpace(telegram.WebhookSecret) != "" {
+				cfg.TelegramWebhookSecret = strings.TrimSpace(telegram.WebhookSecret)
+			}
 			if strings.TrimSpace(telegram.DefaultAgent) != "" {
 				cfg.TelegramDefaultAgentID = strings.TrimSpace(telegram.DefaultAgent)
 			}
@@ -1674,6 +2424,9 @@ func applyStructuredJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 						AllowedChatIDs:          filterEmpty(item.AllowedChatIDs),
 						RequireCommandOrMention: valueOrDefaultBool(item.RequireCommandOrMention, true),
 						PollingTimeout:          timeout,
+						WebhookURL:              strings.TrimSpace(item.WebhookURL),
+						WebhookPath:             normalizeWebhookPath(item.WebhookPath),
+						WebhookSecret:           strings.TrimSpace(item.WebhookSecret),
 						DefaultAgentID:          strings.TrimSpace(item.DefaultAgent),
 						AgentBindings:           filterBindingMap(item.AgentBindings),
 					}
@@ -1687,6 +2440,130 @@ func applyStructuredJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 				}
 			}
 		}
+		if raw.Channels.Feishu != nil {
+			feishu := raw.Channels.Feishu
+			if feishu.Enabled != nil {
+				cfg.FeishuEnabled = *feishu.Enabled
+			}
+			if strings.TrimSpace(feishu.Mode) != "" {
+				cfg.FeishuMode = strings.ToLower(strings.TrimSpace(feishu.Mode))
+			}
+			if strings.TrimSpace(feishu.AppID) != "" {
+				cfg.FeishuAppID = strings.TrimSpace(feishu.AppID)
+			}
+			if strings.TrimSpace(feishu.AppSecret) != "" {
+				cfg.FeishuAppSecret = strings.TrimSpace(feishu.AppSecret)
+			}
+			if strings.TrimSpace(feishu.VerificationToken) != "" {
+				cfg.FeishuVerificationToken = strings.TrimSpace(feishu.VerificationToken)
+			}
+			if strings.TrimSpace(feishu.EncryptKey) != "" {
+				cfg.FeishuEncryptKey = strings.TrimSpace(feishu.EncryptKey)
+			}
+			if strings.TrimSpace(feishu.DefaultAgent) != "" {
+				cfg.FeishuDefaultAgentID = strings.TrimSpace(feishu.DefaultAgent)
+			}
+			if feishu.AgentBindings != nil {
+				cfg.FeishuAgentBindings = filterBindingMap(feishu.AgentBindings)
+			}
+			if len(feishu.Instances) > 0 {
+				cfg.FeishuInstances = make([]FeishuInstance, 0, len(feishu.Instances))
+				for _, item := range feishu.Instances {
+					instance := FeishuInstance{
+						ID:                strings.TrimSpace(item.ID),
+						Enabled:           valueOrDefaultBool(item.Enabled, true),
+						Mode:              strings.ToLower(strings.TrimSpace(item.Mode)),
+						AppID:             strings.TrimSpace(item.AppID),
+						AppSecret:         strings.TrimSpace(item.AppSecret),
+						VerificationToken: strings.TrimSpace(item.VerificationToken),
+						EncryptKey:        strings.TrimSpace(item.EncryptKey),
+						DefaultAgentID:    strings.TrimSpace(item.DefaultAgent),
+						AgentBindings:     filterBindingMap(item.AgentBindings),
+					}
+					if instance.ID == "" {
+						instance.ID = fmt.Sprintf("feishu-%d", len(cfg.FeishuInstances)+1)
+					}
+					if instance.Mode == "" {
+						instance.Mode = "webhook"
+					}
+					cfg.FeishuInstances = append(cfg.FeishuInstances, instance)
+				}
+			}
+		}
+		if raw.Channels.WeCom != nil {
+			wecom := raw.Channels.WeCom
+			if wecom.Enabled != nil {
+				cfg.WeComEnabled = *wecom.Enabled
+			}
+			if strings.TrimSpace(wecom.Mode) != "" {
+				cfg.WeComMode = strings.ToLower(strings.TrimSpace(wecom.Mode))
+			}
+			if strings.TrimSpace(wecom.CorpID) != "" {
+				cfg.WeComCorpID = strings.TrimSpace(wecom.CorpID)
+			}
+			if strings.TrimSpace(wecom.AgentID) != "" {
+				cfg.WeComAgentID = strings.TrimSpace(wecom.AgentID)
+			}
+			if strings.TrimSpace(wecom.Secret) != "" {
+				cfg.WeComSecret = strings.TrimSpace(wecom.Secret)
+			}
+			if strings.TrimSpace(wecom.Token) != "" {
+				cfg.WeComToken = strings.TrimSpace(wecom.Token)
+			}
+			if strings.TrimSpace(wecom.EncodingAESKey) != "" {
+				cfg.WeComEncodingAESKey = strings.TrimSpace(wecom.EncodingAESKey)
+			}
+			if strings.TrimSpace(wecom.DefaultAgent) != "" {
+				cfg.WeComDefaultAgentID = strings.TrimSpace(wecom.DefaultAgent)
+			}
+			if wecom.AgentBindings != nil {
+				cfg.WeComAgentBindings = filterBindingMap(wecom.AgentBindings)
+			}
+			if len(wecom.Instances) > 0 {
+				cfg.WeComInstances = make([]WeComInstance, 0, len(wecom.Instances))
+				for _, item := range wecom.Instances {
+					instance := WeComInstance{
+						ID:             strings.TrimSpace(item.ID),
+						Enabled:        valueOrDefaultBool(item.Enabled, true),
+						Mode:           strings.ToLower(strings.TrimSpace(item.Mode)),
+						CorpID:         strings.TrimSpace(item.CorpID),
+						AgentID:        strings.TrimSpace(item.AgentID),
+						Secret:         strings.TrimSpace(item.Secret),
+						Token:          strings.TrimSpace(item.Token),
+						EncodingAESKey: strings.TrimSpace(item.EncodingAESKey),
+						DefaultAgentID: strings.TrimSpace(item.DefaultAgent),
+						AgentBindings:  filterBindingMap(item.AgentBindings),
+					}
+					if instance.ID == "" {
+						instance.ID = fmt.Sprintf("wecom-%d", len(cfg.WeComInstances)+1)
+					}
+					if instance.Mode == "" {
+						instance.Mode = "webhook"
+					}
+					cfg.WeComInstances = append(cfg.WeComInstances, instance)
+				}
+			}
+		}
+
+		applyStructuredExtendedChannel(cfg, "slack", raw.Channels.Slack)
+		applyStructuredExtendedChannel(cfg, "whatsapp", raw.Channels.WhatsApp)
+		applyStructuredExtendedChannel(cfg, "signal", raw.Channels.Signal)
+		applyStructuredExtendedChannel(cfg, "googlechat", raw.Channels.GoogleChat)
+		applyStructuredExtendedChannel(cfg, "irc", raw.Channels.IRC)
+		applyStructuredExtendedChannel(cfg, "matrix", raw.Channels.Matrix)
+		applyStructuredExtendedChannel(cfg, "mattermost", raw.Channels.Mattermost)
+		applyStructuredExtendedChannel(cfg, "msteams", raw.Channels.MSTeams)
+		applyStructuredExtendedChannel(cfg, "nextcloud-talk", raw.Channels.NextcloudTalk)
+		applyStructuredExtendedChannel(cfg, "line", raw.Channels.Line)
+		applyStructuredExtendedChannel(cfg, "nostr", raw.Channels.Nostr)
+		applyStructuredExtendedChannel(cfg, "synology-chat", raw.Channels.SynologyChat)
+		applyStructuredExtendedChannel(cfg, "twitch", raw.Channels.Twitch)
+		applyStructuredExtendedChannel(cfg, "zalo", raw.Channels.Zalo)
+		applyStructuredExtendedChannel(cfg, "zalouser", raw.Channels.ZaloUser)
+		applyStructuredExtendedChannel(cfg, "bluebubbles", raw.Channels.BlueBubbles)
+		applyStructuredExtendedChannel(cfg, "imessage-legacy", raw.Channels.IMessageLegacy)
+		applyStructuredExtendedChannel(cfg, "tlon", raw.Channels.Tlon)
+		applyStructuredExtendedChannel(cfg, "webchat", raw.Channels.WebChat)
 	}
 
 	if raw.Gateway != nil {
@@ -1784,6 +2661,57 @@ func applyStructuredJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 			}
 		}
 	}
+
+	if raw.Memory != nil {
+		if raw.Memory.OwnerAllowlist != nil {
+			cfg.Memory.OwnerAllowlist = filterEmpty(raw.Memory.OwnerAllowlist)
+		}
+		if raw.Memory.TokenBudget > 0 {
+			cfg.Memory.TokenBudget = raw.Memory.TokenBudget
+		}
+		if raw.Memory.AutoDigestEnabled != nil {
+			cfg.Memory.AutoDigestEnabled = *raw.Memory.AutoDigestEnabled
+		}
+	}
+
+	if raw.Projects != nil {
+		if strings.TrimSpace(raw.Projects.WorkspaceRoot) != "" {
+			cfg.Projects.WorkspaceRoot = strings.TrimSpace(raw.Projects.WorkspaceRoot)
+		}
+		if strings.TrimSpace(raw.Projects.DefaultProjectID) != "" {
+			cfg.Projects.DefaultProjectID = strings.TrimSpace(raw.Projects.DefaultProjectID)
+		}
+	}
+}
+
+func applyStructuredExtendedChannel(cfg *Snapshot, channelName string, raw *jsonExtendedChannel) {
+	if cfg == nil || raw == nil {
+		return
+	}
+	channelName = normalizeChannelKey(channelName)
+	if channelName == "" || !isSupportedExtendedChannelKey(channelName) {
+		return
+	}
+
+	parsed := ExtendedChannelConfig{
+		Enabled:        valueOrDefaultBool(raw.Enabled, false),
+		DefaultAgentID: strings.TrimSpace(raw.DefaultAgent),
+	}
+	if len(raw.Instances) > 0 {
+		parsed.Instances = make([]ExtendedChannelInstance, 0, len(raw.Instances))
+		for _, item := range raw.Instances {
+			parsed.Instances = append(parsed.Instances, ExtendedChannelInstance{
+				ID:             strings.TrimSpace(item.ID),
+				Enabled:        valueOrDefaultBool(item.Enabled, true),
+				DefaultAgentID: strings.TrimSpace(item.DefaultAgent),
+			})
+		}
+	}
+
+	if cfg.ExtendedChannels == nil {
+		cfg.ExtendedChannels = make(map[string]ExtendedChannelConfig)
+	}
+	cfg.ExtendedChannels[channelName] = parsed
 }
 
 func applyProfileSet(cfg *Snapshot, section interface{}) {
@@ -1886,110 +2814,138 @@ func (s *Snapshot) resolveActiveAgent() error {
 }
 
 func applyEnvOverrides(cfg *Snapshot) error {
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_ALLOWED_ROOTS")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_ALLOWED_ROOTS")); raw != "" {
 		cfg.AllowedRoots = splitList(raw)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DEFAULT_CWD")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DEFAULT_CWD")); raw != "" {
 		cfg.DefaultCWD = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TIMEOUT_SECONDS")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TIMEOUT_SECONDS")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil {
-			return fmt.Errorf("parse SYNAPSEX_TIMEOUT_SECONDS: %w", err)
+			return fmt.Errorf("parse CLAWX_TIMEOUT_SECONDS: %w", err)
 		}
 		cfg.Timeout = time.Duration(parsed) * time.Second
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_EXEC_COMMAND")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_EXEC_COMMAND")); raw != "" {
 		cfg.ExecCommand = raw
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_EXEC_ARGS"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_EXEC_ARGS"); ok {
 		cfg.ExecArgs = splitShellWords(raw)
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_EXEC_HEALTH_ARGS"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_EXEC_HEALTH_ARGS"); ok {
 		cfg.ExecHealthArgs = splitShellWords(raw)
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_DISCORD_ENABLED"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_DISCORD_ENABLED"); ok {
 		cfg.DiscordEnabled = parseBoolOrDefault(raw, cfg.DiscordEnabled)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DISCORD_BOT_TOKEN")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DISCORD_BOT_TOKEN")); raw != "" {
 		cfg.DiscordBotToken = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DISCORD_API_BASE_URL")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DISCORD_API_BASE_URL")); raw != "" {
 		cfg.DiscordAPIBaseURL = strings.TrimRight(raw, "/")
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DISCORD_GATEWAY_URL")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DISCORD_GATEWAY_URL")); raw != "" {
 		cfg.DiscordGatewayURL = raw
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_DISCORD_ALLOWED_CHANNEL_IDS"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_DISCORD_ALLOWED_CHANNEL_IDS"); ok {
 		cfg.DiscordAllowedChannelIDs = splitList(raw)
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_DISCORD_REQUIRE_MENTION"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_DISCORD_REQUIRE_MENTION"); ok {
 		cfg.DiscordRequireMention = parseBoolOrDefault(raw, cfg.DiscordRequireMention)
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_TELEGRAM_ENABLED"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_TELEGRAM_ENABLED"); ok {
 		cfg.TelegramEnabled = parseBoolOrDefault(raw, cfg.TelegramEnabled)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TELEGRAM_MODE")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TELEGRAM_MODE")); raw != "" {
 		cfg.TelegramMode = strings.ToLower(raw)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TELEGRAM_TOKEN")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TELEGRAM_TOKEN")); raw != "" {
 		cfg.TelegramToken = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TELEGRAM_BOT_USERNAME")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TELEGRAM_BOT_USERNAME")); raw != "" {
 		cfg.TelegramBotUsername = normalizeTelegramUsername(raw)
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_TELEGRAM_ALLOWED_CHAT_IDS"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_TELEGRAM_ALLOWED_CHAT_IDS"); ok {
 		cfg.TelegramAllowedChatIDs = splitList(raw)
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_TELEGRAM_REQUIRE_COMMAND_OR_MENTION"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_TELEGRAM_REQUIRE_COMMAND_OR_MENTION"); ok {
 		cfg.TelegramRequireCommandMention = parseBoolOrDefault(raw, cfg.TelegramRequireCommandMention)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_TELEGRAM_POLLING_SECONDS")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TELEGRAM_POLLING_SECONDS")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil {
-			return fmt.Errorf("parse SYNAPSEX_TELEGRAM_POLLING_SECONDS: %w", err)
+			return fmt.Errorf("parse CLAWX_TELEGRAM_POLLING_SECONDS: %w", err)
 		}
 		cfg.TelegramPollingTimeout = time.Duration(parsed) * time.Second
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_HEALTH_PROBE_ENABLED"); ok {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TELEGRAM_WEBHOOK_URL")); raw != "" {
+		cfg.TelegramWebhookURL = raw
+	}
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TELEGRAM_WEBHOOK_PATH")); raw != "" {
+		cfg.TelegramWebhookPath = normalizeWebhookPath(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_TELEGRAM_WEBHOOK_SECRET")); raw != "" {
+		cfg.TelegramWebhookSecret = raw
+	}
+	if raw, ok := os.LookupEnv("CLAWX_HEALTH_PROBE_ENABLED"); ok {
 		cfg.HealthProbeEnabled = parseBoolOrDefault(raw, cfg.HealthProbeEnabled)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_HTTP_LISTEN_ADDR")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_HTTP_LISTEN_ADDR")); raw != "" {
 		cfg.HTTPListenAddr = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_HEALTH_PATH")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_HEALTH_PATH")); raw != "" {
 		cfg.HealthProbePath = normalizeHealthPath(raw)
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_DATABASE_ENABLED"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_DATABASE_ENABLED"); ok {
 		cfg.Database.Enabled = parseBoolOrDefault(raw, cfg.Database.Enabled)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DATABASE_DRIVER")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DATABASE_DRIVER")); raw != "" {
 		cfg.Database.Driver = strings.ToLower(raw)
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DATABASE_HOST")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DATABASE_HOST")); raw != "" {
 		cfg.Database.Host = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DATABASE_PORT")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DATABASE_PORT")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil {
-			return fmt.Errorf("parse SYNAPSEX_DATABASE_PORT: %w", err)
+			return fmt.Errorf("parse CLAWX_DATABASE_PORT: %w", err)
 		}
 		cfg.Database.Port = parsed
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DATABASE_NAME")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DATABASE_NAME")); raw != "" {
 		cfg.Database.Name = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DATABASE_USER")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DATABASE_USER")); raw != "" {
 		cfg.Database.User = raw
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_DATABASE_PASSWORD"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_DATABASE_PASSWORD"); ok {
 		cfg.Database.Password = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv("SYNAPSEX_DATABASE_SSLMODE")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_DATABASE_SSLMODE")); raw != "" {
 		cfg.Database.SSLMode = raw
 	}
-	if raw, ok := os.LookupEnv("SYNAPSEX_DATABASE_AUTO_CREATE"); ok {
+	if raw, ok := os.LookupEnv("CLAWX_DATABASE_AUTO_CREATE"); ok {
 		cfg.Database.AutoCreate = parseBoolOrDefault(raw, cfg.Database.AutoCreate)
+	}
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_PROJECTS_WORKSPACE_ROOT")); raw != "" {
+		cfg.Projects.WorkspaceRoot = raw
+	}
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_PROJECTS_DEFAULT_PROJECT")); raw != "" {
+		cfg.Projects.DefaultProjectID = raw
+	}
+	if raw, ok := os.LookupEnv("CLAWX_MEMORY_OWNER_ALLOWLIST"); ok {
+		cfg.Memory.OwnerAllowlist = splitList(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_MEMORY_TOKEN_BUDGET")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return fmt.Errorf("parse CLAWX_MEMORY_TOKEN_BUDGET: %w", err)
+		}
+		cfg.Memory.TokenBudget = parsed
+	}
+	if raw, ok := os.LookupEnv("CLAWX_MEMORY_AUTO_DIGEST"); ok {
+		cfg.Memory.AutoDigestEnabled = parseBoolOrDefault(raw, cfg.Memory.AutoDigestEnabled)
 	}
 	return nil
 }
@@ -1999,6 +2955,10 @@ func (s *Snapshot) normalizeChannelInstances() {
 	s.DiscordAgentBindings = filterBindingMap(s.DiscordAgentBindings)
 	s.TelegramDefaultAgentID = strings.TrimSpace(s.TelegramDefaultAgentID)
 	s.TelegramAgentBindings = filterBindingMap(s.TelegramAgentBindings)
+	s.FeishuDefaultAgentID = strings.TrimSpace(s.FeishuDefaultAgentID)
+	s.FeishuAgentBindings = filterBindingMap(s.FeishuAgentBindings)
+	s.WeComDefaultAgentID = strings.TrimSpace(s.WeComDefaultAgentID)
+	s.WeComAgentBindings = filterBindingMap(s.WeComAgentBindings)
 
 	if len(s.DiscordInstances) == 0 && hasAnyDiscordLegacyConfig(*s) {
 		s.DiscordInstances = []DiscordInstance{{
@@ -2023,16 +2983,51 @@ func (s *Snapshot) normalizeChannelInstances() {
 			AllowedChatIDs:          filterEmpty(s.TelegramAllowedChatIDs),
 			RequireCommandOrMention: s.TelegramRequireCommandMention,
 			PollingTimeout:          s.TelegramPollingTimeout,
+			WebhookURL:              strings.TrimSpace(s.TelegramWebhookURL),
+			WebhookPath:             normalizeWebhookPath(s.TelegramWebhookPath),
+			WebhookSecret:           strings.TrimSpace(s.TelegramWebhookSecret),
 			DefaultAgentID:          strings.TrimSpace(s.TelegramDefaultAgentID),
 			AgentBindings:           filterBindingMap(s.TelegramAgentBindings),
 		}}
 	}
+	if len(s.FeishuInstances) == 0 && hasAnyFeishuLegacyConfig(*s) {
+		s.FeishuInstances = []FeishuInstance{{
+			ID:                "feishu-default",
+			Enabled:           s.FeishuEnabled,
+			Mode:              strings.ToLower(strings.TrimSpace(s.FeishuMode)),
+			AppID:             strings.TrimSpace(s.FeishuAppID),
+			AppSecret:         strings.TrimSpace(s.FeishuAppSecret),
+			VerificationToken: strings.TrimSpace(s.FeishuVerificationToken),
+			EncryptKey:        strings.TrimSpace(s.FeishuEncryptKey),
+			DefaultAgentID:    strings.TrimSpace(s.FeishuDefaultAgentID),
+			AgentBindings:     filterBindingMap(s.FeishuAgentBindings),
+		}}
+	}
+	if len(s.WeComInstances) == 0 && hasAnyWeComLegacyConfig(*s) {
+		s.WeComInstances = []WeComInstance{{
+			ID:             "wecom-default",
+			Enabled:        s.WeComEnabled,
+			Mode:           strings.ToLower(strings.TrimSpace(s.WeComMode)),
+			CorpID:         strings.TrimSpace(s.WeComCorpID),
+			AgentID:        strings.TrimSpace(s.WeComAgentID),
+			Secret:         strings.TrimSpace(s.WeComSecret),
+			Token:          strings.TrimSpace(s.WeComToken),
+			EncodingAESKey: strings.TrimSpace(s.WeComEncodingAESKey),
+			DefaultAgentID: strings.TrimSpace(s.WeComDefaultAgentID),
+			AgentBindings:  filterBindingMap(s.WeComAgentBindings),
+		}}
+	}
 
 	s.DiscordInstances = normalizeDiscordInstances(s.DiscordInstances, s.DiscordDefaultAgentID)
-	s.TelegramInstances = normalizeTelegramInstances(s.TelegramInstances, s.TelegramDefaultAgentID, s.TelegramPollingTimeout)
+	s.TelegramInstances = normalizeTelegramInstances(s.TelegramInstances, s.TelegramDefaultAgentID, s.TelegramPollingTimeout, s.TelegramWebhookPath)
+	s.FeishuInstances = normalizeFeishuInstances(s.FeishuInstances, s.FeishuDefaultAgentID)
+	s.WeComInstances = normalizeWeComInstances(s.WeComInstances, s.WeComDefaultAgentID)
+	s.ExtendedChannels = normalizeExtendedChannels(s.ExtendedChannels)
 
 	s.DiscordEnabled = hasEnabledDiscordInstance(s.DiscordInstances)
 	s.TelegramEnabled = hasEnabledTelegramInstance(s.TelegramInstances)
+	s.FeishuEnabled = hasEnabledFeishuInstance(s.FeishuInstances)
+	s.WeComEnabled = hasEnabledWeComInstance(s.WeComInstances)
 
 	if first, ok := firstDiscordInstance(s.DiscordInstances); ok {
 		s.DiscordBotToken = strings.TrimSpace(first.BotToken)
@@ -2048,6 +3043,24 @@ func (s *Snapshot) normalizeChannelInstances() {
 		s.TelegramAllowedChatIDs = filterEmpty(first.AllowedChatIDs)
 		s.TelegramRequireCommandMention = first.RequireCommandOrMention
 		s.TelegramPollingTimeout = first.PollingTimeout
+		s.TelegramWebhookURL = strings.TrimSpace(first.WebhookURL)
+		s.TelegramWebhookPath = normalizeWebhookPath(first.WebhookPath)
+		s.TelegramWebhookSecret = strings.TrimSpace(first.WebhookSecret)
+	}
+	if first, ok := firstFeishuInstance(s.FeishuInstances); ok {
+		s.FeishuMode = strings.ToLower(strings.TrimSpace(first.Mode))
+		s.FeishuAppID = strings.TrimSpace(first.AppID)
+		s.FeishuAppSecret = strings.TrimSpace(first.AppSecret)
+		s.FeishuVerificationToken = strings.TrimSpace(first.VerificationToken)
+		s.FeishuEncryptKey = strings.TrimSpace(first.EncryptKey)
+	}
+	if first, ok := firstWeComInstance(s.WeComInstances); ok {
+		s.WeComMode = strings.ToLower(strings.TrimSpace(first.Mode))
+		s.WeComCorpID = strings.TrimSpace(first.CorpID)
+		s.WeComAgentID = strings.TrimSpace(first.AgentID)
+		s.WeComSecret = strings.TrimSpace(first.Secret)
+		s.WeComToken = strings.TrimSpace(first.Token)
+		s.WeComEncodingAESKey = strings.TrimSpace(first.EncodingAESKey)
 	}
 }
 
@@ -2068,7 +3081,7 @@ func (s *Snapshot) normalizeDatabase() {
 
 	s.Database.Name = strings.TrimSpace(s.Database.Name)
 	if s.Database.Name == "" {
-		s.Database.Name = "synapse_x"
+		s.Database.Name = "claw_x"
 	}
 
 	s.Database.User = strings.TrimSpace(s.Database.User)
@@ -2089,7 +3102,7 @@ func (s *Snapshot) normalizeSkills() {
 	}
 	s.Skills.Sources.WorkspaceDir = strings.TrimSpace(s.Skills.Sources.WorkspaceDir)
 	if s.Skills.Sources.WorkspaceDir == "" {
-		s.Skills.Sources.WorkspaceDir = ".synapsex/skills"
+		s.Skills.Sources.WorkspaceDir = ".clawx/skills"
 	}
 	s.Skills.Sources.BuiltinDir = strings.TrimSpace(s.Skills.Sources.BuiltinDir)
 	if s.Skills.Sources.BuiltinDir == "" {
@@ -2114,6 +3127,24 @@ func (s *Snapshot) normalizeIntentRouter() {
 	}
 	if s.IntentRouter.LLMFallback.ConfidenceThreshold <= 0 || s.IntentRouter.LLMFallback.ConfidenceThreshold > 1 {
 		s.IntentRouter.LLMFallback.ConfidenceThreshold = 0.72
+	}
+}
+
+func (s *Snapshot) normalizeProjects() {
+	s.Projects.WorkspaceRoot = strings.TrimSpace(s.Projects.WorkspaceRoot)
+	if s.Projects.WorkspaceRoot == "" {
+		s.Projects.WorkspaceRoot = defaultWorkspaceRoot()
+	}
+	s.Projects.DefaultProjectID = strings.TrimSpace(s.Projects.DefaultProjectID)
+	if s.Projects.DefaultProjectID == "" {
+		s.Projects.DefaultProjectID = "main"
+	}
+}
+
+func (s *Snapshot) normalizeMemory() {
+	s.Memory.OwnerAllowlist = normalizeOwnerAllowlist(s.Memory.OwnerAllowlist)
+	if s.Memory.TokenBudget <= 0 {
+		s.Memory.TokenBudget = 4096
 	}
 }
 
@@ -2157,7 +3188,7 @@ func normalizeDiscordInstances(values []DiscordInstance, fallbackAgent string) [
 	return result
 }
 
-func normalizeTelegramInstances(values []TelegramInstance, fallbackAgent string, fallbackPollTimeout time.Duration) []TelegramInstance {
+func normalizeTelegramInstances(values []TelegramInstance, fallbackAgent string, fallbackPollTimeout time.Duration, fallbackWebhookPath string) []TelegramInstance {
 	if len(values) == 0 {
 		return nil
 	}
@@ -2180,6 +3211,9 @@ func normalizeTelegramInstances(values []TelegramInstance, fallbackAgent string,
 		item.Token = strings.TrimSpace(item.Token)
 		item.BotUsername = normalizeTelegramUsername(item.BotUsername)
 		item.AllowedChatIDs = filterEmpty(item.AllowedChatIDs)
+		item.WebhookURL = strings.TrimSpace(item.WebhookURL)
+		item.WebhookPath = normalizeWebhookPath(item.WebhookPath)
+		item.WebhookSecret = strings.TrimSpace(item.WebhookSecret)
 		item.DefaultAgentID = strings.TrimSpace(item.DefaultAgentID)
 		item.AgentBindings = filterBindingMap(item.AgentBindings)
 		if item.DefaultAgentID == "" {
@@ -2187,6 +3221,16 @@ func normalizeTelegramInstances(values []TelegramInstance, fallbackAgent string,
 		}
 		if item.Mode == "" {
 			item.Mode = "polling"
+		}
+		if item.WebhookPath == "" {
+			defaultPath := normalizeWebhookPath(fallbackWebhookPath)
+			if defaultPath == "" {
+				defaultPath = "/webhooks/telegram"
+			}
+			if len(values) > 1 {
+				defaultPath = strings.TrimRight(defaultPath, "/") + "/" + id
+			}
+			item.WebhookPath = defaultPath
 		}
 		if item.PollingTimeout <= 0 {
 			item.PollingTimeout = fallbackPollTimeout
@@ -2197,6 +3241,141 @@ func normalizeTelegramInstances(values []TelegramInstance, fallbackAgent string,
 		result = append(result, item)
 	}
 
+	return result
+}
+
+func normalizeFeishuInstances(values []FeishuInstance, fallbackAgent string) []FeishuInstance {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]FeishuInstance, 0, len(values))
+	seen := make(map[string]int, len(values))
+
+	for idx, raw := range values {
+		item := raw
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = fmt.Sprintf("feishu-%d", idx+1)
+		}
+		seen[id]++
+		if seen[id] > 1 {
+			id = fmt.Sprintf("%s-%d", id, seen[id])
+		}
+
+		item.ID = id
+		item.Mode = strings.ToLower(strings.TrimSpace(item.Mode))
+		item.AppID = strings.TrimSpace(item.AppID)
+		item.AppSecret = strings.TrimSpace(item.AppSecret)
+		item.VerificationToken = strings.TrimSpace(item.VerificationToken)
+		item.EncryptKey = strings.TrimSpace(item.EncryptKey)
+		item.DefaultAgentID = strings.TrimSpace(item.DefaultAgentID)
+		item.AgentBindings = filterBindingMap(item.AgentBindings)
+		if item.DefaultAgentID == "" {
+			item.DefaultAgentID = strings.TrimSpace(fallbackAgent)
+		}
+		if item.Mode == "" {
+			item.Mode = "webhook"
+		}
+		result = append(result, item)
+	}
+
+	return result
+}
+
+func normalizeWeComInstances(values []WeComInstance, fallbackAgent string) []WeComInstance {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]WeComInstance, 0, len(values))
+	seen := make(map[string]int, len(values))
+
+	for idx, raw := range values {
+		item := raw
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = fmt.Sprintf("wecom-%d", idx+1)
+		}
+		seen[id]++
+		if seen[id] > 1 {
+			id = fmt.Sprintf("%s-%d", id, seen[id])
+		}
+
+		item.ID = id
+		item.Mode = strings.ToLower(strings.TrimSpace(item.Mode))
+		item.CorpID = strings.TrimSpace(item.CorpID)
+		item.AgentID = strings.TrimSpace(item.AgentID)
+		item.Secret = strings.TrimSpace(item.Secret)
+		item.Token = strings.TrimSpace(item.Token)
+		item.EncodingAESKey = strings.TrimSpace(item.EncodingAESKey)
+		item.DefaultAgentID = strings.TrimSpace(item.DefaultAgentID)
+		item.AgentBindings = filterBindingMap(item.AgentBindings)
+		if item.DefaultAgentID == "" {
+			item.DefaultAgentID = strings.TrimSpace(fallbackAgent)
+		}
+		if item.Mode == "" {
+			item.Mode = "webhook"
+		}
+		result = append(result, item)
+	}
+
+	return result
+}
+
+func normalizeExtendedChannels(values map[string]ExtendedChannelConfig) map[string]ExtendedChannelConfig {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make(map[string]ExtendedChannelConfig, len(values))
+	for key, raw := range values {
+		channelName := normalizeChannelKey(key)
+		if channelName == "" || !isSupportedExtendedChannelKey(channelName) {
+			continue
+		}
+
+		item := raw
+		item.DefaultAgentID = strings.TrimSpace(item.DefaultAgentID)
+		if item.DefaultAgentID == "" {
+			item.DefaultAgentID = "main"
+		}
+		item.Instances = normalizeExtendedInstances(channelName, item.Instances, item.DefaultAgentID)
+		item.Enabled = hasEnabledExtendedInstance(item.Instances) || item.Enabled
+		result[channelName] = item
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func normalizeExtendedInstances(channelName string, values []ExtendedChannelInstance, fallbackAgent string) []ExtendedChannelInstance {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]ExtendedChannelInstance, 0, len(values))
+	seen := make(map[string]int, len(values))
+	fallbackAgent = strings.TrimSpace(fallbackAgent)
+	if fallbackAgent == "" {
+		fallbackAgent = "main"
+	}
+
+	for idx, raw := range values {
+		item := raw
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = fmt.Sprintf("%s-%d", channelName, idx+1)
+		}
+		seen[id]++
+		if seen[id] > 1 {
+			id = fmt.Sprintf("%s-%d", id, seen[id])
+		}
+
+		item.ID = id
+		item.DefaultAgentID = strings.TrimSpace(item.DefaultAgentID)
+		if item.DefaultAgentID == "" {
+			item.DefaultAgentID = fallbackAgent
+		}
+		result = append(result, item)
+	}
 	return result
 }
 
@@ -2218,6 +3397,33 @@ func hasEnabledTelegramInstance(values []TelegramInstance) bool {
 	return false
 }
 
+func hasEnabledFeishuInstance(values []FeishuInstance) bool {
+	for _, item := range values {
+		if item.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEnabledWeComInstance(values []WeComInstance) bool {
+	for _, item := range values {
+		if item.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEnabledExtendedInstance(values []ExtendedChannelInstance) bool {
+	for _, item := range values {
+		if item.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
 func hasAnyDiscordLegacyConfig(s Snapshot) bool {
 	return s.DiscordEnabled ||
 		strings.TrimSpace(s.DiscordBotToken) != "" ||
@@ -2228,11 +3434,36 @@ func hasAnyDiscordLegacyConfig(s Snapshot) bool {
 
 func hasAnyTelegramLegacyConfig(s Snapshot) bool {
 	return s.TelegramEnabled ||
+		strings.EqualFold(strings.TrimSpace(s.TelegramMode), "webhook") ||
 		strings.TrimSpace(s.TelegramToken) != "" ||
 		strings.TrimSpace(s.TelegramBotUsername) != "" ||
 		len(s.TelegramAllowedChatIDs) > 0 ||
+		strings.TrimSpace(s.TelegramWebhookURL) != "" ||
+		strings.TrimSpace(s.TelegramWebhookPath) != "" ||
+		strings.TrimSpace(s.TelegramWebhookSecret) != "" ||
 		strings.TrimSpace(s.TelegramDefaultAgentID) != "" ||
 		len(s.TelegramAgentBindings) > 0
+}
+
+func hasAnyFeishuLegacyConfig(s Snapshot) bool {
+	return s.FeishuEnabled ||
+		strings.TrimSpace(s.FeishuAppID) != "" ||
+		strings.TrimSpace(s.FeishuAppSecret) != "" ||
+		strings.TrimSpace(s.FeishuVerificationToken) != "" ||
+		strings.TrimSpace(s.FeishuEncryptKey) != "" ||
+		strings.TrimSpace(s.FeishuDefaultAgentID) != "" ||
+		len(s.FeishuAgentBindings) > 0
+}
+
+func hasAnyWeComLegacyConfig(s Snapshot) bool {
+	return s.WeComEnabled ||
+		strings.TrimSpace(s.WeComCorpID) != "" ||
+		strings.TrimSpace(s.WeComAgentID) != "" ||
+		strings.TrimSpace(s.WeComSecret) != "" ||
+		strings.TrimSpace(s.WeComToken) != "" ||
+		strings.TrimSpace(s.WeComEncodingAESKey) != "" ||
+		strings.TrimSpace(s.WeComDefaultAgentID) != "" ||
+		len(s.WeComAgentBindings) > 0
 }
 
 func firstDiscordInstance(values []DiscordInstance) (DiscordInstance, bool) {
@@ -2259,6 +3490,30 @@ func firstTelegramInstance(values []TelegramInstance) (TelegramInstance, bool) {
 	return values[0], true
 }
 
+func firstFeishuInstance(values []FeishuInstance) (FeishuInstance, bool) {
+	for _, item := range values {
+		if item.Enabled {
+			return item, true
+		}
+	}
+	if len(values) == 0 {
+		return FeishuInstance{}, false
+	}
+	return values[0], true
+}
+
+func firstWeComInstance(values []WeComInstance) (WeComInstance, bool) {
+	for _, item := range values {
+		if item.Enabled {
+			return item, true
+		}
+	}
+	if len(values) == 0 {
+		return WeComInstance{}, false
+	}
+	return values[0], true
+}
+
 func (s Snapshot) Validate() error {
 	if s.Timeout <= 0 {
 		return ErrInvalidConfig
@@ -2273,6 +3528,12 @@ func (s Snapshot) Validate() error {
 		return ErrInvalidConfig
 	}
 	if strings.TrimSpace(s.HealthProbePath) == "" {
+		return ErrInvalidConfig
+	}
+	if strings.TrimSpace(s.Projects.WorkspaceRoot) == "" {
+		return ErrInvalidConfig
+	}
+	if strings.TrimSpace(s.Projects.DefaultProjectID) == "" {
 		return ErrInvalidConfig
 	}
 	for _, root := range s.AllowedRoots {
@@ -2350,13 +3611,17 @@ func (s Snapshot) Validate() error {
 			return ErrInvalidConfig
 		}
 		if instance.Enabled {
-			if strings.ToLower(strings.TrimSpace(instance.Mode)) != "polling" {
+			mode := strings.ToLower(strings.TrimSpace(instance.Mode))
+			if mode != "polling" && mode != "webhook" {
 				return ErrInvalidConfig
 			}
 			if strings.TrimSpace(instance.Token) == "" {
 				return ErrInvalidConfig
 			}
-			if instance.PollingTimeout <= 0 {
+			if mode == "polling" && instance.PollingTimeout <= 0 {
+				return ErrInvalidConfig
+			}
+			if mode == "webhook" && (strings.TrimSpace(instance.WebhookURL) == "" || strings.TrimSpace(instance.WebhookPath) == "") {
 				return ErrInvalidConfig
 			}
 		}
@@ -2365,6 +3630,91 @@ func (s Snapshot) Validate() error {
 		}
 		for _, agentID := range instance.AgentBindings {
 			if err := s.validateChannelAgentReference(agentID); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := s.validateChannelAgentReference(s.FeishuDefaultAgentID); err != nil {
+		return err
+	}
+	for _, agentID := range s.FeishuAgentBindings {
+		if err := s.validateChannelAgentReference(agentID); err != nil {
+			return err
+		}
+	}
+	for _, instance := range s.FeishuInstances {
+		if strings.TrimSpace(instance.ID) == "" {
+			return ErrInvalidConfig
+		}
+		if instance.Enabled {
+			mode := strings.ToLower(strings.TrimSpace(instance.Mode))
+			if mode != "webhook" {
+				return ErrInvalidConfig
+			}
+			if strings.TrimSpace(instance.AppID) == "" ||
+				strings.TrimSpace(instance.AppSecret) == "" ||
+				strings.TrimSpace(instance.VerificationToken) == "" {
+				return ErrInvalidConfig
+			}
+		}
+		if err := s.validateChannelAgentReference(instance.DefaultAgentID); err != nil {
+			return err
+		}
+		for _, agentID := range instance.AgentBindings {
+			if err := s.validateChannelAgentReference(agentID); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := s.validateChannelAgentReference(s.WeComDefaultAgentID); err != nil {
+		return err
+	}
+	for _, agentID := range s.WeComAgentBindings {
+		if err := s.validateChannelAgentReference(agentID); err != nil {
+			return err
+		}
+	}
+	for _, instance := range s.WeComInstances {
+		if strings.TrimSpace(instance.ID) == "" {
+			return ErrInvalidConfig
+		}
+		if instance.Enabled {
+			mode := strings.ToLower(strings.TrimSpace(instance.Mode))
+			if mode != "webhook" {
+				return ErrInvalidConfig
+			}
+			if strings.TrimSpace(instance.CorpID) == "" ||
+				strings.TrimSpace(instance.AgentID) == "" ||
+				strings.TrimSpace(instance.Secret) == "" ||
+				strings.TrimSpace(instance.Token) == "" ||
+				strings.TrimSpace(instance.EncodingAESKey) == "" {
+				return ErrInvalidConfig
+			}
+		}
+		if err := s.validateChannelAgentReference(instance.DefaultAgentID); err != nil {
+			return err
+		}
+		for _, agentID := range instance.AgentBindings {
+			if err := s.validateChannelAgentReference(agentID); err != nil {
+				return err
+			}
+		}
+	}
+
+	for channelName, channelCfg := range s.ExtendedChannels {
+		if normalizeChannelKey(channelName) == "" {
+			return ErrInvalidConfig
+		}
+		if err := s.validateChannelAgentReference(channelCfg.DefaultAgentID); err != nil {
+			return err
+		}
+		for _, instance := range channelCfg.Instances {
+			if strings.TrimSpace(instance.ID) == "" {
+				return ErrInvalidConfig
+			}
+			if err := s.validateChannelAgentReference(instance.DefaultAgentID); err != nil {
 				return err
 			}
 		}
@@ -2408,6 +3758,14 @@ func (s Snapshot) Validate() error {
 	if s.IntentRouter.LLMFallback.ConfidenceThreshold <= 0 || s.IntentRouter.LLMFallback.ConfidenceThreshold > 1 {
 		return ErrInvalidConfig
 	}
+	if s.Memory.TokenBudget <= 0 {
+		return ErrInvalidConfig
+	}
+	for _, owner := range s.Memory.OwnerAllowlist {
+		if strings.TrimSpace(owner) == "" {
+			return ErrInvalidConfig
+		}
+	}
 	return nil
 }
 
@@ -2441,8 +3799,24 @@ func (s Snapshot) ValidateWorkingDirectory(cwd string) error {
 	return ErrForbiddenCWD
 }
 
+func normalizeChannelKey(raw string) string {
+	key := strings.ToLower(strings.TrimSpace(raw))
+	key = strings.ReplaceAll(key, "_", "-")
+	return key
+}
+
+func isSupportedExtendedChannelKey(channel string) bool {
+	for _, item := range waveExtendedChannelKeys {
+		if item == channel {
+			return true
+		}
+	}
+	return false
+}
+
 func (s Snapshot) IsChannelEnabled(channel string) bool {
-	switch strings.ToLower(strings.TrimSpace(channel)) {
+	channel = normalizeChannelKey(channel)
+	switch channel {
 	case "discord":
 		if len(s.DiscordInstances) > 0 {
 			return hasEnabledDiscordInstance(s.DiscordInstances)
@@ -2453,7 +3827,23 @@ func (s Snapshot) IsChannelEnabled(channel string) bool {
 			return hasEnabledTelegramInstance(s.TelegramInstances)
 		}
 		return s.TelegramEnabled
+	case "feishu":
+		if len(s.FeishuInstances) > 0 {
+			return hasEnabledFeishuInstance(s.FeishuInstances)
+		}
+		return s.FeishuEnabled
+	case "wecom":
+		if len(s.WeComInstances) > 0 {
+			return hasEnabledWeComInstance(s.WeComInstances)
+		}
+		return s.WeComEnabled
 	default:
+		if extended, ok := s.ExtendedChannels[channel]; ok {
+			if len(extended.Instances) > 0 {
+				return hasEnabledExtendedInstance(extended.Instances)
+			}
+			return extended.Enabled
+		}
 		return false
 	}
 }
@@ -2469,7 +3859,7 @@ func (s Snapshot) WorkspaceSkillDir(workspace string) string {
 	}
 	relative := strings.TrimSpace(s.Skills.Sources.WorkspaceDir)
 	if relative == "" {
-		relative = ".synapsex/skills"
+		relative = ".clawx/skills"
 	}
 	if filepath.IsAbs(relative) {
 		return filepath.Clean(relative)
@@ -2495,6 +3885,30 @@ func filterEmpty(values []string) []string {
 		if trimmed != "" {
 			result = append(result, trimmed)
 		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func normalizeOwnerAllowlist(values []string) []string {
+	values = filterEmpty(values)
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
 	}
 	if len(result) == 0 {
 		return nil
@@ -2593,6 +4007,17 @@ func normalizeHealthPath(raw string) string {
 	value := strings.TrimSpace(raw)
 	if value == "" {
 		return "/healthz"
+	}
+	if strings.HasPrefix(value, "/") {
+		return value
+	}
+	return "/" + value
+}
+
+func normalizeWebhookPath(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
 	}
 	if strings.HasPrefix(value, "/") {
 		return value

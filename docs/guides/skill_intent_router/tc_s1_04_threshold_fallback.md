@@ -4,7 +4,7 @@
 - 验证低置信度不会误触发 Skill，会回退到普通任务路径。
 
 ## 步骤
-1. 在 `~/.synapsex/config.json` 中确认：
+1. 在 `~/.clawx/config.json` 中确认：
    - `intentRouter.llmFallback.enabled=true`
    - `intentRouter.llmFallback.confidenceThreshold=0.72`
 2. 重启服务。

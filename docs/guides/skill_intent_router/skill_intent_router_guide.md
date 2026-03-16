@@ -8,7 +8,7 @@
 ## 前置
 1. Go 1.23.x
 2. `go test ./...` 可通过
-3. 已有可运行配置文件：`~/.synapsex/config.json`
+3. 已有可运行配置文件：`~/.clawx/config.json`
 4. 如需渠道联调，已完成 Discord/Telegram Bot 基础接入
 
 ## Step 1: 本地编译与测试
@@ -19,7 +19,7 @@ go test ./...
 ## Step 2: Starter Skill 说明
 首次启动会自动创建：
 
-- `~/.synapsex/skills/echo/SKILL.md`
+- `~/.clawx/skills/echo/SKILL.md`
 
 如果你想覆盖为自己的内容，再手动改这个文件。示例：
 
@@ -35,10 +35,10 @@ aliases:
 
 ## Step 3: 校验 Registry CLI
 ```bash
-go run ./cmd/synapsex skill list
-go run ./cmd/synapsex skill reload
-go run ./cmd/synapsex skill disable echo
-go run ./cmd/synapsex skill enable echo
+go run ./cmd/clawx skill list
+go run ./cmd/clawx skill reload
+go run ./cmd/clawx skill disable echo
+go run ./cmd/clawx skill enable echo
 ```
 
 预期：
@@ -47,7 +47,7 @@ go run ./cmd/synapsex skill enable echo
 
 ## Step 4: 启动服务
 ```bash
-go run ./cmd/synapsex
+go run ./cmd/clawx
 ```
 
 关注日志字段：
@@ -60,7 +60,7 @@ go run ./cmd/synapsex
 在 Discord 或 Telegram 中发送：
 1. `/new`
 2. `list`
-3. `/sx-skills`（查看 SynapseX 技能目录）
+3. `/sx-skills`（查看 ClawX 技能目录）
 4. `/sx-skill echo 请返回: hello-skill`
 5. `echo hello-exact`
 6. `repeat hello-alias`
@@ -71,7 +71,7 @@ go run ./cmd/synapsex
 - 非命中请求回退普通任务路径。
 - 拒绝场景有明确错误信息（非静默失败）。
 - 回包来源可区分：
-  - `[SynapseX Skill]`：由 SynapseX Skill 路径执行
+  - `[ClawX Skill]`：由 ClawX Skill 路径执行
   - `[Agent Direct]`：普通执行路径（由执行器自行决定内部技能）
 
 ## 对应用例

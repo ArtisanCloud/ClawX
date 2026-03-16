@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"synapsex/internal/domain/execution"
+	"clawx/internal/domain/execution"
 )
 
 type ExecutorFunc func(ctx context.Context, request execution.Request) (execution.Result, error)
@@ -82,6 +82,8 @@ func (r *DirectRunner) Execute(ctx context.Context, request execution.Request) (
 		if err := r.validateCWD(request.CWD); err != nil {
 			return execution.Result{
 				BackendSessionID: request.BackendSessionID,
+				MemoryScope:      request.MemoryScope,
+				MemoryACLMode:    request.MemoryACLMode,
 				State:            execution.ResultFailed,
 				StartedAt:        time.Now().UTC(),
 				CompletedAt:      time.Now().UTC(),
@@ -94,6 +96,8 @@ func (r *DirectRunner) Execute(ctx context.Context, request execution.Request) (
 	if err != nil {
 		return execution.Result{
 			BackendSessionID: request.BackendSessionID,
+			MemoryScope:      request.MemoryScope,
+			MemoryACLMode:    request.MemoryACLMode,
 			State:            mapErrorToResultState(err),
 			StartedAt:        time.Now().UTC(),
 			CompletedAt:      time.Now().UTC(),
@@ -106,6 +110,12 @@ func (r *DirectRunner) Execute(ctx context.Context, request execution.Request) (
 	}
 	if result.State == "" {
 		result.State = execution.ResultSuccess
+	}
+	if strings.TrimSpace(result.MemoryScope) == "" {
+		result.MemoryScope = strings.TrimSpace(request.MemoryScope)
+	}
+	if strings.TrimSpace(result.MemoryACLMode) == "" {
+		result.MemoryACLMode = strings.TrimSpace(request.MemoryACLMode)
 	}
 	if result.StartedAt.IsZero() {
 		result.StartedAt = time.Now().UTC()
@@ -156,7 +166,7 @@ func buildCLIExecutor(commandName string, args []string) ExecutorFunc {
 		startedAt := time.Now().UTC()
 		cmd := exec.CommandContext(ctx, commandName, args...)
 		cmd.Dir = request.CWD
-		cmd.Stdin = strings.NewReader(request.Input)
+		cmd.Stdin = strings.NewReader(composeExecutionInput(request))
 
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer
@@ -198,4 +208,16 @@ func defaultBackendSessionID(request execution.Request) string {
 		return request.BackendSessionID
 	}
 	return fmt.Sprintf("backend-%s", request.SessionID)
+}
+
+func composeExecutionInput(request execution.Request) string {
+	memoryContext := strings.TrimSpace(request.MemoryContext)
+	input := strings.TrimSpace(request.Input)
+	if memoryContext == "" {
+		return request.Input
+	}
+	if input == "" {
+		return memoryContext
+	}
+	return memoryContext + "\n\n---\n\n" + request.Input
 }

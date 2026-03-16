@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"synapsex/internal/domain/session"
+	"clawx/internal/domain/session"
 )
 
 func TestSessionFileRepositoryCreateAndReload(t *testing.T) {
@@ -154,5 +154,93 @@ func TestSessionFileRepositoryRebuildsFromTranscriptWhenIndexMissing(t *testing.
 	}
 	if got.BackendSessionID != record.BackendSessionID {
 		t.Fatalf("unexpected backend session id after rebuild: %q", got.BackendSessionID)
+	}
+}
+
+func TestSessionFileRepositoryWindowBindingPersistsAcrossReload(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	repo, err := NewSessionFileRepository(stateDir)
+	if err != nil {
+		t.Fatalf("new file repository: %v", err)
+	}
+
+	binding := session.WindowBinding{
+		WindowID:         "window-a",
+		CurrentSessionID: "sess-1",
+		ConversationID:   "discord:-:chan:user|ch=discord|inst=discord-default|agent=main",
+		UpdatedAt:        time.Now().UTC(),
+		LastUsedAt:       time.Now().UTC(),
+	}
+	if err := repo.SetWindowBinding(context.Background(), binding); err != nil {
+		t.Fatalf("set window binding: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(stateDir, "window_bindings.json")); err != nil {
+		t.Fatalf("expect window_bindings.json to exist: %v", err)
+	}
+
+	reloaded, err := NewSessionFileRepository(stateDir)
+	if err != nil {
+		t.Fatalf("reload repository: %v", err)
+	}
+	got, err := reloaded.GetWindowBinding(context.Background(), "window-a")
+	if err != nil {
+		t.Fatalf("get window binding after reload: %v", err)
+	}
+	if got.CurrentSessionID != binding.CurrentSessionID {
+		t.Fatalf("unexpected current session id: got=%q want=%q", got.CurrentSessionID, binding.CurrentSessionID)
+	}
+	if got.ConversationID != binding.ConversationID {
+		t.Fatalf("unexpected conversation id: got=%q want=%q", got.ConversationID, binding.ConversationID)
+	}
+}
+
+func TestSessionFileRepositoryListWindowBindingsByConversation(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	repo, err := NewSessionFileRepository(stateDir)
+	if err != nil {
+		t.Fatalf("new file repository: %v", err)
+	}
+
+	now := time.Now().UTC()
+	bindings := []session.WindowBinding{
+		{
+			WindowID:         "window-a",
+			CurrentSessionID: "sess-a",
+			ConversationID:   "conv-a",
+			UpdatedAt:        now,
+			LastUsedAt:       now,
+		},
+		{
+			WindowID:         "window-b",
+			CurrentSessionID: "sess-b",
+			ConversationID:   "conv-a",
+			UpdatedAt:        now,
+			LastUsedAt:       now,
+		},
+		{
+			WindowID:         "window-c",
+			CurrentSessionID: "sess-c",
+			ConversationID:   "conv-b",
+			UpdatedAt:        now,
+			LastUsedAt:       now,
+		},
+	}
+	for _, binding := range bindings {
+		if err := repo.SetWindowBinding(context.Background(), binding); err != nil {
+			t.Fatalf("set window binding %s: %v", binding.WindowID, err)
+		}
+	}
+
+	got, err := repo.ListWindowBindingsByConversation(context.Background(), "conv-a")
+	if err != nil {
+		t.Fatalf("list window bindings: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("unexpected binding count: got=%d want=2", len(got))
 	}
 }

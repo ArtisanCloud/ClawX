@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	skilldomain "synapsex/internal/domain/skill"
+	skilldomain "clawx/internal/domain/skill"
 )
 
 var ErrInvalidFrontmatter = errors.New("invalid skill frontmatter")

@@ -11,8 +11,10 @@ type ControlSessionSummary struct {
 }
 
 type ControlResponse struct {
+	Message            string
 	CreatedSessionID   string
 	ResumedSessionID   string
+	SwitchedSessionID  string
 	CancelledSessionID string
 	CancelNoop         bool
 	Sessions           []ControlSessionSummary
@@ -23,10 +25,14 @@ type ControlResponse struct {
 
 func FormatControlResponse(result ControlResponse) string {
 	switch {
+	case strings.TrimSpace(result.Message) != "":
+		return strings.TrimSpace(result.Message)
 	case result.CreatedSessionID != "":
 		return fmt.Sprintf("已创建新会话: %s", result.CreatedSessionID)
 	case result.ResumedSessionID != "":
 		return fmt.Sprintf("已恢复会话: %s", result.ResumedSessionID)
+	case result.SwitchedSessionID != "":
+		return fmt.Sprintf("已切换当前会话: %s", result.SwitchedSessionID)
 	case result.CancelledSessionID != "":
 		if result.CancelNoop {
 			return fmt.Sprintf("当前会话未在执行，无需取消: %s", result.CancelledSessionID)

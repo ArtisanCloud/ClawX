@@ -88,7 +88,7 @@ func dialGateway(ctx context.Context, rawURL string) (*gatewaySocket, error) {
 		hostHeader = address
 	}
 
-	request := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: %s\r\nUser-Agent: synapsex-discord-gateway\r\n\r\n", path, hostHeader, key)
+	request := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: %s\r\nUser-Agent: clawx-discord-gateway\r\n\r\n", path, hostHeader, key)
 	if _, err := io.WriteString(conn, request); err != nil {
 		_ = conn.Close()
 		return nil, err

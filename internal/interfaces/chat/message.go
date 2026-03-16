@@ -15,11 +15,14 @@ type ContextFlags struct {
 
 type Message struct {
 	ConversationID string
+	WindowID       string
 	UserID         string
 	Text           string
 	ReplyTo        *string
 	Attachments    []Attachment
 	Channel        string
+	InstanceID     string
+	RouteKey       string
 	ContextFlags   ContextFlags
 }
 
@@ -27,4 +30,3 @@ type Sender interface {
 	SendText(ctx context.Context, sessionID, chunk string, isFinal bool) error
 	SendError(ctx context.Context, sessionID, message string) error
 }
-

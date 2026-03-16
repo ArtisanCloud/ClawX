@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"synapsex/internal/domain/execution"
+	"clawx/internal/domain/execution"
 )
 
 var codexLogMu sync.Mutex
@@ -50,7 +50,7 @@ func appendCodexTrace(
 	stderr string,
 	runErr error,
 ) error {
-	logRoot := synapsexLogsRoot()
+	logRoot := clawxLogsRoot()
 	logFile := filepath.Join(logRoot, "codex", sanitizeFileSegment(request.SessionID)+".jsonl")
 
 	trace := codexRunTrace{
@@ -110,15 +110,15 @@ func appendJSONL(path string, value any) error {
 	return nil
 }
 
-func synapsexLogsRoot() string {
-	if explicit := strings.TrimSpace(os.Getenv("SYNAPSEX_LOG_DIR")); explicit != "" {
+func clawxLogsRoot() string {
+	if explicit := strings.TrimSpace(os.Getenv("CLAWX_LOG_DIR")); explicit != "" {
 		return explicit
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
-		return filepath.Join(".synapsex", "logs")
+		return filepath.Join(".clawx", "logs")
 	}
-	return filepath.Join(home, ".synapsex", "logs")
+	return filepath.Join(home, ".clawx", "logs")
 }
 
 func sanitizeFileSegment(raw string) string {
