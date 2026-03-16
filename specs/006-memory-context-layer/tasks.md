@@ -108,16 +108,16 @@
 
 ### 测试任务（US3）
 
-- [ ] T033 [P] [US3] 增加主会话判定单测（private + owner allowlist）于 /home/ubuntu/workspace/ClawX/tests/unit/memory_main_session_acl_test.go
-- [ ] T034 [P] [US3] 增加共享会话禁读 `MEMORY.md` 集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_shared_acl_test.go
-- [ ] T035 [P] [US3] 增加 ACL 冲突降级与审计集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_acl_degrade_test.go
+- [X] T033 [P] [US3] 增加主会话判定单测（private + owner allowlist）于 /home/ubuntu/workspace/ClawX/tests/unit/memory_main_session_acl_test.go
+- [X] T034 [P] [US3] 增加共享会话禁读 `MEMORY.md` 集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_shared_acl_test.go
+- [X] T035 [P] [US3] 增加 ACL 冲突降级与审计集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_acl_degrade_test.go
 
 ### 实现任务（US3）
 
-- [ ] T036 [US3] 实现主会话分类器（chat_mode 决策）于 /home/ubuntu/workspace/ClawX/internal/application/memory/session_classifier.go
-- [ ] T037 [US3] 在加载器接入 `main_private` ACL 判定于 /home/ubuntu/workspace/ClawX/internal/application/memory/loader_acl.go
-- [ ] T038 [US3] 实现最小权限降级策略于 /home/ubuntu/workspace/ClawX/internal/application/memory/degrade_policy.go
-- [ ] T039 [US3] 记录 `memory_scope/memory_acl_mode` 审计字段于 /home/ubuntu/workspace/ClawX/cmd/clawx/main.go
+- [X] T036 [US3] 实现主会话分类器（chat_mode 决策）于 /home/ubuntu/workspace/ClawX/internal/application/memory/session_classifier.go
+- [X] T037 [US3] 在加载器接入 `main_private` ACL 判定于 /home/ubuntu/workspace/ClawX/internal/application/memory/loader_acl.go
+- [X] T038 [US3] 实现最小权限降级策略于 /home/ubuntu/workspace/ClawX/internal/application/memory/degrade_policy.go
+- [X] T039 [US3] 记录 `memory_scope/memory_acl_mode` 审计字段于 /home/ubuntu/workspace/ClawX/cmd/clawx/main.go
 
 **检查点**: US3 完成后，主/共享会话 ACL 可独立验收
 
