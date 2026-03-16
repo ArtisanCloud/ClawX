@@ -118,6 +118,32 @@ func newMemoryExecutionRouterForIntegrationWithMemoryConfig(t *testing.T, memory
 		projectapp.WithDefaultProjectID("main"),
 		projectapp.WithMemoryTemplateManager(memoryapp.NewTemplateManager()),
 	)
+	templateStore, err := persistence.NewMemoryTemplateFileStore(workspaceRoot)
+	if err != nil {
+		t.Fatalf("new memory template store: %v", err)
+	}
+	journalStore, err := persistence.NewMemoryJournalFileStore(workspaceRoot)
+	if err != nil {
+		t.Fatalf("new memory journal store: %v", err)
+	}
+	auditStore, err := persistence.NewMemoryAuditFileStore(workspaceRoot)
+	if err != nil {
+		t.Fatalf("new memory audit store: %v", err)
+	}
+	digestStore, err := persistence.NewMemoryDigestFileStore(workspaceRoot)
+	if err != nil {
+		t.Fatalf("new memory digest store: %v", err)
+	}
+	memoryService := memoryapp.NewCommandService(
+		templateStore,
+		journalStore,
+		auditStore,
+		digestStore,
+		memoryapp.WithCommandWorkspaceRoot(workspaceRoot),
+		memoryapp.WithCommandProjectResolver(projectService),
+		memoryapp.WithCommandOwnerAllowlist(memoryCfg.OwnerAllowlist),
+		memoryapp.WithCommandAutoDigestEnabled(memoryCfg.AutoDigestEnabled),
+	)
 
 	repo := persistence.NewSessionMemoryRepository()
 	manager := service.NewSessionManager(repo, repo, nil)
@@ -129,13 +155,17 @@ func newMemoryExecutionRouterForIntegrationWithMemoryConfig(t *testing.T, memory
 		AllowedRoots:    []string{"."},
 		DefaultCWD:      ".",
 		Timeout:         2 * time.Second,
+		DefaultAgentID:  "main",
 		TelegramEnabled: true,
 		Projects: config.ProjectConfig{
 			WorkspaceRoot:    workspaceRoot,
 			DefaultProjectID: "main",
 		},
 		Memory: memoryCfg,
-	}, manager, backendSpy, service.WithProjectResolver(projectService))
+	}, manager, backendSpy,
+		service.WithProjectResolver(projectService),
+		service.WithMemoryCommandService(memoryService),
+	)
 
 	return router, projectService, backendSpy, workspaceRoot
 }

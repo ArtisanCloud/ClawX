@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"clawx/internal/application/command"
+	memoryapp "clawx/internal/application/memory"
 	projectdomain "clawx/internal/domain/project"
 	"clawx/internal/domain/session"
 )
@@ -44,6 +46,14 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 		return r.handleProjectControlCommand(ctx, projectCommand, routeKey)
 	}
 	if !errors.Is(err, command.ErrNotProjectControlCommand) {
+		return ControlFlowResult{}, err
+	}
+
+	memoryCommand, err := command.ParseMemoryControlCommand(rawCommand)
+	if err == nil {
+		return r.handleMemoryControlCommand(ctx, memoryCommand, conversationID, window, routeKey)
+	}
+	if !errors.Is(err, command.ErrNotMemoryControlCommand) {
 		return ControlFlowResult{}, err
 	}
 
@@ -305,4 +315,99 @@ func normalizeProjectStatus(status projectdomain.Status) string {
 		return string(projectdomain.StatusActive)
 	}
 	return value
+}
+
+func (r *Router) handleMemoryControlCommand(ctx context.Context, cmd command.MemoryControlCommand, conversationID, windowID, routeKey string) (ControlFlowResult, error) {
+	if r.memoryControl == nil {
+		return ControlFlowResult{}, command.ErrInvalidControlCommand
+	}
+
+	projectID, _, err := r.resolveControlProject(ctx, routeKey)
+	if err != nil {
+		return ControlFlowResult{}, err
+	}
+	scopedWindowID := buildSessionScopeWindowID(windowID, projectID)
+	agentID := r.resolveControlAgentID(ctx, conversationID, scopedWindowID)
+
+	switch cmd.Kind {
+	case command.MemoryControlNote:
+		result, err := r.memoryControl.Note(ctx, memoryapp.NoteInput{
+			RouteKey:        routeKey,
+			ProjectID:       projectID,
+			AgentID:         agentID,
+			Text:            cmd.Text,
+			Shared:          cmd.Shared,
+			UserID:          "",
+			IsDirectMessage: false,
+			RequestedBy:     "chat-control",
+		})
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{
+			Message: fmt.Sprintf("记忆写入成功: scope=%s at=%s", result.Scope, result.Timestamp.Format(time.RFC3339)),
+		}, nil
+	case command.MemoryControlDigest:
+		result, err := r.memoryControl.Digest(ctx, memoryapp.DigestInput{
+			RouteKey:        routeKey,
+			ProjectID:       projectID,
+			AgentID:         agentID,
+			UserID:          "",
+			IsDirectMessage: false,
+			RequestedBy:     "chat-control",
+		})
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{
+			Message: fmt.Sprintf(
+				"记忆汇总完成: job=%s status=%s output=%s auto_digest=%t",
+				result.JobID,
+				result.Status,
+				result.OutputFile,
+				result.AutoDigestEnabled,
+			),
+		}, nil
+	case command.MemoryControlAudit:
+		result, err := r.memoryControl.Audit(ctx, memoryapp.AuditInput{
+			RouteKey:        routeKey,
+			ProjectID:       projectID,
+			AgentID:         agentID,
+			UserID:          "",
+			IsDirectMessage: false,
+			Limit:           50,
+		})
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{
+			Message: fmt.Sprintf(
+				"记忆审计: template_version=%s required=%d missing=%d acl_denied=%d budget_skipped=%d recent_errors=%q",
+				result.TemplateVersion,
+				result.RequiredFiles,
+				result.MissingRequired,
+				result.ACLDeniedCount,
+				result.BudgetSkippedCount,
+				result.RecentErrors,
+			),
+		}, nil
+	default:
+		return ControlFlowResult{}, command.ErrInvalidControlCommand
+	}
+}
+
+func (r *Router) resolveControlAgentID(ctx context.Context, conversationID, scopedWindowID string) string {
+	if r.sessionManager != nil {
+		record, err := r.sessionManager.GetCurrentSessionByWindow(ctx, strings.TrimSpace(conversationID), strings.TrimSpace(scopedWindowID))
+		if err == nil && strings.TrimSpace(record.AgentID) != "" {
+			return strings.TrimSpace(record.AgentID)
+		}
+	}
+	if strings.TrimSpace(r.cfg.DefaultAgentID) != "" {
+		return strings.TrimSpace(r.cfg.DefaultAgentID)
+	}
+	if strings.TrimSpace(r.backend.Name()) != "" {
+		return strings.TrimSpace(r.backend.Name())
+	}
+	return "main"
 }

@@ -1453,6 +1453,10 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 	if err != nil {
 		return nil, "", fmt.Errorf("init project service: %w", err)
 	}
+	memoryService, err := newMemoryCommandService(cfg, projectService)
+	if err != nil {
+		return nil, "", fmt.Errorf("init memory service: %w", err)
+	}
 
 	if len(cfg.Agents) > 0 && len(cfg.ProviderProfiles) > 0 {
 		agentIDs := sortedAgentIDs(cfg.Agents)
@@ -1494,6 +1498,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 				runner,
 				service.WithIntentPipeline(pipeline),
 				service.WithProjectResolver(projectService),
+				service.WithMemoryCommandService(memoryService),
 			)
 			profileCommand := strings.TrimSpace(profile.Command)
 			if profileCommand == "" {
@@ -1552,7 +1557,13 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 	primaryRouter := func() *service.Router {
 		registry, pipeline, err := buildSkillRuntimeComponents(cfg, primaryID, cfg.DefaultCWD)
 		if err != nil {
-			return service.NewRouter(cfg, sessionManager, runner, service.WithProjectResolver(projectService))
+			return service.NewRouter(
+				cfg,
+				sessionManager,
+				runner,
+				service.WithProjectResolver(projectService),
+				service.WithMemoryCommandService(memoryService),
+			)
 		}
 		primaryRegistry = registry
 		return service.NewRouter(
@@ -1561,6 +1572,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			runner,
 			service.WithIntentPipeline(pipeline),
 			service.WithProjectResolver(projectService),
+			service.WithMemoryCommandService(memoryService),
 		)
 	}()
 

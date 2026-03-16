@@ -63,6 +63,12 @@ type ProjectCommandService interface {
 	ConfirmProjectSwitch(ctx context.Context, proposalID, updatedBy string) (projectdomain.RouteBinding, error)
 }
 
+type MemoryCommandService interface {
+	Note(ctx context.Context, input memoryapp.NoteInput) (memoryapp.NoteResult, error)
+	Digest(ctx context.Context, input memoryapp.DigestInput) (memoryapp.DigestResult, error)
+	Audit(ctx context.Context, input memoryapp.AuditInput) (memoryapp.AuditResult, error)
+}
+
 type Router struct {
 	cfg            config.Snapshot
 	sessionManager *SessionManager
@@ -70,6 +76,7 @@ type Router struct {
 	intentPipeline *intent.Pipeline
 	project        ProjectResolver
 	projectControl ProjectCommandService
+	memoryControl  MemoryCommandService
 	memoryLoader   *memoryapp.Loader
 	scopeResolver  *memoryapp.ScopeResolver
 }
@@ -100,6 +107,12 @@ func WithMemoryLoader(loader *memoryapp.Loader) RouterOption {
 func WithMemoryScopeResolver(resolver *memoryapp.ScopeResolver) RouterOption {
 	return func(r *Router) {
 		r.scopeResolver = resolver
+	}
+}
+
+func WithMemoryCommandService(memoryControl MemoryCommandService) RouterOption {
+	return func(r *Router) {
+		r.memoryControl = memoryControl
 	}
 }
 
@@ -239,7 +252,7 @@ func isBuiltInControlCommand(text string) bool {
 	}
 	name := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fields[0])), "/")
 	switch name {
-	case "new", "resume", "switch", "list", "cancel", "current", "project":
+	case "new", "resume", "switch", "list", "cancel", "current", "project", "memory":
 		return true
 	default:
 		return false

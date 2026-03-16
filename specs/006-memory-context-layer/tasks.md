@@ -131,22 +131,22 @@
 
 ### 测试任务（US4）
 
-- [ ] T040 [P] [US4] 增加 `/memory note` 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_note_contract_test.go
-- [ ] T041 [P] [US4] 增加 `/memory digest` 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_digest_contract_test.go
-- [ ] T042 [P] [US4] 增加 `/memory audit` 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_audit_contract_test.go
-- [ ] T043 [P] [US4] 增加 note/digest/audit 集成验收测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_commands_flow_test.go
-- [ ] T044 [P] [US4] 增加 `/memory note --shared` ACL 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_note_shared_contract_test.go
-- [ ] T045 [P] [US4] 增加共享写入成功/拒绝集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_note_shared_flow_test.go
+- [X] T040 [P] [US4] 增加 `/memory note` 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_note_contract_test.go
+- [X] T041 [P] [US4] 增加 `/memory digest` 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_digest_contract_test.go
+- [X] T042 [P] [US4] 增加 `/memory audit` 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_audit_contract_test.go
+- [X] T043 [P] [US4] 增加 note/digest/audit 集成验收测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_commands_flow_test.go
+- [X] T044 [P] [US4] 增加 `/memory note --shared` ACL 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_note_shared_contract_test.go
+- [X] T045 [P] [US4] 增加共享写入成功/拒绝集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_note_shared_flow_test.go
 
 ### 实现任务（US4）
 
-- [ ] T046 [US4] 新增 `/memory` CLI 命令入口于 /home/ubuntu/workspace/ClawX/cmd/clawx/memory.go
-- [ ] T047 [US4] 实现 `note` 应用服务（默认私有写回）于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_note.go
-- [ ] T048 [US4] 实现 `digest` 应用服务（手工触发 + 自动默认关闭）于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_digest.go
-- [ ] T049 [US4] 实现 `audit` 应用服务（缺失/权限/隔离异常汇总）于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_audit.go
-- [ ] T050 [US4] 在控制流接入 `/memory` 命令优先级于 /home/ubuntu/workspace/ClawX/internal/application/service/router_control_flow.go
-- [ ] T051 [US4] 实现 `note --shared` 写入路径与 ACL 判定于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_note.go
-- [ ] T052 [US4] 在 `/memory` 命令解析中接入 `--shared` 参数于 /home/ubuntu/workspace/ClawX/cmd/clawx/memory.go
+- [X] T046 [US4] 新增 `/memory` CLI 命令入口于 /home/ubuntu/workspace/ClawX/cmd/clawx/memory.go
+- [X] T047 [US4] 实现 `note` 应用服务（默认私有写回）于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_note.go
+- [X] T048 [US4] 实现 `digest` 应用服务（手工触发 + 自动默认关闭）于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_digest.go
+- [X] T049 [US4] 实现 `audit` 应用服务（缺失/权限/隔离异常汇总）于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_audit.go
+- [X] T050 [US4] 在控制流接入 `/memory` 命令优先级于 /home/ubuntu/workspace/ClawX/internal/application/service/router_control_flow.go
+- [X] T051 [US4] 实现 `note --shared` 写入路径与 ACL 判定于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_note.go
+- [X] T052 [US4] 在 `/memory` 命令解析中接入 `--shared` 参数于 /home/ubuntu/workspace/ClawX/cmd/clawx/memory.go
 
 **检查点**: US4 完成后，写回与治理闭环可独立验收
 
