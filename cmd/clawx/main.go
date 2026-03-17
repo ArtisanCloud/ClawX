@@ -75,6 +75,10 @@ type agentRuntime struct {
 	skills          *skillregistry.Service
 }
 
+type runnerWrapper interface {
+	Run(context.Context) error
+}
+
 type executionCWDProjectResolver interface {
 	GetProject(ctx context.Context, projectID string) (projectdomain.Record, error)
 }
@@ -188,7 +192,7 @@ func runServe() error {
 	defer closeStore()
 
 	sessionManager := service.NewSessionManager(store, store, nil)
-	runtimes, defaultRuntimeID, err := buildAgentRuntimes(cfg, sessionManager)
+	runtimes, defaultRuntimeID, scheduleRunner, err := buildAgentRuntimes(cfg, sessionManager)
 	if err != nil {
 		return fmt.Errorf("build runtimes: %w", err)
 	}
@@ -210,6 +214,16 @@ func runServe() error {
 	fatalErrCh := make(chan error, 1)
 	started := false
 	httpRuntimeNeeded := false
+	if scheduleRunner != nil {
+		go func() {
+			if err := scheduleRunner.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				select {
+				case fatalErrCh <- fmt.Errorf("scheduler runner: %w", err):
+				default:
+				}
+			}
+		}()
+	}
 
 	if cfg.HealthProbeEnabled {
 		healthHandler.Register(httpMux, cfg.HealthProbePath)
@@ -1574,23 +1588,27 @@ func sanitizePromptInput(value string) string {
 	return strings.TrimSpace(cleaned)
 }
 
-func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionManager) (map[string]agentRuntime, string, error) {
+func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionManager) (map[string]agentRuntime, string, runnerWrapper, error) {
 	runtimes := make(map[string]agentRuntime)
 	projectService, err := newProjectCommandService(cfg)
 	if err != nil {
-		return nil, "", fmt.Errorf("init project service: %w", err)
+		return nil, "", nil, fmt.Errorf("init project service: %w", err)
 	}
 	memoryService, err := newMemoryCommandService(cfg, projectService)
 	if err != nil {
-		return nil, "", fmt.Errorf("init memory service: %w", err)
+		return nil, "", nil, fmt.Errorf("init memory service: %w", err)
 	}
 	attachmentStore, err := newAttachmentContextStore(cfg)
 	if err != nil {
-		return nil, "", fmt.Errorf("init attachment context store: %w", err)
+		return nil, "", nil, fmt.Errorf("init attachment context store: %w", err)
 	}
 	serviceCommandService, err := newServiceCommandService(cfg)
 	if err != nil {
-		return nil, "", fmt.Errorf("init service command service: %w", err)
+		return nil, "", nil, fmt.Errorf("init service command service: %w", err)
+	}
+	scheduleCommandService, scheduleRunner, err := newScheduleCommandService(cfg)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("init schedule command service: %w", err)
 	}
 	if len(cfg.Agents) > 0 && len(cfg.ProviderProfiles) > 0 {
 		agentIDs := sortedAgentIDs(cfg.Agents)
@@ -1598,7 +1616,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			agent := cfg.Agents[agentID]
 			profile, ok := cfg.ProviderProfiles[agent.ProfileID]
 			if !ok {
-				return nil, "", fmt.Errorf("agent %q references unknown profile %q", agent.ID, agent.ProfileID)
+				return nil, "", nil, fmt.Errorf("agent %q references unknown profile %q", agent.ID, agent.ProfileID)
 			}
 
 			timeout := cfg.Timeout
@@ -1624,7 +1642,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			runtimeCfg.Timeout = timeout
 			registry, pipeline, err := buildSkillRuntimeComponents(runtimeCfg, agent.ID, workspace)
 			if err != nil {
-				return nil, "", fmt.Errorf("init skill runtime for agent %q: %w", agent.ID, err)
+				return nil, "", nil, fmt.Errorf("init skill runtime for agent %q: %w", agent.ID, err)
 			}
 			router := service.NewRouter(
 				runtimeCfg,
@@ -1634,6 +1652,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 				service.WithProjectResolver(projectService),
 				service.WithMemoryCommandService(memoryService),
 				service.WithServiceCommandService(serviceCommandService),
+				service.WithScheduleCommandService(scheduleCommandService),
 			)
 			profileCommand := strings.TrimSpace(profile.Command)
 			if profileCommand == "" {
@@ -1666,7 +1685,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 	}
 	if defaultAgentID != "" {
 		if _, ok := runtimes[defaultAgentID]; ok {
-			return runtimes, defaultAgentID, nil
+			return runtimes, defaultAgentID, scheduleRunner, nil
 		}
 	}
 	if len(runtimes) > 0 {
@@ -1675,7 +1694,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			ids = append(ids, id)
 		}
 		sort.Strings(ids)
-		return runtimes, ids[0], nil
+		return runtimes, ids[0], scheduleRunner, nil
 	}
 
 	runner := buildRunner(cfg)
@@ -1701,6 +1720,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 				service.WithProjectResolver(projectService),
 				service.WithMemoryCommandService(memoryService),
 				service.WithServiceCommandService(serviceCommandService),
+				service.WithScheduleCommandService(scheduleCommandService),
 			)
 		}
 		primaryRegistry = registry
@@ -1712,6 +1732,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			service.WithProjectResolver(projectService),
 			service.WithMemoryCommandService(memoryService),
 			service.WithServiceCommandService(serviceCommandService),
+			service.WithScheduleCommandService(scheduleCommandService),
 		)
 	}()
 
@@ -1727,7 +1748,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 		runner:          runner,
 		skills:          primaryRegistry,
 	}
-	return runtimes, primaryID, nil
+	return runtimes, primaryID, scheduleRunner, nil
 }
 
 func sortedAgentIDs(values map[string]config.Agent) []string {

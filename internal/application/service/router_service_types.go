@@ -72,3 +72,75 @@ type ServiceLogsResult struct {
 	LogPath string
 	Content string
 }
+
+type ScheduleCommandService interface {
+	Add(context.Context, ScheduleAddInput) (ScheduleJobResult, error)
+	List(context.Context, ScheduleListInput) (ScheduleListResult, error)
+	Status(context.Context, ScheduleStatusInput) (ScheduleStatusResult, error)
+	Pause(context.Context, ScheduleUpdateInput) (ScheduleJobResult, error)
+	Resume(context.Context, ScheduleUpdateInput) (ScheduleJobResult, error)
+	RunNow(context.Context, ScheduleUpdateInput) (ScheduleRunNowResult, error)
+	Remove(context.Context, ScheduleUpdateInput) (ScheduleJobResult, error)
+}
+
+type ScheduleScopeInput struct {
+	ProjectID  string
+	AgentID    string
+	RouteScope string
+}
+
+type ScheduleAddInput struct {
+	Scope        ScheduleScopeInput
+	Name         string
+	ScheduleExpr string
+	TaskType     string
+	TaskArgs     map[string]string
+	RequestedBy  string
+}
+
+type ScheduleListInput struct {
+	Scope ScheduleScopeInput
+}
+
+type ScheduleStatusInput struct {
+	Scope    ScheduleScopeInput
+	NameOrID string
+}
+
+type ScheduleUpdateInput struct {
+	Scope    ScheduleScopeInput
+	NameOrID string
+}
+
+type ScheduleJobResult struct {
+	JobID         string
+	Name          string
+	Status        string
+	ScheduleExpr  string
+	TaskType      string
+	TaskArgs      map[string]string
+	NextRunAt     time.Time
+	LastRunAt     time.Time
+	LastRunResult string
+	Timezone      string
+}
+
+type ScheduleListResult struct {
+	Jobs []ScheduleJobResult
+}
+
+type ScheduleStatusResult struct {
+	Job        ScheduleJobResult
+	LastError  string
+	LastReason string
+}
+
+type ScheduleRunNowResult struct {
+	JobID      string
+	Name       string
+	Status     string
+	Result     string
+	Summary    string
+	StartedAt  time.Time
+	FinishedAt time.Time
+}

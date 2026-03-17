@@ -66,6 +66,13 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 	if !errors.Is(err, command.ErrNotServiceControlCommand) {
 		return ControlFlowResult{}, err
 	}
+	scheduleCommand, err := command.ParseScheduleControlCommand(rawCommand)
+	if err == nil {
+		return r.handleScheduleControlCommand(ctx, scheduleCommand, conversationID, window, routeKey)
+	}
+	if !errors.Is(err, command.ErrNotScheduleControlCommand) {
+		return ControlFlowResult{}, err
+	}
 
 	parsed, err := command.ParseControlCommand(rawCommand, conversationID, windowID...)
 	if err != nil {
@@ -504,4 +511,85 @@ func (r *Router) resolveControlAgentID(ctx context.Context, conversationID, scop
 		return strings.TrimSpace(r.backend.Name())
 	}
 	return "main"
+}
+
+func (r *Router) handleScheduleControlCommand(ctx context.Context, cmd command.ScheduleControlCommand, conversationID, windowID, routeKey string) (ControlFlowResult, error) {
+	if r.scheduleControl == nil {
+		return ControlFlowResult{}, command.ErrInvalidControlCommand
+	}
+	projectID, _, err := r.resolveControlProject(ctx, routeKey)
+	if err != nil {
+		return ControlFlowResult{}, err
+	}
+	scopedWindowID := buildSessionScopeWindowID(windowID, projectID)
+	agentID := r.resolveControlAgentID(ctx, conversationID, scopedWindowID)
+	scope := ScheduleScopeInput{ProjectID: projectID, AgentID: agentID}
+	if strings.TrimSpace(cmd.RouteScope) != "" {
+		scope.RouteScope = strings.TrimSpace(cmd.RouteScope)
+	}
+
+	switch cmd.Kind {
+	case command.ScheduleControlAdd:
+		result, err := r.scheduleControl.Add(ctx, ScheduleAddInput{
+			Scope:        scope,
+			Name:         cmd.NameOrID,
+			ScheduleExpr: cmd.CronExpr,
+			TaskType:     cmd.TaskType,
+			TaskArgs:     cmd.TaskArgs,
+			RequestedBy:  "chat-control",
+		})
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{Message: fmt.Sprintf("定时任务已创建: %s id=%s status=%s next=%s tz=%s", result.Name, result.JobID, result.Status, result.NextRunAt.Format(time.RFC3339), result.Timezone)}, nil
+	case command.ScheduleControlList:
+		result, err := r.scheduleControl.List(ctx, ScheduleListInput{Scope: scope})
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		if len(result.Jobs) == 0 {
+			return ControlFlowResult{Message: "当前没有定时任务"}, nil
+		}
+		lines := []string{"定时任务列表:"}
+		for _, item := range result.Jobs {
+			lines = append(lines, fmt.Sprintf("- %s [%s] id=%s cron=%s next=%s last=%s", item.Name, item.Status, item.JobID, item.ScheduleExpr, item.NextRunAt.Format(time.RFC3339), item.LastRunResult))
+		}
+		return ControlFlowResult{Message: strings.Join(lines, "\n")}, nil
+	case command.ScheduleControlStatus:
+		result, err := r.scheduleControl.Status(ctx, ScheduleStatusInput{Scope: scope, NameOrID: cmd.NameOrID})
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		msg := fmt.Sprintf("定时任务状态: %s [%s] id=%s cron=%s next=%s last=%s", result.Job.Name, result.Job.Status, result.Job.JobID, result.Job.ScheduleExpr, result.Job.NextRunAt.Format(time.RFC3339), result.Job.LastRunResult)
+		if strings.TrimSpace(result.LastError) != "" {
+			msg += fmt.Sprintf("\n最近失败: %s", result.LastError)
+		}
+		return ControlFlowResult{Message: msg}, nil
+	case command.ScheduleControlPause:
+		result, err := r.scheduleControl.Pause(ctx, ScheduleUpdateInput{Scope: scope, NameOrID: cmd.NameOrID})
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{Message: fmt.Sprintf("定时任务已暂停: %s [%s]", result.Name, result.Status)}, nil
+	case command.ScheduleControlResume:
+		result, err := r.scheduleControl.Resume(ctx, ScheduleUpdateInput{Scope: scope, NameOrID: cmd.NameOrID})
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{Message: fmt.Sprintf("定时任务已恢复: %s [%s] next=%s", result.Name, result.Status, result.NextRunAt.Format(time.RFC3339))}, nil
+	case command.ScheduleControlRun:
+		result, err := r.scheduleControl.RunNow(ctx, ScheduleUpdateInput{Scope: scope, NameOrID: cmd.NameOrID})
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{Message: fmt.Sprintf("定时任务执行完成: %s result=%s summary=%s", result.Name, result.Result, result.Summary)}, nil
+	case command.ScheduleControlRemove:
+		result, err := r.scheduleControl.Remove(ctx, ScheduleUpdateInput{Scope: scope, NameOrID: cmd.NameOrID})
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{Message: fmt.Sprintf("定时任务已删除: %s [%s]", result.Name, result.Status)}, nil
+	default:
+		return ControlFlowResult{}, command.ErrInvalidControlCommand
+	}
 }

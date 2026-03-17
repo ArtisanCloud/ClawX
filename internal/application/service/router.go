@@ -71,16 +71,17 @@ type MemoryCommandService interface {
 }
 
 type Router struct {
-	cfg            config.Snapshot
-	sessionManager *SessionManager
-	backend        execution.Backend
-	intentPipeline *intent.Pipeline
-	project        ProjectResolver
-	projectControl ProjectCommandService
-	memoryControl  MemoryCommandService
-	serviceControl ServiceCommandService
-	memoryLoader   *memoryapp.Loader
-	scopeResolver  *memoryapp.ScopeResolver
+	cfg             config.Snapshot
+	sessionManager  *SessionManager
+	backend         execution.Backend
+	intentPipeline  *intent.Pipeline
+	project         ProjectResolver
+	projectControl  ProjectCommandService
+	memoryControl   MemoryCommandService
+	serviceControl  ServiceCommandService
+	scheduleControl ScheduleCommandService
+	memoryLoader    *memoryapp.Loader
+	scopeResolver   *memoryapp.ScopeResolver
 }
 
 type RouterOption func(*Router)
@@ -121,6 +122,12 @@ func WithMemoryCommandService(memoryControl MemoryCommandService) RouterOption {
 func WithServiceCommandService(serviceControl ServiceCommandService) RouterOption {
 	return func(r *Router) {
 		r.serviceControl = serviceControl
+	}
+}
+
+func WithScheduleCommandService(scheduleControl ScheduleCommandService) RouterOption {
+	return func(r *Router) {
+		r.scheduleControl = scheduleControl
 	}
 }
 
@@ -184,6 +191,14 @@ func (r *Router) Route(ctx context.Context, message chat.Message) (Decision, err
 	if serviceCommand, ok := inferServiceControlCommand(text); ok {
 		decision.Kind = DecisionControl
 		decision.Command = serviceCommand
+		if err := r.resolveProject(ctx, &decision); err != nil {
+			return Decision{}, err
+		}
+		return decision, nil
+	}
+	if scheduleCommand, ok := inferScheduleControlCommand(text); ok {
+		decision.Kind = DecisionControl
+		decision.Command = scheduleCommand
 		if err := r.resolveProject(ctx, &decision); err != nil {
 			return Decision{}, err
 		}
@@ -293,7 +308,7 @@ func builtInControlCommandName(text string) (string, bool) {
 	}
 	name := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fields[0])), "/")
 	switch name {
-	case "new", "resume", "switch", "list", "cancel", "current", "project", "memory", "service":
+	case "new", "resume", "switch", "list", "cancel", "current", "project", "memory", "service", "schedule":
 		return name, true
 	default:
 		return "", false
@@ -383,6 +398,40 @@ func inferServiceName(text string) string {
 	default:
 		return ""
 	}
+}
+
+func inferScheduleControlCommand(text string) (string, bool) {
+	raw := strings.TrimSpace(text)
+	if raw == "" {
+		return "", false
+	}
+	lowerRaw := strings.ToLower(raw)
+	if idx := strings.Index(lowerRaw, "/schedule "); idx >= 0 {
+		candidate := strings.TrimSpace(raw[idx:])
+		if _, err := command.ParseScheduleControlCommand(candidate); err == nil {
+			return candidate, true
+		}
+	}
+	lower := strings.ToLower(strings.Join(strings.Fields(raw), " "))
+	if containsAny(lower, "每周", "每 星期", "每星期") && containsAny(lower, "清理", "图片", "image", "长图", "缓存") {
+		return "/schedule add image-cleanup --cron \"0 3 * * 0\" --task image.cleanup --arg retention_days=30", true
+	}
+	if containsAny(lower, "立即", "马上", "run now", "运行") && containsAny(lower, "清理", "image", "图片") {
+		return "/schedule run image-cleanup", true
+	}
+	if containsAny(lower, "暂停", "pause") && containsAny(lower, "清理", "image", "图片") {
+		return "/schedule pause image-cleanup", true
+	}
+	if containsAny(lower, "恢复", "resume") && containsAny(lower, "清理", "image", "图片") {
+		return "/schedule resume image-cleanup", true
+	}
+	if !containsAny(lower, "定时", "schedule", "调度") {
+		return "", false
+	}
+	if containsAny(lower, "查看", "列出", "状态", "list") && containsAny(lower, "任务", "schedule", "调度") {
+		return "/schedule list", true
+	}
+	return "", false
 }
 
 func containsAny(text string, keywords ...string) bool {
