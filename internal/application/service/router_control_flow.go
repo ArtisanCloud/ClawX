@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -54,6 +56,14 @@ func (r *Router) HandleControlCommand(ctx context.Context, rawCommand, conversat
 		return r.handleMemoryControlCommand(ctx, memoryCommand, conversationID, window, routeKey)
 	}
 	if !errors.Is(err, command.ErrNotMemoryControlCommand) {
+		return ControlFlowResult{}, err
+	}
+
+	serviceCommand, err := command.ParseServiceControlCommand(rawCommand)
+	if err == nil {
+		return r.handleServiceControlCommand(ctx, serviceCommand, conversationID, window, routeKey)
+	}
+	if !errors.Is(err, command.ErrNotServiceControlCommand) {
 		return ControlFlowResult{}, err
 	}
 
@@ -390,6 +400,90 @@ func (r *Router) handleMemoryControlCommand(ctx context.Context, cmd command.Mem
 				result.BudgetSkippedCount,
 				result.RecentErrors,
 			),
+		}, nil
+	default:
+		return ControlFlowResult{}, command.ErrInvalidControlCommand
+	}
+}
+
+func (r *Router) handleServiceControlCommand(ctx context.Context, cmd command.ServiceControlCommand, conversationID, windowID, routeKey string) (ControlFlowResult, error) {
+	if r.serviceControl == nil {
+		return ControlFlowResult{}, command.ErrInvalidControlCommand
+	}
+
+	projectID, _, err := r.resolveControlProject(ctx, routeKey)
+	if err != nil {
+		return ControlFlowResult{}, err
+	}
+	scopedWindowID := buildSessionScopeWindowID(windowID, projectID)
+	agentID := r.resolveControlAgentID(ctx, conversationID, scopedWindowID)
+	workspace := filepath.Join(strings.TrimSpace(r.cfg.Projects.WorkspaceRoot), projectID, ".agents", agentID, "workspace")
+
+	switch cmd.Kind {
+	case command.ServiceControlStart:
+		result, err := r.serviceControl.Start(ctx, ServiceStartInput{
+			ProjectID: projectID,
+			AgentID:   agentID,
+			RouteKey:  routeKey,
+			Name:      cmd.Name,
+			Command:   cmd.Command,
+			CWD:       workspace,
+		})
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		return ControlFlowResult{
+			Message: fmt.Sprintf("服务已启动: %s pid=%d cwd=%s log=%s", result.Name, result.PID, workspace, result.LogPath),
+		}, nil
+	case command.ServiceControlStop:
+		result, err := r.serviceControl.Stop(ctx, ServiceStopInput{
+			ProjectID: projectID,
+			AgentID:   agentID,
+			Name:      cmd.Name,
+		})
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		if !result.Stopped {
+			return ControlFlowResult{Message: fmt.Sprintf("服务未运行: %s", result.Name)}, nil
+		}
+		return ControlFlowResult{Message: fmt.Sprintf("服务已停止: %s", result.Name)}, nil
+	case command.ServiceControlStatus:
+		result, err := r.serviceControl.Status(ctx, ServiceStatusInput{
+			ProjectID: projectID,
+			AgentID:   agentID,
+			Name:      cmd.Name,
+		})
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		if len(result.Services) == 0 {
+			return ControlFlowResult{Message: "当前没有受管服务"}, nil
+		}
+		sort.Slice(result.Services, func(i, j int) bool {
+			return result.Services[i].Name < result.Services[j].Name
+		})
+		lines := []string{"服务状态:"}
+		for _, item := range result.Services {
+			lines = append(lines, fmt.Sprintf("- %s [%s] pid=%d cwd=%s cmd=%s", item.Name, item.Status, item.PID, item.CWD, strings.Join(item.Command, " ")))
+		}
+		return ControlFlowResult{Message: strings.Join(lines, "\n")}, nil
+	case command.ServiceControlLogs:
+		result, err := r.serviceControl.Logs(ctx, ServiceLogsInput{
+			ProjectID: projectID,
+			AgentID:   agentID,
+			Name:      cmd.Name,
+			Tail:      cmd.Tail,
+		})
+		if err != nil {
+			return ControlFlowResult{}, err
+		}
+		content := strings.TrimSpace(result.Content)
+		if content == "" {
+			return ControlFlowResult{Message: fmt.Sprintf("日志为空: %s (%s)", result.Name, result.LogPath)}, nil
+		}
+		return ControlFlowResult{
+			Message: fmt.Sprintf("服务日志: %s (%s)\n%s", result.Name, result.LogPath, content),
 		}, nil
 	default:
 		return ControlFlowResult{}, command.ErrInvalidControlCommand

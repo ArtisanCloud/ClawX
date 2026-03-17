@@ -8,9 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,7 +22,10 @@ import (
 	chatiface "clawx/internal/interfaces/chat"
 )
 
-const MaxMessageLength = 4096
+const (
+	MaxMessageLength = 4096
+	MaxUploadBytes   = 20 * 1024 * 1024
+)
 
 const (
 	sendMessageRetries  = 3
@@ -301,6 +307,92 @@ func (a *Adapter) SendError(ctx context.Context, sessionID, message string) erro
 		return err
 	}
 	return a.SendDirect(ctx, target, strings.TrimSpace(message))
+}
+
+func (a *Adapter) SendLocalFile(ctx context.Context, target Target, filePath, caption string) error {
+	path := filepath.Clean(strings.TrimSpace(filePath))
+	if target.ChatID == 0 || path == "" {
+		return nil
+	}
+	stat, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if stat.IsDir() {
+		return fmt.Errorf("cannot upload directory: %s", path)
+	}
+	if stat.Size() > MaxUploadBytes {
+		return fmt.Errorf("file too large for telegram upload: size=%d limit=%d", stat.Size(), MaxUploadBytes)
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("chat_id", strconv.FormatInt(target.ChatID, 10)); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if strings.TrimSpace(caption) != "" {
+		if err := writer.WriteField("caption", strings.TrimSpace(caption)); err != nil {
+			_ = writer.Close()
+			return err
+		}
+	}
+	if target.ReplyToMessage != 0 {
+		if err := writer.WriteField("reply_to_message_id", strconv.FormatInt(target.ReplyToMessage, 10)); err != nil {
+			_ = writer.Close()
+			return err
+		}
+	}
+	if target.ThreadID != 0 {
+		if err := writer.WriteField("message_thread_id", strconv.FormatInt(target.ThreadID, 10)); err != nil {
+			_ = writer.Close()
+			return err
+		}
+	}
+	part, err := writer.CreateFormFile("document", filepath.Base(path))
+	if err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("%s/bot%s/sendDocument", a.baseURL, a.token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	var payloadResponse apiResponse
+	if err := json.Unmarshal(responseBody, &payloadResponse); err != nil {
+		return err
+	}
+	if !payloadResponse.OK {
+		return fmt.Errorf("telegram sendDocument failed: %s", strings.TrimSpace(payloadResponse.Description))
+	}
+	return nil
 }
 
 func (a *Adapter) lookupTarget(sessionID string) (Target, error) {

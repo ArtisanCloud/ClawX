@@ -14,8 +14,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,7 +29,10 @@ import (
 	chatiface "clawx/internal/interfaces/chat"
 )
 
-const MaxMessageLength = 2048
+const (
+	MaxMessageLength = 2048
+	MaxUploadBytes   = 20 * 1024 * 1024
+)
 
 const (
 	sendMessageRetries  = 3
@@ -295,6 +302,35 @@ func (a *Adapter) SendError(ctx context.Context, sessionID, message string) erro
 	return a.SendDirect(ctx, target, strings.TrimSpace(message))
 }
 
+func (a *Adapter) SendLocalFile(ctx context.Context, target Target, filePath, caption string) error {
+	_ = caption
+	target.ToUser = strings.TrimSpace(target.ToUser)
+	path := filepath.Clean(strings.TrimSpace(filePath))
+	if target.ToUser == "" || path == "" {
+		return nil
+	}
+	stat, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if stat.IsDir() {
+		return fmt.Errorf("cannot upload directory: %s", path)
+	}
+	if stat.Size() > MaxUploadBytes {
+		return fmt.Errorf("file too large for wecom upload: size=%d limit=%d", stat.Size(), MaxUploadBytes)
+	}
+
+	accessToken, err := a.getAccessToken(ctx)
+	if err != nil {
+		return err
+	}
+	mediaID, err := a.uploadMediaFile(ctx, accessToken, path)
+	if err != nil {
+		return err
+	}
+	return a.sendFileMessage(ctx, accessToken, target.ToUser, mediaID)
+}
+
 func (a *Adapter) lookupTarget(sessionID string) (Target, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -381,6 +417,98 @@ func (a *Adapter) sendMessageOnce(ctx context.Context, toUser, text string) erro
 	}
 	if apiResp.ErrCode != 0 {
 		return fmt.Errorf("wecom send message failed: errcode=%d errmsg=%s", apiResp.ErrCode, strings.TrimSpace(apiResp.ErrMsg))
+	}
+	return nil
+}
+
+func (a *Adapter) uploadMediaFile(ctx context.Context, accessToken, filePath string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("media", filepath.Base(filePath))
+	if err != nil {
+		_ = writer.Close()
+		return "", err
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		_ = writer.Close()
+		return "", err
+	}
+	if err := writer.Close(); err != nil {
+		return "", err
+	}
+
+	endpoint := fmt.Sprintf("%s/cgi-bin/media/upload?access_token=%s&type=file", a.baseURL, url.QueryEscape(accessToken))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var uploadResp wecomMediaUploadResponse
+	if err := json.Unmarshal(responseBody, &uploadResp); err != nil {
+		return "", err
+	}
+	if uploadResp.ErrCode != 0 || strings.TrimSpace(uploadResp.MediaID) == "" {
+		return "", fmt.Errorf("wecom media upload failed: errcode=%d errmsg=%s", uploadResp.ErrCode, strings.TrimSpace(uploadResp.ErrMsg))
+	}
+	return strings.TrimSpace(uploadResp.MediaID), nil
+}
+
+func (a *Adapter) sendFileMessage(ctx context.Context, accessToken, toUser, mediaID string) error {
+	payload := map[string]any{
+		"touser":  strings.TrimSpace(toUser),
+		"msgtype": "file",
+		"agentid": a.agentID,
+		"file": map[string]string{
+			"media_id": strings.TrimSpace(mediaID),
+		},
+		"safe": 0,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	endpoint := fmt.Sprintf("%s/cgi-bin/message/send?access_token=%s", a.baseURL, url.QueryEscape(accessToken))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	var apiResp wecomAPIResponse
+	if err := json.Unmarshal(responseBody, &apiResp); err != nil {
+		return err
+	}
+	if apiResp.ErrCode != 0 {
+		return fmt.Errorf("wecom send file failed: errcode=%d errmsg=%s", apiResp.ErrCode, strings.TrimSpace(apiResp.ErrMsg))
 	}
 	return nil
 }
@@ -669,4 +797,10 @@ type wecomAccessTokenResponse struct {
 type wecomAPIResponse struct {
 	ErrCode int    `json:"errcode"`
 	ErrMsg  string `json:"errmsg"`
+}
+
+type wecomMediaUploadResponse struct {
+	ErrCode int    `json:"errcode"`
+	ErrMsg  string `json:"errmsg"`
+	MediaID string `json:"media_id"`
 }

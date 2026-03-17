@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -210,6 +212,28 @@ func TestInteractionToCommandText(t *testing.T) {
 		t.Fatalf("unexpected /sx-skills mapping: got=%q ok=%v err=%v", got, ok, err)
 	}
 
+	projectArgsRaw, _ := json.Marshal("use image_tools")
+	got, ok, err = interactionToCommandText(discordInteractionData{
+		Name: "project",
+		Options: []discordInteractionOption{
+			{Name: "args", Type: discordApplicationCommandOptionTypeString, Value: projectArgsRaw},
+		},
+	})
+	if err != nil || !ok || got != "/project use image_tools" {
+		t.Fatalf("unexpected /project mapping: got=%q ok=%v err=%v", got, ok, err)
+	}
+
+	memoryArgsRaw, _ := json.Marshal("audit")
+	got, ok, err = interactionToCommandText(discordInteractionData{
+		Name: "memory",
+		Options: []discordInteractionOption{
+			{Name: "args", Type: discordApplicationCommandOptionTypeString, Value: memoryArgsRaw},
+		},
+	})
+	if err != nil || !ok || got != "/memory audit" {
+		t.Fatalf("unexpected /memory mapping: got=%q ok=%v err=%v", got, ok, err)
+	}
+
 	nameRaw, _ := json.Marshal("echo")
 	inputRaw, _ := json.Marshal("hello")
 	got, ok, err = interactionToCommandText(discordInteractionData{
@@ -221,6 +245,155 @@ func TestInteractionToCommandText(t *testing.T) {
 	})
 	if err != nil || !ok || got != "/sx-skill echo hello" {
 		t.Fatalf("unexpected /sx-skill mapping: got=%q ok=%v err=%v", got, ok, err)
+	}
+}
+
+func TestNormalizeMessageIncludesAttachments(t *testing.T) {
+	adapter, err := NewAdapter(Options{BotToken: "token"})
+	if err != nil {
+		t.Fatalf("new adapter: %v", err)
+	}
+
+	envelope, ok, err := adapter.normalizeMessage(discordMessageCreate{
+		ChannelID: "chan-1",
+		Content:   "转换成长图",
+		Attachments: []discordAttachment{
+			{
+				Filename:    "test.pdf",
+				URL:         "https://cdn.discordapp.com/test.pdf",
+				ContentType: "application/pdf",
+				Size:        9195520,
+			},
+		},
+		Author: struct {
+			ID  string `json:"id"`
+			Bot bool   `json:"bot"`
+		}{
+			ID: "user-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalize message: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected message to be accepted")
+	}
+	if got := len(envelope.Message.Attachments); got != 1 {
+		t.Fatalf("unexpected attachments count: %d", got)
+	}
+	if envelope.Message.Attachments[0].Name != "test.pdf" {
+		t.Fatalf("unexpected attachment name: %q", envelope.Message.Attachments[0].Name)
+	}
+	if envelope.Message.Attachments[0].ContentType != "application/pdf" {
+		t.Fatalf("unexpected attachment content type: %q", envelope.Message.Attachments[0].ContentType)
+	}
+}
+
+func TestNormalizeMessageAcceptsDirectAttachmentOnly(t *testing.T) {
+	adapter, err := NewAdapter(Options{BotToken: "token"})
+	if err != nil {
+		t.Fatalf("new adapter: %v", err)
+	}
+
+	envelope, ok, err := adapter.normalizeMessage(discordMessageCreate{
+		ChannelID: "chan-1",
+		Content:   "",
+		Attachments: []discordAttachment{
+			{
+				Filename: "test.pdf",
+				URL:      "https://cdn.discordapp.com/test.pdf",
+			},
+		},
+		Author: struct {
+			ID  string `json:"id"`
+			Bot bool   `json:"bot"`
+		}{
+			ID: "user-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalize attachment-only message: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected attachment-only direct message to be accepted")
+	}
+	if strings.TrimSpace(envelope.Message.Text) == "" {
+		t.Fatalf("expected synthetic text for attachment-only message")
+	}
+}
+
+func TestSendLocalFilePostsMultipartToDiscordAPI(t *testing.T) {
+	var gotAuth string
+	var gotPath string
+	var gotCT string
+	var gotPayload string
+	var gotFileName string
+	var gotFileBody string
+
+	client := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			gotAuth = r.Header.Get("Authorization")
+			gotPath = r.URL.Path
+			gotCT = r.Header.Get("Content-Type")
+			if err := r.ParseMultipartForm(2 * 1024 * 1024); err != nil {
+				t.Fatalf("parse multipart: %v", err)
+			}
+			gotPayload = r.FormValue("payload_json")
+			file, header, err := r.FormFile("files[0]")
+			if err != nil {
+				t.Fatalf("read form file: %v", err)
+			}
+			defer file.Close()
+			body, err := io.ReadAll(file)
+			if err != nil {
+				t.Fatalf("read form file body: %v", err)
+			}
+			gotFileName = header.Filename
+			gotFileBody = string(body)
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"id":"1"}`)),
+				Header:     make(http.Header),
+			}, nil
+		}),
+	}
+
+	adapter, err := NewAdapter(Options{
+		BotToken:   "token-file",
+		APIBaseURL: "https://discord.test/api/v10",
+		HTTPClient: client,
+	})
+	if err != nil {
+		t.Fatalf("new adapter: %v", err)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test-long.png")
+	if err := os.WriteFile(path, []byte("png-bytes"), 0o644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+
+	if err := adapter.SendLocalFile(context.Background(), Target{ChannelID: "chan-file"}, path, "产物回传"); err != nil {
+		t.Fatalf("send local file: %v", err)
+	}
+
+	if gotAuth != "Bot token-file" {
+		t.Fatalf("unexpected auth header: %q", gotAuth)
+	}
+	if gotPath != "/api/v10/channels/chan-file/messages" {
+		t.Fatalf("unexpected path: %q", gotPath)
+	}
+	if !strings.HasPrefix(strings.ToLower(gotCT), "multipart/form-data;") {
+		t.Fatalf("unexpected content type: %q", gotCT)
+	}
+	if !strings.Contains(gotPayload, `"filename":"test-long.png"`) {
+		t.Fatalf("unexpected payload_json: %q", gotPayload)
+	}
+	if gotFileName != "test-long.png" {
+		t.Fatalf("unexpected file name: %q", gotFileName)
+	}
+	if gotFileBody != "png-bytes" {
+		t.Fatalf("unexpected file body: %q", gotFileBody)
 	}
 }
 

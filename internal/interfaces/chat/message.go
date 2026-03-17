@@ -3,8 +3,11 @@ package chat
 import "context"
 
 type Attachment struct {
-	Name string
-	URL  string
+	Name        string
+	URL         string
+	LocalPath   string
+	ContentType string
+	SizeBytes   int64
 }
 
 type ContextFlags struct {

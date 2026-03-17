@@ -68,7 +68,6 @@ func newMemoryCommandContractRouter(t *testing.T, memoryCfg config.MemoryConfig)
 		memoryapp.WithCommandOwnerAllowlist(memoryCfg.OwnerAllowlist),
 		memoryapp.WithCommandAutoDigestEnabled(memoryCfg.AutoDigestEnabled),
 	)
-
 	repo := persistence.NewSessionMemoryRepository()
 	manager := service.NewSessionManager(repo, repo, nil)
 	router := service.NewRouter(config.Snapshot{

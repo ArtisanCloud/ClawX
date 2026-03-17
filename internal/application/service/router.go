@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"clawx/internal/application/command"
 	"clawx/internal/application/intent"
 	memoryapp "clawx/internal/application/memory"
 	"clawx/internal/domain/execution"
@@ -77,6 +78,7 @@ type Router struct {
 	project        ProjectResolver
 	projectControl ProjectCommandService
 	memoryControl  MemoryCommandService
+	serviceControl ServiceCommandService
 	memoryLoader   *memoryapp.Loader
 	scopeResolver  *memoryapp.ScopeResolver
 }
@@ -116,6 +118,12 @@ func WithMemoryCommandService(memoryControl MemoryCommandService) RouterOption {
 	}
 }
 
+func WithServiceCommandService(serviceControl ServiceCommandService) RouterOption {
+	return func(r *Router) {
+		r.serviceControl = serviceControl
+	}
+}
+
 func NewRouter(cfg config.Snapshot, sessionManager *SessionManager, backend execution.Backend, options ...RouterOption) *Router {
 	router := &Router{
 		cfg:            cfg,
@@ -148,14 +156,42 @@ func (r *Router) Route(ctx context.Context, message chat.Message) (Decision, err
 		RouteKey:       strings.TrimSpace(message.RouteKey),
 		Message:        message,
 	}
-	if err := r.resolveProject(ctx, &decision); err != nil {
-		return Decision{}, err
+	if strings.TrimSpace(decision.RouteKey) == "" {
+		decision.RouteKey = "compat:" + strings.TrimSpace(decision.ConversationID)
 	}
 
-	if isBuiltInControlCommand(text) {
+	controlName, isControl := builtInControlCommandName(text)
+	if isControl {
 		decision.Kind = DecisionControl
 		decision.Command = text
+		// Project control commands must remain executable even when the current
+		// route binding points to a broken project; otherwise /project use|repair
+		// cannot self-heal the route.
+		if controlName == "project" {
+			projectID := strings.TrimSpace(r.cfg.Projects.DefaultProjectID)
+			if projectID == "" {
+				projectID = "main"
+			}
+			decision.ProjectID = projectID
+			decision.ProjectMode = "fallback"
+			return decision, nil
+		}
+		if err := r.resolveProject(ctx, &decision); err != nil {
+			return Decision{}, err
+		}
 		return decision, nil
+	}
+	if serviceCommand, ok := inferServiceControlCommand(text); ok {
+		decision.Kind = DecisionControl
+		decision.Command = serviceCommand
+		if err := r.resolveProject(ctx, &decision); err != nil {
+			return Decision{}, err
+		}
+		return decision, nil
+	}
+
+	if err := r.resolveProject(ctx, &decision); err != nil {
+		return Decision{}, err
 	}
 
 	if r.intentPipeline != nil {
@@ -246,16 +282,21 @@ func isBareControlCommand(text string) bool {
 }
 
 func isBuiltInControlCommand(text string) bool {
+	_, ok := builtInControlCommandName(text)
+	return ok
+}
+
+func builtInControlCommandName(text string) (string, bool) {
 	fields := strings.Fields(strings.TrimSpace(text))
 	if len(fields) == 0 {
-		return false
+		return "", false
 	}
 	name := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fields[0])), "/")
 	switch name {
-	case "new", "resume", "switch", "list", "cancel", "current", "project", "memory":
-		return true
+	case "new", "resume", "switch", "list", "cancel", "current", "project", "memory", "service":
+		return name, true
 	default:
-		return false
+		return "", false
 	}
 }
 
@@ -294,6 +335,63 @@ func buildProjectSuggestCommand(projectID string, confidence float64, reason str
 		confidence = 1
 	}
 	return fmt.Sprintf("/project suggest %s %.2f %s", projectID, confidence, reason)
+}
+
+func inferServiceControlCommand(text string) (string, bool) {
+	raw := strings.TrimSpace(text)
+	if raw == "" {
+		return "", false
+	}
+
+	lowerRaw := strings.ToLower(raw)
+	if idx := strings.Index(lowerRaw, "/service "); idx >= 0 {
+		candidate := strings.TrimSpace(raw[idx:])
+		if _, err := command.ParseServiceControlCommand(candidate); err == nil {
+			return candidate, true
+		}
+	}
+
+	lower := strings.ToLower(strings.Join(strings.Fields(raw), " "))
+	if !containsAny(lower, "服务", "service") {
+		return "", false
+	}
+
+	name := inferServiceName(lower)
+	if name == "" {
+		return "", false
+	}
+
+	switch {
+	case containsAny(lower, "状态", "status", "运行了吗", "运行状态", "是否在运行", "是否运行"):
+		return "/service status " + name, true
+	case containsAny(lower, "日志", "log", "输出"):
+		return "/service logs " + name + " --tail=50", true
+	case containsAny(lower, "停止", "停掉", "关闭", "kill", "stop"):
+		return "/service stop " + name, true
+	case containsAny(lower, "启动", "开启", "拉起", "start", "run"):
+		if name == "image-tool" {
+			return "/service start image-tool -- go run ./cmd/imagectl", true
+		}
+	}
+	return "", false
+}
+
+func inferServiceName(text string) string {
+	switch {
+	case containsAny(text, "image-tool", "image tool", "图片工具"):
+		return "image-tool"
+	default:
+		return ""
+	}
+}
+
+func containsAny(text string, keywords ...string) bool {
+	for _, keyword := range keywords {
+		if strings.Contains(text, strings.ToLower(strings.TrimSpace(keyword))) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Router) ValidateContext(message chat.Message) error {

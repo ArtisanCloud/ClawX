@@ -1189,6 +1189,57 @@ func TestLoadParsesMemoryConfigFromJSON(t *testing.T) {
 	}
 }
 
+func TestLoadParsesServiceRunFromJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	content := `{
+  "runtime": {
+    "allowedRoots": ["."],
+    "defaultCwd": "."
+  },
+  "execution": {
+    "command": "cat"
+  },
+  "service": {
+    "run": "discord"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Service.Run != "discord" {
+		t.Fatalf("unexpected service.run: %q", cfg.Service.Run)
+	}
+}
+
+func TestSetValuesByDotKeyPersistsServiceRun(t *testing.T) {
+	tempDir := t.TempDir()
+	chdirForTest(t, tempDir)
+
+	if _, _, err := EnsureDefaultFile(); err != nil {
+		t.Fatalf("ensure default file: %v", err)
+	}
+	if _, err := SetValuesByDotKey(map[string]string{
+		"service.run": "telegram",
+	}); err != nil {
+		t.Fatalf("set service.run: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Service.Run != "telegram" {
+		t.Fatalf("unexpected service.run: %q", cfg.Service.Run)
+	}
+}
+
 func TestLoadAppliesMemoryConfigEnvOverrides(t *testing.T) {
 	tempDir := t.TempDir()
 	chdirForTest(t, tempDir)

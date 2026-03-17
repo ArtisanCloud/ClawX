@@ -87,6 +87,55 @@ func TestMemoryFirstTurnLoadInjectsContextOnce(t *testing.T) {
 	}
 }
 
+func TestContinueSessionUsesLatestCommandCWD(t *testing.T) {
+	ctx := context.Background()
+	router, _, backendSpy, _ := newMemoryExecutionRouterForIntegration(t)
+
+	conversationID := "cwd-continue-conversation"
+	windowID := "cwd-continue-window"
+
+	_, err := router.HandleSessionFlow(ctx, command.SessionCommand{
+		Mode:           command.ModeContinue,
+		ConversationID: conversationID,
+		WindowID:       windowID,
+		ProjectID:      "main",
+		Input:          "first",
+		Backend:        "main",
+		CWD:            "/tmp/legacy-cwd",
+	})
+	if err != nil {
+		t.Fatalf("first session flow: %v", err)
+	}
+
+	_, err = router.HandleSessionFlow(ctx, command.SessionCommand{
+		Mode:           command.ModeContinue,
+		ConversationID: conversationID,
+		WindowID:       windowID,
+		ProjectID:      "main",
+		Input:          "second",
+		Backend:        "main",
+		CWD:            "/tmp/new-policy-cwd",
+	})
+	if err != nil {
+		t.Fatalf("second session flow: %v", err)
+	}
+
+	firstReq := backendSpy.RequestAt(t, 0)
+	secondReq := backendSpy.RequestAt(t, 1)
+	if firstReq.CWD != "/tmp/legacy-cwd" {
+		t.Fatalf("unexpected first cwd: %q", firstReq.CWD)
+	}
+	if strings.TrimSpace(firstReq.BackendSessionID) != "" {
+		t.Fatalf("first request should start without backend session id, got=%q", firstReq.BackendSessionID)
+	}
+	if secondReq.CWD != "/tmp/new-policy-cwd" {
+		t.Fatalf("continue session should use latest cmd cwd: got=%q", secondReq.CWD)
+	}
+	if strings.TrimSpace(secondReq.BackendSessionID) != "" {
+		t.Fatalf("cwd change should force fresh backend session, got=%q", secondReq.BackendSessionID)
+	}
+}
+
 func newMemoryExecutionRouterForIntegration(t *testing.T) (*service.Router, *projectapp.Service, *recordingMemoryBackend, string) {
 	return newMemoryExecutionRouterForIntegrationWithMemoryConfig(t, config.MemoryConfig{TokenBudget: 4096})
 }
@@ -144,7 +193,6 @@ func newMemoryExecutionRouterForIntegrationWithMemoryConfig(t *testing.T, memory
 		memoryapp.WithCommandOwnerAllowlist(memoryCfg.OwnerAllowlist),
 		memoryapp.WithCommandAutoDigestEnabled(memoryCfg.AutoDigestEnabled),
 	)
-
 	repo := persistence.NewSessionMemoryRepository()
 	manager := service.NewSessionManager(repo, repo, nil)
 	backendSpy := &recordingMemoryBackend{name: "memory-first-turn"}

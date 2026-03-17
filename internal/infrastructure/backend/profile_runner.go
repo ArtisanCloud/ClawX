@@ -66,20 +66,8 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 		_ = outputFile.Close()
 		defer os.Remove(outputPath)
 
-		composedInput := composeExecutionInput(request)
-		cmdArgs := []string{"exec"}
-		if existingThreadID != "" {
-			cmdArgs = append(cmdArgs, "resume")
-		}
-		cmdArgs = append(cmdArgs, args...)
-		if profile.Model != "" {
-			cmdArgs = append(cmdArgs, "--model", profile.Model)
-		}
-		cmdArgs = append(cmdArgs, "--skip-git-repo-check", "--json", "--output-last-message", outputPath)
-		if existingThreadID != "" {
-			cmdArgs = append(cmdArgs, existingThreadID)
-		}
-		cmdArgs = append(cmdArgs, composedInput)
+		composedInput := composeCodexExecutionInput(request)
+		cmdArgs := buildCodexExecArgs(args, profile.Model, request.CWD, outputPath, existingThreadID, composedInput)
 
 		cmd := exec.CommandContext(ctx, commandName, cmdArgs...)
 		cmd.Dir = request.CWD
@@ -170,6 +158,25 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 	}
 }
 
+func buildCodexExecArgs(baseArgs []string, model, cwd, outputPath, threadID, prompt string) []string {
+	cmdArgs := []string{"exec"}
+	cmdArgs = append(cmdArgs, baseArgs...)
+	if strings.TrimSpace(model) != "" {
+		cmdArgs = append(cmdArgs, "--model", strings.TrimSpace(model))
+	}
+	// Enforce writable workspace and explicit working directory per request.
+	cmdArgs = append(cmdArgs, "--sandbox", "workspace-write")
+	if strings.TrimSpace(cwd) != "" {
+		cmdArgs = append(cmdArgs, "--cd", strings.TrimSpace(cwd))
+	}
+	cmdArgs = append(cmdArgs, "--skip-git-repo-check", "--json", "--output-last-message", outputPath)
+	if strings.TrimSpace(threadID) != "" {
+		cmdArgs = append(cmdArgs, "resume", strings.TrimSpace(threadID))
+	}
+	cmdArgs = append(cmdArgs, prompt)
+	return cmdArgs
+}
+
 func buildClaudeCLIExecutor(profile Profile) ExecutorFunc {
 	commandName := strings.TrimSpace(profile.Command)
 	args := append([]string(nil), profile.Args...)
@@ -224,6 +231,23 @@ func buildClaudeCLIExecutor(profile Profile) ExecutorFunc {
 			CompletedAt:      time.Now().UTC(),
 		}, nil
 	}
+}
+
+func composeCodexExecutionInput(request execution.Request) string {
+	base := composeExecutionInput(request)
+	workspace := strings.TrimSpace(request.CWD)
+	if workspace == "" {
+		return base
+	}
+	var b strings.Builder
+	b.WriteString("Workspace Guardrails:\n")
+	b.WriteString("- Current workspace: ")
+	b.WriteString(workspace)
+	b.WriteString("\n")
+	b.WriteString("- Only read/write files inside the current workspace unless the user explicitly asks for a different absolute path.\n")
+	b.WriteString("- If the task appears to target another repository, stop and ask for confirmation before changing files there.\n\n")
+	b.WriteString(base)
+	return b.String()
 }
 
 func defaultProfileCommand(kind string) string {
