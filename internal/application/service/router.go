@@ -188,22 +188,6 @@ func (r *Router) Route(ctx context.Context, message chat.Message) (Decision, err
 		}
 		return decision, nil
 	}
-	if serviceCommand, ok := inferServiceControlCommand(text); ok {
-		decision.Kind = DecisionControl
-		decision.Command = serviceCommand
-		if err := r.resolveProject(ctx, &decision); err != nil {
-			return Decision{}, err
-		}
-		return decision, nil
-	}
-	if scheduleCommand, ok := inferScheduleControlCommand(text); ok {
-		decision.Kind = DecisionControl
-		decision.Command = scheduleCommand
-		if err := r.resolveProject(ctx, &decision); err != nil {
-			return Decision{}, err
-		}
-		return decision, nil
-	}
 
 	if err := r.resolveProject(ctx, &decision); err != nil {
 		return Decision{}, err
@@ -236,6 +220,28 @@ func (r *Router) Route(ctx context.Context, message chat.Message) (Decision, err
 				decision.Command = buildProjectSuggestCommand(targetProjectID, intentResult.ProposalConfidence, intentResult.ProposalReason)
 			}
 		}
+		// Let model/skill routing decide first, then use deterministic NL mapping as fallback.
+		// This avoids hijacking implementation requests into immediate control commands.
+		if decision.Kind == DecisionExecute {
+			if serviceCommand, ok := inferServiceControlCommand(text); ok {
+				decision.Kind = DecisionControl
+				decision.Command = serviceCommand
+			} else if scheduleCommand, ok := inferScheduleControlCommand(text); ok {
+				decision.Kind = DecisionControl
+				decision.Command = scheduleCommand
+			}
+		}
+		return decision, nil
+	}
+
+	if serviceCommand, ok := inferServiceControlCommand(text); ok {
+		decision.Kind = DecisionControl
+		decision.Command = serviceCommand
+		return decision, nil
+	}
+	if scheduleCommand, ok := inferScheduleControlCommand(text); ok {
+		decision.Kind = DecisionControl
+		decision.Command = scheduleCommand
 		return decision, nil
 	}
 
@@ -413,6 +419,11 @@ func inferScheduleControlCommand(text string) (string, bool) {
 		}
 	}
 	lower := strings.ToLower(strings.Join(strings.Fields(raw), " "))
+	// Do not hijack implementation requests into immediate control commands.
+	// Example: "你能实现每周清理并通知我吗" should go to execute workflow.
+	if isScheduleImplementationRequest(lower) {
+		return "", false
+	}
 	if containsAny(lower, "每周", "每 星期", "每星期") && containsAny(lower, "清理", "图片", "image", "长图", "缓存") {
 		return "/schedule add image-cleanup --cron \"0 3 * * 0\" --task image.cleanup --arg retention_days=30", true
 	}
@@ -432,6 +443,31 @@ func inferScheduleControlCommand(text string) (string, bool) {
 		return "/schedule list", true
 	}
 	return "", false
+}
+
+func isScheduleImplementationRequest(text string) bool {
+	mentionsScheduleNeed := containsAny(text, "定时", "schedule", "调度", "每周", "清理", "图片", "image", "缓存")
+	if !mentionsScheduleNeed {
+		return false
+	}
+	asksImplementation := containsAny(
+		text,
+		"你能实现",
+		"能实现吗",
+		"能实现么",
+		"能不能实现",
+		"请实现",
+		"帮我实现",
+		"开发",
+		"写脚本",
+		"脚本逻辑",
+		"代码逻辑",
+		"补齐",
+		"完善",
+		"支持自动通知",
+		"自动通知我",
+	)
+	return asksImplementation
 }
 
 func containsAny(text string, keywords ...string) bool {

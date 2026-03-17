@@ -29,3 +29,17 @@ func TestScheduleNaturalLanguageRouting(t *testing.T) {
 		}
 	}
 }
+
+func TestScheduleNaturalLanguageImplementationRequestRoutesToExecute(t *testing.T) {
+	stack := newSkillTestStack(t, nil, nil)
+	text := "如果我现在想要定时清理上传图片并且自动通知我清理报告，你能实现么？"
+	message := mustNormalizeMessage(t, chatiface.NormalizeInput{Channel: "discord", UserID: "user-1", Text: text, IsDirectMessage: true, IsAllowed: true})
+
+	decision, err := stack.router.Route(context.Background(), message)
+	if err != nil {
+		t.Fatalf("route natural language implementation request: %v", err)
+	}
+	if decision.Kind != service.DecisionExecute {
+		t.Fatalf("decision=%s %q, want execute", decision.Kind, decision.Command)
+	}
+}

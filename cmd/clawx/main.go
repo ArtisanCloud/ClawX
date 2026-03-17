@@ -91,6 +91,8 @@ type adapterRetryScope struct {
 
 var channelRouteMetrics = service.NewChannelRouteMetrics(2048)
 
+var executionEvidenceCommandPattern = regexp.MustCompile(`(?m)(^|\n)\s*(go\s+test|go\s+run|npm\s+run|pnpm\s+run|yarn\s+|pytest|cargo\s+test|make\s+test|bash\s+|sh\s+|uv\s+run|curl\s+|systemctl\s+)`)
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		log.Fatalf("%v", err)
@@ -2069,11 +2071,7 @@ func handleTelegramInbound(
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
-		output := flowResult.Execution.Output
-		if output == "" {
-			output = "执行完成，无可见输出"
-		}
-		output = applyExecutionSourceLabel(decision, output)
+		output := finalizeExecutionOutput(decision, flowResult.Execution.Output)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, telegramchat.MaxMessageLength, 1)
 		deliverTelegramOutputFiles(ctx, adapter, envelope.Target, output)
 	}
@@ -2165,11 +2163,7 @@ func handleFeishuInbound(
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
-		output := flowResult.Execution.Output
-		if output == "" {
-			output = "执行完成，无可见输出"
-		}
-		output = applyExecutionSourceLabel(decision, output)
+		output := finalizeExecutionOutput(decision, flowResult.Execution.Output)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, feishuchat.MaxMessageLength, 1)
 	}
 }
@@ -2260,11 +2254,7 @@ func handleWeComInbound(
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
-		output := flowResult.Execution.Output
-		if output == "" {
-			output = "执行完成，无可见输出"
-		}
-		output = applyExecutionSourceLabel(decision, output)
+		output := finalizeExecutionOutput(decision, flowResult.Execution.Output)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, wecomchat.MaxMessageLength, 1)
 		deliverWeComOutputFiles(ctx, adapter, envelope.Target, output)
 	}
@@ -2359,11 +2349,7 @@ func handleDiscordInbound(
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
-		output := flowResult.Execution.Output
-		if output == "" {
-			output = "执行完成，无可见输出"
-		}
-		output = applyExecutionSourceLabel(decision, output)
+		output := finalizeExecutionOutput(decision, flowResult.Execution.Output)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, discordchat.MaxMessageLength, 1)
 		deliverDiscordOutputFiles(ctx, adapter, envelope.Target, output)
 	}
@@ -2420,6 +2406,72 @@ func applyExecutionSourceLabel(decision service.Decision, output string) string 
 		return text
 	}
 	return prefix + "\n" + text
+}
+
+func finalizeExecutionOutput(decision service.Decision, raw string) string {
+	output := strings.TrimSpace(raw)
+	if output == "" {
+		output = "执行完成，无可见输出"
+	}
+	output = applyExecutionCompletionGate(decision, output)
+	return applyExecutionSourceLabel(decision, output)
+}
+
+func applyExecutionCompletionGate(decision service.Decision, output string) string {
+	if decision.Kind != service.DecisionExecute {
+		return output
+	}
+	requestText := strings.ToLower(strings.TrimSpace(decision.Message.Text))
+	if !looksLikeImplementationRequest(requestText) {
+		return output
+	}
+	answerText := strings.ToLower(strings.TrimSpace(output))
+	if !looksLikeCompletionClaim(answerText) {
+		return output
+	}
+	if hasExecutionEvidence(output, answerText) {
+		return output
+	}
+	return "执行结果未通过平台验收门禁：检测到“已实现/已完成”声明，但缺少可核验证据。\n" +
+		"请补充以下至少两项后再回复“已完成”：\n" +
+		"1. 实际执行过的命令（如 go test/go run 等）\n" +
+		"2. 命令结果摘要（通过/失败、关键输出）\n" +
+		"3. 代码变更清单（文件路径）"
+}
+
+func looksLikeImplementationRequest(text string) bool {
+	if text == "" {
+		return false
+	}
+	return containsAnyPhrase(text, "实现", "开发", "脚本", "代码", "修复", "补齐", "新增", "通知", "自动化", "定时")
+}
+
+func looksLikeCompletionClaim(text string) bool {
+	return containsAnyPhrase(text,
+		"已实现", "实现完成", "已完成", "已帮你", "完成了", "完成实现",
+		"implemented", "implementation completed", "completed", "done",
+	)
+}
+
+func hasExecutionEvidence(output, lower string) bool {
+	hasCommand := executionEvidenceCommandPattern.MatchString(output) || strings.Contains(lower, "```bash")
+	hasResult := containsAnyPhrase(lower, "测试结果", "结果：", "result:", "通过", "失败", "ok ", "exit code")
+	hasChanges := strings.Contains(output, "](/") || containsAnyPhrase(lower, "新增", "更新", "修改", "变更文件")
+	return hasCommand && (hasResult || hasChanges)
+}
+
+func containsAnyPhrase(text string, keywords ...string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if text == "" {
+		return false
+	}
+	for _, keyword := range keywords {
+		keyword = strings.ToLower(strings.TrimSpace(keyword))
+		if keyword != "" && strings.Contains(text, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func buildExecutionInput(decision service.Decision) string {
