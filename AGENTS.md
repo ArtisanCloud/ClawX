@@ -11,6 +11,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-03
 - 本地文件存储（`~/.clawx`）+ 现有会话存储；Skill 索引以文件缓存形式维护 (003-skill-intent-router)
 - Go 1.23 + Go 标准库、现有 DDD 模块（domain/application/infrastructure/interfaces）、`gopkg.in/yaml.v3`、现有 Discord/Telegram/Feishu/WeCom 适配层 (006-memory-context-layer)
 - 本地文件存储（`~/.clawx/workspaces/<project_id>/` 与 `~/.clawx/workspaces/<project_id>/.agents/<agent_id>/`）+ 现有 `~/.clawx/projects/*.json` 持久化 (006-memory-context-layer)
+- Go 1.23 + Go 标准库、现有 DDD 模块（domain/application/infrastructure/interfaces）、现有 Router/Intent 管线、现有本地文件持久化组件 (007-unified-scheduler-center)
+- 本地文件存储（`~/.clawx/workspaces/<project_id>/.agents/<agent_id>/scheduler/`） (007-unified-scheduler-center)
 
 - (001-phase1-foundation)
 
@@ -30,9 +32,9 @@ tests/
 : Follow standard conventions
 
 ## Recent Changes
+- 007-unified-scheduler-center: Added Go 1.23 + Go 标准库、现有 DDD 模块（domain/application/infrastructure/interfaces）、现有 Router/Intent 管线、现有本地文件持久化组件
 - 006-memory-context-layer: Added Go 1.23 + Go 标准库、现有 DDD 模块（domain/application/infrastructure/interfaces）、`gopkg.in/yaml.v3`、现有 Discord/Telegram/Feishu/WeCom 适配层
 - 002-multi-session: Added Go 1.23 + Go 标准库、现有 ClawX DDD 模块、现有 Discord/Telegram 适配层、现有配置与持久化模块
-- 003-skill-intent-router: Added Go 1.23 + Go 标准库、现有 ClawX DDD 模块、现有 Discord/Telegram 适配层、现有配置与持久化组件
 
 
 <!-- MANUAL ADDITIONS START -->

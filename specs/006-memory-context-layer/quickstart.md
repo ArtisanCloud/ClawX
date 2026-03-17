@@ -82,6 +82,35 @@
 - 集成：首轮加载注入、多 agent 并发隔离、共享会话禁读长期私有层
 - 契约：`/memory note`、`/memory digest`、`/memory audit` 语义一致性
 
+## Phase 7 回归与指标
+
+### E. 控制命令语义回归（US4+跨领域）
+1. 运行以下测试：
+   - `go test ./tests/integration -run TestMemoryControlResumeSwitchRegression`
+   - `go test ./tests/integration -run TestMemoryControlListCurrentCancelRegression`
+   - `go test ./tests/integration -run TestMemoryControlNewRegression`
+2. 预期：
+   - `/resume`、`/switch` 在项目作用域下语义不变。
+   - `/list`、`/current`、`/cancel` 在接入 memory 后语义不变。
+   - `/new` 仍只创建当前项目会话，不触发项目切换。
+
+### F. 审计字段检索
+1. 运行：
+   - `go test ./tests/integration -run TestMemoryAuditFieldsSearch`
+2. 预期：
+   - 日志可检索 `memory_loaded_files`、`memory_denied_files`、`error_summary`。
+
+### G. SC-001 ~ SC-006 指标采集门禁
+1. 本地合成数据门禁：
+   - `go test ./tests/integration -run TestPhase6MemoryMetricsReportGateWithSyntheticDataset`
+2. 真实数据门禁（JSONL）：
+   - `CLAWX_PHASE6_METRICS_JSONL=<path-to-jsonl> go test ./tests/integration -run TestPhase6MemoryMetricsReportFromJSONL`
+3. 可选输出路径：
+   - `CLAWX_PHASE6_METRICS_REPORT=docs/guides/phase_6/phase_6_metrics_report.md`
+4. JSONL 记录格式：
+   - 速率类 SC：`{"timestamp":"...","sc_id":"SC-00X","success":true|false}`
+   - 延迟类 SC-006：`{"timestamp":"...","sc_id":"SC-006","latency_ms":87.3}`
+
 ## 完成检查
 - FR-001 ~ FR-020 对应测试全部通过。
 - SC-001 ~ SC-006 采样与门禁规则可执行。

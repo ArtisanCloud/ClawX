@@ -35,3 +35,29 @@ func TestApplyExecutionSourceLabel(t *testing.T) {
 		t.Fatalf("expected execute prefix, got %q", executeText)
 	}
 }
+
+func TestApplyExecutionCompletionGateBlocksClaimWithoutEvidence(t *testing.T) {
+	decision := service.Decision{
+		Kind: service.DecisionExecute,
+		Message: service.Decision{}.Message,
+	}
+	decision.Message.Text = "请实现图片工具的清理定时脚本，并支持执行后自动通知我报告"
+
+	output := "已实现，包含定时清理和自动通知。"
+	gated := applyExecutionCompletionGate(decision, output)
+	if !strings.Contains(gated, "未通过平台验收门禁") {
+		t.Fatalf("expected gate message, got %q", gated)
+	}
+}
+
+func TestApplyExecutionCompletionGateAllowsClaimWithEvidence(t *testing.T) {
+	decision := service.Decision{}
+	decision.Kind = service.DecisionExecute
+	decision.Message.Text = "请实现图片工具的清理定时脚本，并支持执行后自动通知我报告"
+
+	output := "已实现。\n命令:\ngo test ./... -count=1\n结果：ok\n文件：[cleanup.go](/tmp/cleanup.go)"
+	gated := applyExecutionCompletionGate(decision, output)
+	if gated != output {
+		t.Fatalf("expected output pass gate, got %q", gated)
+	}
+}

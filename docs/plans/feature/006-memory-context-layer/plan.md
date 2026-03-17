@@ -1,5 +1,9 @@
 # 006 Memory Context Layer 计划草案（v0.1）
 
+## 0. 相关文档
+- 使用指导（图片工具实战）：`docs/guides/features/006-memory-context-layer/guide.md`
+- 快速启动与验收脚本：`specs/006-memory-context-layer/quickstart.md`
+
 ## 1. 背景
 当前 ClawX 已实现 route/window/session/project 四层上下文隔离，但“长期记忆”仍主要依赖后端会话线程（如 Codex `BackendSessionID`）和短期消息上下文。
 

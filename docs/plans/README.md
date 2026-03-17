@@ -13,6 +13,7 @@
 - [phase_4_channels.md](./phase_4_channels.md)
 - [phase_5_project_workspace_routing.md](./phase_5_project_workspace_routing.md)
 - [persistence_strategy.md](./persistence_strategy.md)
+- [feature/](./feature/)
 
 ## 使用原则
 - 新阶段先在本目录定义目标、范围、验收标准。

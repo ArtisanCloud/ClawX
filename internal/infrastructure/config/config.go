@@ -182,6 +182,10 @@ type MemoryConfig struct {
 	AutoDigestEnabled bool
 }
 
+type ServiceConfig struct {
+	Run string
+}
+
 type Snapshot struct {
 	AllowedRoots                  []string
 	DefaultCWD                    string
@@ -246,6 +250,7 @@ type Snapshot struct {
 	IntentRouter           IntentRouterConfig
 	Projects               ProjectConfig
 	Memory                 MemoryConfig
+	Service                ServiceConfig
 }
 
 type jsonSnapshot struct {
@@ -260,6 +265,7 @@ type jsonSnapshot struct {
 	IntentRouter *jsonIntentRouter `json:"intentRouter"`
 	Projects     *jsonProjects     `json:"projects"`
 	Memory       *jsonMemory       `json:"memory"`
+	Service      *jsonService      `json:"service"`
 
 	AllowedRoots                  []string                   `json:"allowed_roots"`
 	DefaultCWD                    string                     `json:"default_cwd"`
@@ -538,6 +544,10 @@ type jsonMemory struct {
 	AutoDigestEnabled *bool    `json:"autoDigestEnabled"`
 }
 
+type jsonService struct {
+	Run string `json:"run"`
+}
+
 type BootstrapOptions struct {
 	BaseProfileID         string
 	DefaultProfileID      string
@@ -579,6 +589,7 @@ type fileSnapshot struct {
 	IntentRouter fileIntentRouter `json:"intentRouter"`
 	Projects     fileProjects     `json:"projects"`
 	Memory       fileMemory       `json:"memory"`
+	Service      fileService      `json:"service"`
 }
 
 type fileRuntime struct {
@@ -826,6 +837,10 @@ type fileMemory struct {
 	AutoDigestEnabled bool     `json:"autoDigestEnabled"`
 }
 
+type fileService struct {
+	Run string `json:"run"`
+}
+
 func Load() (Snapshot, error) {
 	if err := EnsureStateLayout(); err != nil {
 		return Snapshot{}, err
@@ -857,6 +872,7 @@ func Load() (Snapshot, error) {
 	cfg.normalizeIntentRouter()
 	cfg.normalizeProjects()
 	cfg.normalizeMemory()
+	cfg.normalizeService()
 	if err := cfg.Validate(); err != nil {
 		return Snapshot{}, err
 	}
@@ -1617,6 +1633,7 @@ func LoadFromEnv() (Snapshot, error) {
 	cfg.normalizeIntentRouter()
 	cfg.normalizeProjects()
 	cfg.normalizeMemory()
+	cfg.normalizeService()
 	if err := cfg.Validate(); err != nil {
 		return Snapshot{}, err
 	}
@@ -1771,6 +1788,9 @@ func defaultFileSnapshot() fileSnapshot {
 			OwnerAllowlist:    nil,
 			TokenBudget:       4096,
 			AutoDigestEnabled: false,
+		},
+		Service: fileService{
+			Run: "serve",
 		},
 	}
 }
@@ -1982,6 +2002,7 @@ func normalizeFileSnapshot(file *fileSnapshot) {
 	if file.Memory.TokenBudget <= 0 {
 		file.Memory.TokenBudget = 4096
 	}
+	file.Service.Run = normalizeServiceRun(file.Service.Run)
 }
 
 func normalizeFileExtendedChannel(channelName string, channel *fileExtendedChannel) {
@@ -2147,6 +2168,9 @@ func defaultSnapshot() Snapshot {
 			OwnerAllowlist:    nil,
 			TokenBudget:       4096,
 			AutoDigestEnabled: false,
+		},
+		Service: ServiceConfig{
+			Run: "serve",
 		},
 		ProviderProfiles: make(map[string]ProviderProfile),
 		Agents:           make(map[string]Agent),
@@ -2673,6 +2697,11 @@ func applyStructuredJSONValues(cfg *Snapshot, raw jsonSnapshot) {
 			cfg.Memory.AutoDigestEnabled = *raw.Memory.AutoDigestEnabled
 		}
 	}
+	if raw.Service != nil {
+		if strings.TrimSpace(raw.Service.Run) != "" {
+			cfg.Service.Run = strings.TrimSpace(raw.Service.Run)
+		}
+	}
 
 	if raw.Projects != nil {
 		if strings.TrimSpace(raw.Projects.WorkspaceRoot) != "" {
@@ -2947,6 +2976,9 @@ func applyEnvOverrides(cfg *Snapshot) error {
 	if raw, ok := os.LookupEnv("CLAWX_MEMORY_AUTO_DIGEST"); ok {
 		cfg.Memory.AutoDigestEnabled = parseBoolOrDefault(raw, cfg.Memory.AutoDigestEnabled)
 	}
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_SERVICE_RUN")); raw != "" {
+		cfg.Service.Run = raw
+	}
 	return nil
 }
 
@@ -3146,6 +3178,10 @@ func (s *Snapshot) normalizeMemory() {
 	if s.Memory.TokenBudget <= 0 {
 		s.Memory.TokenBudget = 4096
 	}
+}
+
+func (s *Snapshot) normalizeService() {
+	s.Service.Run = normalizeServiceRun(s.Service.Run)
 }
 
 func normalizeDiscordInstances(values []DiscordInstance, fallbackAgent string) []DiscordInstance {
@@ -3534,6 +3570,9 @@ func (s Snapshot) Validate() error {
 		return ErrInvalidConfig
 	}
 	if strings.TrimSpace(s.Projects.DefaultProjectID) == "" {
+		return ErrInvalidConfig
+	}
+	if normalizeServiceRun(s.Service.Run) != strings.ToLower(strings.TrimSpace(s.Service.Run)) && strings.TrimSpace(s.Service.Run) != "" {
 		return ErrInvalidConfig
 	}
 	for _, root := range s.AllowedRoots {
@@ -4036,4 +4075,13 @@ func normalizeProfileKind(raw string) string {
 		return "generic-cli"
 	}
 	return kind
+}
+
+func normalizeServiceRun(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "serve", "telegram", "discord", "feishu", "wecom":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return "serve"
+	}
 }

@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +22,7 @@ import (
 
 const (
 	MaxMessageLength = 2000
+	MaxUploadBytes   = 10 * 1024 * 1024
 	defaultAPIBase   = "https://discord.com/api/v10"
 	defaultGateway   = "wss://gateway.discord.gg/?v=10&encoding=json"
 )
@@ -357,6 +361,87 @@ func (a *Adapter) SendError(ctx context.Context, sessionID, message string) erro
 	return a.SendDirect(ctx, target, strings.TrimSpace(message))
 }
 
+func (a *Adapter) SendLocalFile(ctx context.Context, target Target, filePath, caption string) error {
+	target.ChannelID = strings.TrimSpace(target.ChannelID)
+	path := filepath.Clean(strings.TrimSpace(filePath))
+	if target.ChannelID == "" || path == "" {
+		return nil
+	}
+
+	stat, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if stat.IsDir() {
+		return fmt.Errorf("cannot upload directory: %s", path)
+	}
+	if stat.Size() > MaxUploadBytes {
+		return fmt.Errorf("file too large for discord upload: size=%d limit=%d", stat.Size(), MaxUploadBytes)
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	payload := map[string]any{
+		"content": strings.TrimSpace(caption),
+		"attachments": []map[string]any{
+			{
+				"id":       0,
+				"filename": filepath.Base(path),
+			},
+		},
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err := writer.WriteField("payload_json", string(payloadBytes)); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	part, err := writer.CreateFormFile("files[0]", filepath.Base(path))
+	if err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("%s/channels/%s/messages", a.apiBaseURL, target.ChannelID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bot "+a.token)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("discord send file failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
+	}
+	return nil
+}
+
 func (a *Adapter) lookupTarget(sessionID string) (Target, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -373,7 +458,13 @@ func (a *Adapter) normalizeMessage(message discordMessageCreate) (InboundEnvelop
 		return InboundEnvelope{}, false, nil
 	}
 
+	attachments := normalizeDiscordAttachments(message.Attachments)
 	content, ok := a.prepareContent(message.Content, message.GuildID == "")
+	if !ok && message.GuildID == "" && len(attachments) > 0 {
+		// Direct-message attachment-only input should still be routed so the agent can process files.
+		content = "请处理附件"
+		ok = true
+	}
 	if !ok {
 		return InboundEnvelope{}, false, nil
 	}
@@ -384,6 +475,7 @@ func (a *Adapter) normalizeMessage(message discordMessageCreate) (InboundEnvelop
 		GuildID:         buildGuildID(message.GuildID),
 		ThreadID:        buildThreadID(message.ChannelID),
 		Text:            content,
+		Attachments:     attachments,
 		IsDirectMessage: message.GuildID == "",
 		IsThread:        false,
 		IsAllowed:       a.isChannelAllowed(message.ChannelID),
@@ -449,6 +541,18 @@ func interactionToCommandText(data discordInteractionData) (string, bool, error)
 	switch command {
 	case "new", "list", "cancel", "current":
 		return "/" + command, true, nil
+	case "project":
+		args := strings.TrimSpace(interactionOptionValue(data.Options, "args"))
+		if args == "" {
+			return "", false, fmt.Errorf("discord interaction /project missing args option")
+		}
+		return "/project " + args, true, nil
+	case "memory":
+		args := strings.TrimSpace(interactionOptionValue(data.Options, "args"))
+		if args == "" {
+			return "", false, fmt.Errorf("discord interaction /memory missing args option")
+		}
+		return "/memory " + args, true, nil
 	case "sx-skills":
 		return "/sx-skills", true, nil
 	case "resume":
@@ -689,6 +793,32 @@ func (a *Adapter) syncSlashCommands(ctx context.Context) error {
 		},
 		{
 			Type:        discordApplicationCommandTypeChatInput,
+			Name:        "project",
+			Description: "执行项目管理命令，例如 use image_tools",
+			Options: []discordApplicationCommandOption{
+				{
+					Type:        discordApplicationCommandOptionTypeString,
+					Name:        "args",
+					Description: "project 子命令参数，例如: use image_tools",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Type:        discordApplicationCommandTypeChatInput,
+			Name:        "memory",
+			Description: "执行记忆治理命令，例如 note --shared xxx",
+			Options: []discordApplicationCommandOption{
+				{
+					Type:        discordApplicationCommandOptionTypeString,
+					Name:        "args",
+					Description: "memory 子命令参数，例如: audit",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Type:        discordApplicationCommandTypeChatInput,
 			Name:        "sx-skills",
 			Description: "列出 ClawX 技能目录",
 		},
@@ -912,14 +1042,22 @@ type readyPayload struct {
 }
 
 type discordMessageCreate struct {
-	ID        string `json:"id"`
-	ChannelID string `json:"channel_id"`
-	GuildID   string `json:"guild_id"`
-	Content   string `json:"content"`
-	Author    struct {
+	ID          string              `json:"id"`
+	ChannelID   string              `json:"channel_id"`
+	GuildID     string              `json:"guild_id"`
+	Content     string              `json:"content"`
+	Attachments []discordAttachment `json:"attachments"`
+	Author      struct {
 		ID  string `json:"id"`
 		Bot bool   `json:"bot"`
 	} `json:"author"`
+}
+
+type discordAttachment struct {
+	Filename    string `json:"filename"`
+	URL         string `json:"url"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
 }
 
 type discordInteractionCreate struct {
@@ -971,4 +1109,25 @@ type discordApplicationCommandOption struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Required    bool   `json:"required,omitempty"`
+}
+
+func normalizeDiscordAttachments(raw []discordAttachment) []chatiface.Attachment {
+	if len(raw) == 0 {
+		return nil
+	}
+	attachments := make([]chatiface.Attachment, 0, len(raw))
+	for _, item := range raw {
+		name := strings.TrimSpace(item.Filename)
+		url := strings.TrimSpace(item.URL)
+		if name == "" && url == "" {
+			continue
+		}
+		attachments = append(attachments, chatiface.Attachment{
+			Name:        name,
+			URL:         url,
+			ContentType: strings.TrimSpace(item.ContentType),
+			SizeBytes:   item.Size,
+		})
+	}
+	return attachments
 }

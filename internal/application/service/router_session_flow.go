@@ -36,6 +36,14 @@ func (r *Router) HandleSessionFlow(ctx context.Context, cmd command.SessionComma
 	if err != nil {
 		return SessionFlowResult{}, err
 	}
+	cmdCWD := strings.TrimSpace(cmd.CWD)
+	cwdChanged := cmdCWD != "" && strings.TrimSpace(lockedSession.CWD) != cmdCWD
+	if cwdChanged {
+		lockedSession.CWD = cmdCWD
+		// Backend sessions are cwd-sensitive (e.g. codex thread resume).
+		// When cwd changes, force a fresh backend session to avoid cross-workspace drift.
+		lockedSession.BindBackendSessionID("")
+	}
 	if strings.TrimSpace(lockedSession.AgentID) == "" && strings.TrimSpace(cmd.Backend) != "" {
 		lockedSession.AgentID = strings.TrimSpace(cmd.Backend)
 	}

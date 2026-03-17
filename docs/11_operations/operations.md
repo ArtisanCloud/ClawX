@@ -10,6 +10,43 @@
 - 指标基线：执行次数、成功/失败/超时、平均时长、在途执行数；输出分段失败重试次数。
 - 日志：结构化 JSON，字段含 timestamp, level, session_id, channel, command, duration, exit_code。
 
+## 服务安装（Linux 用户级 systemd）
+- 新增命令：`clawx install-service`
+- 作用：安装并启用 `systemd --user` 服务，默认服务名 `clawx.service`，执行 `clawx run`（由 `service.run` 决定目标）。
+
+一键方式（推荐）：
+```bash
+clawx setup-service --target discord
+```
+该命令会自动执行：
+- `go build` 到 `~/.local/bin/clawx`
+- 写入 `service.run=<target>`
+- 安装并启用用户服务
+- 立即启动服务
+
+推荐流程：
+```bash
+# 1) 构建稳定二进制（不要用 go run 临时路径）
+go build -o /usr/local/bin/clawx ./cmd/clawx
+
+# 2) 安装并立即启动
+clawx install-service --binary /usr/local/bin/clawx --start
+
+# 3) 查看状态
+systemctl --user status clawx.service
+journalctl --user -u clawx.service -f
+```
+
+可选参数：
+- `--name <service-name>`：自定义服务名（如 `clawx-discord`）。
+- `--start`：安装后立即启动（会执行 `restart`）。
+- `--force`：覆盖已存在 unit 文件。
+- `--binary <abs-path>`：显式指定可执行文件路径。
+
+注意：
+- `install-service` 仅支持 Linux。
+- 如果你是通过 `go run ./cmd/clawx ...` 执行命令，必须传 `--binary`，否则会拒绝安装（因为 `go run` 生成的是临时可执行文件）。
+
 ## 日志路径（当前实现）
 - 服务运行日志：默认输出到 stdout/stderr。
 - 会话持久化：

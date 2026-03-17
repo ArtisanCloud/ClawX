@@ -3,7 +3,7 @@
 **功能分支**: `006-memory-context-layer`  
 **创建时间**: 2026-03-14  
 **状态**: 草稿  
-**输入**: 用户描述: "请根据 docs/guides/features/006-memory-context-layer/plan.md，实现独赢的 spec 文档。"
+**输入**: 用户描述: "请根据 docs/plans/feature/006-memory-context-layer/plan.md，实现独赢的 spec 文档。"
 
 ## 用户场景与测试（必填）
 

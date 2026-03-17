@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -127,6 +129,76 @@ func TestSetWebhookRetriesTransientError(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&calls); got != 2 {
 		t.Fatalf("expected 2 calls with one retry, got %d", got)
+	}
+}
+
+func TestSendLocalFileUsesSendDocument(t *testing.T) {
+	var gotPath string
+	var gotCT string
+	var gotChatID string
+	var gotCaption string
+	var gotFileName string
+	var gotFileBody string
+	adapter, err := NewAdapter(Options{
+		Token: "token-1",
+		HTTPClient: &http.Client{
+			Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				gotPath = req.URL.Path
+				gotCT = req.Header.Get("Content-Type")
+				if err := req.ParseMultipartForm(2 * 1024 * 1024); err != nil {
+					t.Fatalf("parse multipart: %v", err)
+				}
+				gotChatID = req.FormValue("chat_id")
+				gotCaption = req.FormValue("caption")
+				file, header, err := req.FormFile("document")
+				if err != nil {
+					t.Fatalf("read form file: %v", err)
+				}
+				defer file.Close()
+				body, err := io.ReadAll(file)
+				if err != nil {
+					t.Fatalf("read form file body: %v", err)
+				}
+				gotFileName = header.Filename
+				gotFileBody = string(body)
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+				}, nil
+			}),
+		},
+	})
+	if err != nil {
+		t.Fatalf("new adapter: %v", err)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test-long.png")
+	if err := os.WriteFile(path, []byte("png-bytes"), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+	if err := adapter.SendLocalFile(context.Background(), Target{ChatID: 42}, path, "产物回传"); err != nil {
+		t.Fatalf("send local file: %v", err)
+	}
+
+	if gotPath != "/bottoken-1/sendDocument" {
+		t.Fatalf("unexpected path: %q", gotPath)
+	}
+	if !strings.HasPrefix(strings.ToLower(gotCT), "multipart/form-data;") {
+		t.Fatalf("unexpected content-type: %q", gotCT)
+	}
+	if gotChatID != "42" {
+		t.Fatalf("unexpected chat id: %q", gotChatID)
+	}
+	if gotCaption != "产物回传" {
+		t.Fatalf("unexpected caption: %q", gotCaption)
+	}
+	if gotFileName != "test-long.png" {
+		t.Fatalf("unexpected filename: %q", gotFileName)
+	}
+	if gotFileBody != "png-bytes" {
+		t.Fatalf("unexpected file body: %q", gotFileBody)
 	}
 }
 

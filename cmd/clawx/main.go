@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,6 +24,7 @@ import (
 	"clawx/internal/application/command"
 	"clawx/internal/application/service"
 	"clawx/internal/application/skillregistry"
+	projectdomain "clawx/internal/domain/project"
 	sessiondomain "clawx/internal/domain/session"
 	"clawx/internal/infrastructure/backend"
 	"clawx/internal/infrastructure/config"
@@ -60,14 +63,24 @@ type databasePlan struct {
 }
 
 type agentRuntime struct {
-	agentID     string
-	backendName string
-	cwd         string
-	profileKind string
-	profileCmd  string
-	router      *service.Router
-	runner      *backend.DirectRunner
-	skills      *skillregistry.Service
+	agentID         string
+	backendName     string
+	cwd             string
+	projectCWD      executionCWDProjectResolver
+	attachmentStore *attachmentContextStore
+	profileKind     string
+	profileCmd      string
+	router          *service.Router
+	runner          *backend.DirectRunner
+	skills          *skillregistry.Service
+}
+
+type runnerWrapper interface {
+	Run(context.Context) error
+}
+
+type executionCWDProjectResolver interface {
+	GetProject(ctx context.Context, projectID string) (projectdomain.Record, error)
 }
 
 type adapterRetryScope struct {
@@ -77,6 +90,8 @@ type adapterRetryScope struct {
 }
 
 var channelRouteMetrics = service.NewChannelRouteMetrics(2048)
+
+var executionEvidenceCommandPattern = regexp.MustCompile(`(?m)(^|\n)\s*(go\s+test|go\s+run|npm\s+run|pnpm\s+run|yarn\s+|pytest|cargo\s+test|make\s+test|bash\s+|sh\s+|uv\s+run|curl\s+|systemctl\s+)`)
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -88,16 +103,45 @@ func run(args []string) error {
 	switch firstArg(args) {
 	case "", "serve":
 		return runServe()
+	case "run":
+		return runRun(args[1:])
 	case "config":
 		return runConfigEntry(args[1:])
 	case "skill":
 		return runSkillCommand(args[1:])
+	case "install-service":
+		return runInstallService(args[1:])
+	case "setup-service":
+		return runSetupService(args[1:])
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
 	default:
 		return fmt.Errorf("unknown command %q", firstArg(args))
 	}
+}
+
+func runRun(args []string) error {
+	target := ""
+	if len(args) > 0 {
+		target = normalizeRunTarget(args[0])
+		if target == "" {
+			return fmt.Errorf("unknown run target %q; expected serve|telegram|discord|feishu|wecom", strings.TrimSpace(args[0]))
+		}
+	}
+
+	if err := os.Setenv("CLAWX_RUN_MODE", "true"); err != nil {
+		return err
+	}
+	defer os.Unsetenv("CLAWX_RUN_MODE")
+
+	if target != "" {
+		if err := os.Setenv("CLAWX_SERVICE_RUN", target); err != nil {
+			return err
+		}
+		defer os.Unsetenv("CLAWX_SERVICE_RUN")
+	}
+	return runServe()
 }
 
 func runServe() error {
@@ -134,6 +178,14 @@ func runServe() error {
 	if err := ensureWorkspacesReady(cfg); err != nil {
 		return fmt.Errorf("workspace preflight failed: %w", err)
 	}
+	if isEnvTrue("CLAWX_RUN_MODE") {
+		runTarget := normalizeRunTarget(cfg.Service.Run)
+		if runTarget == "" {
+			runTarget = "serve"
+		}
+		applyRunTargetOverrides(&cfg, runTarget)
+		log.Printf("run target applied: %s", runTarget)
+	}
 
 	store, closeStore, err := newSessionStore(cfg)
 	if err != nil {
@@ -142,7 +194,7 @@ func runServe() error {
 	defer closeStore()
 
 	sessionManager := service.NewSessionManager(store, store, nil)
-	runtimes, defaultRuntimeID, err := buildAgentRuntimes(cfg, sessionManager)
+	runtimes, defaultRuntimeID, scheduleRunner, err := buildAgentRuntimes(cfg, sessionManager)
 	if err != nil {
 		return fmt.Errorf("build runtimes: %w", err)
 	}
@@ -164,6 +216,16 @@ func runServe() error {
 	fatalErrCh := make(chan error, 1)
 	started := false
 	httpRuntimeNeeded := false
+	if scheduleRunner != nil {
+		go func() {
+			if err := scheduleRunner.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				select {
+				case fatalErrCh <- fmt.Errorf("scheduler runner: %w", err):
+				default:
+				}
+			}
+		}()
+	}
 
 	if cfg.HealthProbeEnabled {
 		healthHandler.Register(httpMux, cfg.HealthProbePath)
@@ -520,6 +582,84 @@ func runServe() error {
 	case <-ctx.Done():
 		log.Println("shutdown signal received")
 		return nil
+	}
+}
+
+func isEnvTrue(key string) bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	return value == "1" || value == "true" || value == "yes" || value == "on"
+}
+
+func normalizeRunTarget(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "serve", "telegram", "discord", "feishu", "wecom":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return ""
+	}
+}
+
+func applyRunTargetOverrides(cfg *config.Snapshot, target string) {
+	if cfg == nil {
+		return
+	}
+	target = normalizeRunTarget(target)
+	if target == "" || target == "serve" {
+		return
+	}
+	disableAllChannelInstances(cfg)
+	switch target {
+	case "telegram":
+		enableTelegramInstances(cfg)
+	case "discord":
+		enableDiscordInstances(cfg)
+	case "feishu":
+		enableFeishuInstances(cfg)
+	case "wecom":
+		enableWeComInstances(cfg)
+	}
+	cfg.TelegramEnabled = target == "telegram"
+	cfg.DiscordEnabled = target == "discord"
+	cfg.FeishuEnabled = target == "feishu"
+	cfg.WeComEnabled = target == "wecom"
+}
+
+func disableAllChannelInstances(cfg *config.Snapshot) {
+	for idx := range cfg.TelegramInstances {
+		cfg.TelegramInstances[idx].Enabled = false
+	}
+	for idx := range cfg.DiscordInstances {
+		cfg.DiscordInstances[idx].Enabled = false
+	}
+	for idx := range cfg.FeishuInstances {
+		cfg.FeishuInstances[idx].Enabled = false
+	}
+	for idx := range cfg.WeComInstances {
+		cfg.WeComInstances[idx].Enabled = false
+	}
+}
+
+func enableTelegramInstances(cfg *config.Snapshot) {
+	for idx := range cfg.TelegramInstances {
+		cfg.TelegramInstances[idx].Enabled = true
+	}
+}
+
+func enableDiscordInstances(cfg *config.Snapshot) {
+	for idx := range cfg.DiscordInstances {
+		cfg.DiscordInstances[idx].Enabled = true
+	}
+}
+
+func enableFeishuInstances(cfg *config.Snapshot) {
+	for idx := range cfg.FeishuInstances {
+		cfg.FeishuInstances[idx].Enabled = true
+	}
+}
+
+func enableWeComInstances(cfg *config.Snapshot) {
+	for idx := range cfg.WeComInstances {
+		cfg.WeComInstances[idx].Enabled = true
 	}
 }
 
@@ -1073,10 +1213,13 @@ func runConfigCommand() error {
 }
 
 func printUsage() {
-	fmt.Fprintf(os.Stdout, "Usage: clawx [serve|config|skill|help]\n")
+	fmt.Fprintf(os.Stdout, "Usage: clawx [serve|run|config|skill|install-service|setup-service|help]\n")
 	fmt.Fprintf(os.Stdout, "  serve  Start the service. If config.json is missing, bootstrap it first.\n")
+	fmt.Fprintf(os.Stdout, "  run    Start selected runtime target (serve|telegram|discord|feishu|wecom); defaults to config service.run.\n")
 	fmt.Fprintf(os.Stdout, "  config Launch the interactive config wizard, or run `config agent ...` for agent management.\n")
 	fmt.Fprintf(os.Stdout, "  skill  Manage skill registry (list|reload|enable|disable).\n")
+	fmt.Fprintf(os.Stdout, "  install-service  Install Linux user-level systemd service (supports --start).\n")
+	fmt.Fprintf(os.Stdout, "  setup-service  One-shot setup: build binary + set service.run + install/start user service.\n")
 }
 
 func firstArg(args []string) string {
@@ -1447,20 +1590,35 @@ func sanitizePromptInput(value string) string {
 	return strings.TrimSpace(cleaned)
 }
 
-func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionManager) (map[string]agentRuntime, string, error) {
+func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionManager) (map[string]agentRuntime, string, runnerWrapper, error) {
 	runtimes := make(map[string]agentRuntime)
 	projectService, err := newProjectCommandService(cfg)
 	if err != nil {
-		return nil, "", fmt.Errorf("init project service: %w", err)
+		return nil, "", nil, fmt.Errorf("init project service: %w", err)
 	}
-
+	memoryService, err := newMemoryCommandService(cfg, projectService)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("init memory service: %w", err)
+	}
+	attachmentStore, err := newAttachmentContextStore(cfg)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("init attachment context store: %w", err)
+	}
+	serviceCommandService, err := newServiceCommandService(cfg)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("init service command service: %w", err)
+	}
+	scheduleCommandService, scheduleRunner, err := newScheduleCommandService(cfg)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("init schedule command service: %w", err)
+	}
 	if len(cfg.Agents) > 0 && len(cfg.ProviderProfiles) > 0 {
 		agentIDs := sortedAgentIDs(cfg.Agents)
 		for _, agentID := range agentIDs {
 			agent := cfg.Agents[agentID]
 			profile, ok := cfg.ProviderProfiles[agent.ProfileID]
 			if !ok {
-				return nil, "", fmt.Errorf("agent %q references unknown profile %q", agent.ID, agent.ProfileID)
+				return nil, "", nil, fmt.Errorf("agent %q references unknown profile %q", agent.ID, agent.ProfileID)
 			}
 
 			timeout := cfg.Timeout
@@ -1486,7 +1644,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			runtimeCfg.Timeout = timeout
 			registry, pipeline, err := buildSkillRuntimeComponents(runtimeCfg, agent.ID, workspace)
 			if err != nil {
-				return nil, "", fmt.Errorf("init skill runtime for agent %q: %w", agent.ID, err)
+				return nil, "", nil, fmt.Errorf("init skill runtime for agent %q: %w", agent.ID, err)
 			}
 			router := service.NewRouter(
 				runtimeCfg,
@@ -1494,6 +1652,9 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 				runner,
 				service.WithIntentPipeline(pipeline),
 				service.WithProjectResolver(projectService),
+				service.WithMemoryCommandService(memoryService),
+				service.WithServiceCommandService(serviceCommandService),
+				service.WithScheduleCommandService(scheduleCommandService),
 			)
 			profileCommand := strings.TrimSpace(profile.Command)
 			if profileCommand == "" {
@@ -1506,14 +1667,16 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			}
 
 			runtimes[agent.ID] = agentRuntime{
-				agentID:     agent.ID,
-				backendName: runner.Name(),
-				cwd:         workspace,
-				profileKind: profile.Kind,
-				profileCmd:  profileCommand,
-				router:      router,
-				runner:      runner,
-				skills:      registry,
+				agentID:         agent.ID,
+				backendName:     runner.Name(),
+				cwd:             workspace,
+				projectCWD:      projectService,
+				attachmentStore: attachmentStore,
+				profileKind:     profile.Kind,
+				profileCmd:      profileCommand,
+				router:          router,
+				runner:          runner,
+				skills:          registry,
 			}
 		}
 	}
@@ -1524,7 +1687,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 	}
 	if defaultAgentID != "" {
 		if _, ok := runtimes[defaultAgentID]; ok {
-			return runtimes, defaultAgentID, nil
+			return runtimes, defaultAgentID, scheduleRunner, nil
 		}
 	}
 	if len(runtimes) > 0 {
@@ -1533,7 +1696,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			ids = append(ids, id)
 		}
 		sort.Strings(ids)
-		return runtimes, ids[0], nil
+		return runtimes, ids[0], scheduleRunner, nil
 	}
 
 	runner := buildRunner(cfg)
@@ -1552,7 +1715,15 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 	primaryRouter := func() *service.Router {
 		registry, pipeline, err := buildSkillRuntimeComponents(cfg, primaryID, cfg.DefaultCWD)
 		if err != nil {
-			return service.NewRouter(cfg, sessionManager, runner, service.WithProjectResolver(projectService))
+			return service.NewRouter(
+				cfg,
+				sessionManager,
+				runner,
+				service.WithProjectResolver(projectService),
+				service.WithMemoryCommandService(memoryService),
+				service.WithServiceCommandService(serviceCommandService),
+				service.WithScheduleCommandService(scheduleCommandService),
+			)
 		}
 		primaryRegistry = registry
 		return service.NewRouter(
@@ -1561,20 +1732,25 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			runner,
 			service.WithIntentPipeline(pipeline),
 			service.WithProjectResolver(projectService),
+			service.WithMemoryCommandService(memoryService),
+			service.WithServiceCommandService(serviceCommandService),
+			service.WithScheduleCommandService(scheduleCommandService),
 		)
 	}()
 
 	runtimes[primaryID] = agentRuntime{
-		agentID:     primaryID,
-		backendName: runner.Name(),
-		cwd:         cfg.DefaultCWD,
-		profileKind: profileKind,
-		profileCmd:  profileCmd,
-		router:      primaryRouter,
-		runner:      runner,
-		skills:      primaryRegistry,
+		agentID:         primaryID,
+		backendName:     runner.Name(),
+		cwd:             cfg.DefaultCWD,
+		projectCWD:      projectService,
+		attachmentStore: attachmentStore,
+		profileKind:     profileKind,
+		profileCmd:      profileCmd,
+		router:          primaryRouter,
+		runner:          runner,
+		skills:          primaryRegistry,
 	}
-	return runtimes, primaryID, nil
+	return runtimes, primaryID, scheduleRunner, nil
 }
 
 func sortedAgentIDs(values map[string]config.Agent) []string {
@@ -1765,6 +1941,56 @@ func startHTTPServer(ctx context.Context, cfg config.Snapshot, mux *http.ServeMu
 	return server
 }
 
+func resolveExecutionCWD(ctx context.Context, runtime agentRuntime, decision service.Decision) string {
+	defaultCWD := strings.TrimSpace(runtime.cwd)
+	if defaultCWD == "" {
+		defaultCWD = "."
+	}
+	projectID := strings.TrimSpace(decision.ProjectID)
+	if projectID == "" || runtime.projectCWD == nil {
+		return defaultCWD
+	}
+	record, err := runtime.projectCWD.GetProject(ctx, projectID)
+	if err != nil {
+		log.Printf("resolve execute cwd fallback: agent=%s project_id=%s err=%v", runtime.agentID, projectID, err)
+		return defaultCWD
+	}
+	projectWorkspace := strings.TrimSpace(record.WorkspacePath)
+	if projectWorkspace == "" {
+		return defaultCWD
+	}
+	agentID := normalizeExecutionDirSegment(runtime.agentID)
+	if agentID == "" {
+		return projectWorkspace
+	}
+	agentWorkspace := filepath.Join(projectWorkspace, ".agents", agentID, "workspace")
+	if err := os.MkdirAll(agentWorkspace, 0o755); err != nil {
+		log.Printf("resolve execute cwd agent workspace fallback: agent=%s project_id=%s path=%s err=%v", runtime.agentID, projectID, agentWorkspace, err)
+		return projectWorkspace
+	}
+	return agentWorkspace
+}
+
+func normalizeExecutionDirSegment(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(value))
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_':
+			b.WriteRune(r)
+		}
+	}
+	return strings.Trim(b.String(), "-_")
+}
+
 func handleTelegramInbound(
 	ctx context.Context,
 	runtime agentRuntime,
@@ -1820,8 +2046,10 @@ func handleTelegramInbound(
 		sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatControlResponse(toControlResponse(result)))
 	case service.DecisionSkill, service.DecisionExecute:
 		started := time.Now()
+		decision = mergeDecisionAttachments(runtime, decision)
 		executeInput := buildExecutionInput(decision)
-		log.Printf("telegram execute begin: channel=telegram instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, runtime.cwd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
+		executeCWD := resolveExecutionCWD(ctx, runtime, decision)
+		log.Printf("telegram execute begin: channel=telegram instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
 			Mode:            command.ModeContinue,
 			ConversationID:  decision.ConversationID,
@@ -1832,7 +2060,7 @@ func handleTelegramInbound(
 			IsDirectMessage: decision.Message.ContextFlags.IsDirectMessage,
 			Input:           executeInput,
 			Backend:         runtime.backendName,
-			CWD:             runtime.cwd,
+			CWD:             executeCWD,
 		})
 		if err != nil {
 			log.Printf("telegram execute failed: channel=telegram instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
@@ -1843,12 +2071,9 @@ func handleTelegramInbound(
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
-		output := flowResult.Execution.Output
-		if output == "" {
-			output = "执行完成，无可见输出"
-		}
-		output = applyExecutionSourceLabel(decision, output)
+		output := finalizeExecutionOutput(decision, flowResult.Execution.Output)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, telegramchat.MaxMessageLength, 1)
+		deliverTelegramOutputFiles(ctx, adapter, envelope.Target, output)
 	}
 }
 
@@ -1913,8 +2138,10 @@ func handleFeishuInbound(
 		sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatControlResponse(toControlResponse(result)))
 	case service.DecisionSkill, service.DecisionExecute:
 		started := time.Now()
+		decision = mergeDecisionAttachments(runtime, decision)
 		executeInput := buildExecutionInput(decision)
-		log.Printf("feishu execute begin: channel=feishu instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, runtime.cwd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
+		executeCWD := resolveExecutionCWD(ctx, runtime, decision)
+		log.Printf("feishu execute begin: channel=feishu instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
 			Mode:            command.ModeContinue,
 			ConversationID:  decision.ConversationID,
@@ -1925,7 +2152,7 @@ func handleFeishuInbound(
 			IsDirectMessage: decision.Message.ContextFlags.IsDirectMessage,
 			Input:           executeInput,
 			Backend:         runtime.backendName,
-			CWD:             runtime.cwd,
+			CWD:             executeCWD,
 		})
 		if err != nil {
 			log.Printf("feishu execute failed: channel=feishu instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
@@ -1936,11 +2163,7 @@ func handleFeishuInbound(
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
-		output := flowResult.Execution.Output
-		if output == "" {
-			output = "执行完成，无可见输出"
-		}
-		output = applyExecutionSourceLabel(decision, output)
+		output := finalizeExecutionOutput(decision, flowResult.Execution.Output)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, feishuchat.MaxMessageLength, 1)
 	}
 }
@@ -2006,8 +2229,10 @@ func handleWeComInbound(
 		sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatControlResponse(toControlResponse(result)))
 	case service.DecisionSkill, service.DecisionExecute:
 		started := time.Now()
+		decision = mergeDecisionAttachments(runtime, decision)
 		executeInput := buildExecutionInput(decision)
-		log.Printf("wecom execute begin: channel=wecom instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, runtime.cwd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
+		executeCWD := resolveExecutionCWD(ctx, runtime, decision)
+		log.Printf("wecom execute begin: channel=wecom instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
 			Mode:            command.ModeContinue,
 			ConversationID:  decision.ConversationID,
@@ -2018,7 +2243,7 @@ func handleWeComInbound(
 			IsDirectMessage: decision.Message.ContextFlags.IsDirectMessage,
 			Input:           executeInput,
 			Backend:         runtime.backendName,
-			CWD:             runtime.cwd,
+			CWD:             executeCWD,
 		})
 		if err != nil {
 			log.Printf("wecom execute failed: channel=wecom instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
@@ -2029,12 +2254,9 @@ func handleWeComInbound(
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
-		output := flowResult.Execution.Output
-		if output == "" {
-			output = "执行完成，无可见输出"
-		}
-		output = applyExecutionSourceLabel(decision, output)
+		output := finalizeExecutionOutput(decision, flowResult.Execution.Output)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, wecomchat.MaxMessageLength, 1)
+		deliverWeComOutputFiles(ctx, adapter, envelope.Target, output)
 	}
 }
 
@@ -2100,8 +2322,10 @@ func handleDiscordInbound(
 		sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatControlResponse(toControlResponse(result)))
 	case service.DecisionSkill, service.DecisionExecute:
 		started := time.Now()
+		decision = mergeDecisionAttachments(runtime, decision)
 		executeInput := buildExecutionInput(decision)
-		log.Printf("discord execute begin: channel=discord instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, "-", runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, runtime.cwd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
+		executeCWD := resolveExecutionCWD(ctx, runtime, decision)
+		log.Printf("discord execute begin: channel=discord instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, "-", runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		stopTyping := startDiscordTypingLoop(ctx, adapter, envelope.Target)
 		defer stopTyping()
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
@@ -2114,7 +2338,7 @@ func handleDiscordInbound(
 			IsDirectMessage: decision.Message.ContextFlags.IsDirectMessage,
 			Input:           executeInput,
 			Backend:         runtime.backendName,
-			CWD:             runtime.cwd,
+			CWD:             executeCWD,
 		})
 		if err != nil {
 			log.Printf("discord execute failed: channel=discord instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, "-", runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
@@ -2125,12 +2349,9 @@ func handleDiscordInbound(
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
-		output := flowResult.Execution.Output
-		if output == "" {
-			output = "执行完成，无可见输出"
-		}
-		output = applyExecutionSourceLabel(decision, output)
+		output := finalizeExecutionOutput(decision, flowResult.Execution.Output)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, discordchat.MaxMessageLength, 1)
+		deliverDiscordOutputFiles(ctx, adapter, envelope.Target, output)
 	}
 }
 
@@ -2187,9 +2408,75 @@ func applyExecutionSourceLabel(decision service.Decision, output string) string 
 	return prefix + "\n" + text
 }
 
+func finalizeExecutionOutput(decision service.Decision, raw string) string {
+	output := strings.TrimSpace(raw)
+	if output == "" {
+		output = "执行完成，无可见输出"
+	}
+	output = applyExecutionCompletionGate(decision, output)
+	return applyExecutionSourceLabel(decision, output)
+}
+
+func applyExecutionCompletionGate(decision service.Decision, output string) string {
+	if decision.Kind != service.DecisionExecute {
+		return output
+	}
+	requestText := strings.ToLower(strings.TrimSpace(decision.Message.Text))
+	if !looksLikeImplementationRequest(requestText) {
+		return output
+	}
+	answerText := strings.ToLower(strings.TrimSpace(output))
+	if !looksLikeCompletionClaim(answerText) {
+		return output
+	}
+	if hasExecutionEvidence(output, answerText) {
+		return output
+	}
+	return "执行结果未通过平台验收门禁：检测到“已实现/已完成”声明，但缺少可核验证据。\n" +
+		"请补充以下至少两项后再回复“已完成”：\n" +
+		"1. 实际执行过的命令（如 go test/go run 等）\n" +
+		"2. 命令结果摘要（通过/失败、关键输出）\n" +
+		"3. 代码变更清单（文件路径）"
+}
+
+func looksLikeImplementationRequest(text string) bool {
+	if text == "" {
+		return false
+	}
+	return containsAnyPhrase(text, "实现", "开发", "脚本", "代码", "修复", "补齐", "新增", "通知", "自动化", "定时")
+}
+
+func looksLikeCompletionClaim(text string) bool {
+	return containsAnyPhrase(text,
+		"已实现", "实现完成", "已完成", "已帮你", "完成了", "完成实现",
+		"implemented", "implementation completed", "completed", "done",
+	)
+}
+
+func hasExecutionEvidence(output, lower string) bool {
+	hasCommand := executionEvidenceCommandPattern.MatchString(output) || strings.Contains(lower, "```bash")
+	hasResult := containsAnyPhrase(lower, "测试结果", "结果：", "result:", "通过", "失败", "ok ", "exit code")
+	hasChanges := strings.Contains(output, "](/") || containsAnyPhrase(lower, "新增", "更新", "修改", "变更文件")
+	return hasCommand && (hasResult || hasChanges)
+}
+
+func containsAnyPhrase(text string, keywords ...string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if text == "" {
+		return false
+	}
+	for _, keyword := range keywords {
+		keyword = strings.ToLower(strings.TrimSpace(keyword))
+		if keyword != "" && strings.Contains(text, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
 func buildExecutionInput(decision service.Decision) string {
 	if decision.Kind != service.DecisionSkill || decision.Skill == nil {
-		return decision.Message.Text
+		return appendAttachmentContext(decision.Message.Text, decision.Message.Attachments)
 	}
 
 	userInput := strings.TrimSpace(decision.SkillInput)
@@ -2205,7 +2492,47 @@ func buildExecutionInput(decision service.Decision) string {
 	builder.WriteString(strings.TrimSpace(decision.Skill.InstructionBody))
 	builder.WriteString("\n\n[User Request]\n")
 	builder.WriteString(userInput)
-	return builder.String()
+	return appendAttachmentContext(builder.String(), decision.Message.Attachments)
+}
+
+func appendAttachmentContext(input string, attachments []chatiface.Attachment) string {
+	text := strings.TrimSpace(input)
+	if len(attachments) == 0 {
+		return text
+	}
+
+	var builder strings.Builder
+	if text != "" {
+		builder.WriteString(text)
+		builder.WriteString("\n\n")
+	}
+	builder.WriteString("[Attachments]\n")
+	for idx, attachment := range attachments {
+		name := strings.TrimSpace(attachment.Name)
+		if name == "" {
+			name = fmt.Sprintf("attachment_%d", idx+1)
+		}
+		builder.WriteString("- ")
+		builder.WriteString(name)
+		if ct := strings.TrimSpace(attachment.ContentType); ct != "" {
+			builder.WriteString(" (")
+			builder.WriteString(ct)
+			builder.WriteString(")")
+		}
+		if attachment.SizeBytes > 0 {
+			builder.WriteString(fmt.Sprintf(" size=%dB", attachment.SizeBytes))
+		}
+		if local := strings.TrimSpace(attachment.LocalPath); local != "" {
+			builder.WriteString(" local_path=")
+			builder.WriteString(local)
+		}
+		if url := strings.TrimSpace(attachment.URL); url != "" {
+			builder.WriteString(" url=")
+			builder.WriteString(url)
+		}
+		builder.WriteByte('\n')
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func startDiscordTypingLoop(ctx context.Context, adapter *discordchat.Adapter, target discordchat.Target) func() {
@@ -2260,4 +2587,106 @@ func toControlResponse(result service.ControlFlowResult) chatiface.ControlRespon
 		})
 	}
 	return response
+}
+
+var (
+	markdownFilePathPattern = regexp.MustCompile(`\[[^\]]+\]\((/[^)\n]+)\)`)
+	absolutePathPattern     = regexp.MustCompile(`(?m)(/[^\s\]\)\(<>\"` + "`" + `]+)`)
+)
+
+func deliverDiscordOutputFiles(ctx context.Context, adapter *discordchat.Adapter, target discordchat.Target, output string) {
+	if adapter == nil {
+		return
+	}
+	paths := extractOutputLocalFiles(output, 3)
+	for _, path := range paths {
+		caption := "产物文件: " + filepath.Base(path)
+		if err := adapter.SendLocalFile(ctx, target, path, caption); err != nil {
+			log.Printf("discord send local file failed: path=%s err=%v", path, err)
+			sendDiscordDirect(ctx, adapter, target, fmt.Sprintf("文件回传失败: %s (%v)", filepath.Base(path), err))
+		}
+	}
+}
+
+func deliverTelegramOutputFiles(ctx context.Context, adapter *telegramchat.Adapter, target telegramchat.Target, output string) {
+	if adapter == nil {
+		return
+	}
+	paths := extractOutputLocalFiles(output, 3)
+	for _, path := range paths {
+		caption := "产物文件: " + filepath.Base(path)
+		if err := adapter.SendLocalFile(ctx, target, path, caption); err != nil {
+			log.Printf("telegram send local file failed: path=%s err=%v", path, err)
+			sendTelegramDirect(ctx, adapter, target, fmt.Sprintf("文件回传失败: %s (%v)", filepath.Base(path), err))
+		}
+	}
+}
+
+func deliverWeComOutputFiles(ctx context.Context, adapter *wecomchat.Adapter, target wecomchat.Target, output string) {
+	if adapter == nil {
+		return
+	}
+	paths := extractOutputLocalFiles(output, 3)
+	for _, path := range paths {
+		caption := "产物文件: " + filepath.Base(path)
+		if err := adapter.SendLocalFile(ctx, target, path, caption); err != nil {
+			log.Printf("wecom send local file failed: path=%s err=%v", path, err)
+			sendWeComDirect(ctx, adapter, target, fmt.Sprintf("文件回传失败: %s (%v)", filepath.Base(path), err))
+		}
+	}
+}
+
+func extractOutputLocalFiles(output string, max int) []string {
+	if max <= 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, max)
+	result := make([]string, 0, max)
+	appendPath := func(raw string) {
+		if len(result) >= max {
+			return
+		}
+		path := sanitizeLocalPathToken(raw)
+		if path == "" {
+			return
+		}
+		clean := filepath.Clean(path)
+		if _, ok := seen[clean]; ok {
+			return
+		}
+		info, err := os.Stat(clean)
+		if err != nil || info.IsDir() {
+			return
+		}
+		seen[clean] = struct{}{}
+		result = append(result, clean)
+	}
+
+	for _, match := range markdownFilePathPattern.FindAllStringSubmatch(output, -1) {
+		if len(match) < 2 {
+			continue
+		}
+		appendPath(match[1])
+	}
+	for _, match := range absolutePathPattern.FindAllStringSubmatch(output, -1) {
+		if len(match) < 2 {
+			continue
+		}
+		appendPath(match[1])
+	}
+	return result
+}
+
+func sanitizeLocalPathToken(raw string) string {
+	value := strings.TrimSpace(raw)
+	value = strings.Trim(value, "`'\"")
+	value = strings.TrimRight(value, ".,;:!?)")
+	if value == "" || !strings.HasPrefix(value, "/") {
+		return ""
+	}
+	// Reject URLs to avoid treating https://... as file path.
+	if strings.HasPrefix(strings.ToLower(value), "/http://") || strings.HasPrefix(strings.ToLower(value), "/https://") {
+		return ""
+	}
+	return value
 }

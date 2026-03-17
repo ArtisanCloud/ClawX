@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"clawx/internal/application/command"
 	"clawx/internal/application/intent"
 	memoryapp "clawx/internal/application/memory"
 	"clawx/internal/domain/execution"
@@ -63,15 +64,24 @@ type ProjectCommandService interface {
 	ConfirmProjectSwitch(ctx context.Context, proposalID, updatedBy string) (projectdomain.RouteBinding, error)
 }
 
+type MemoryCommandService interface {
+	Note(ctx context.Context, input memoryapp.NoteInput) (memoryapp.NoteResult, error)
+	Digest(ctx context.Context, input memoryapp.DigestInput) (memoryapp.DigestResult, error)
+	Audit(ctx context.Context, input memoryapp.AuditInput) (memoryapp.AuditResult, error)
+}
+
 type Router struct {
-	cfg            config.Snapshot
-	sessionManager *SessionManager
-	backend        execution.Backend
-	intentPipeline *intent.Pipeline
-	project        ProjectResolver
-	projectControl ProjectCommandService
-	memoryLoader   *memoryapp.Loader
-	scopeResolver  *memoryapp.ScopeResolver
+	cfg             config.Snapshot
+	sessionManager  *SessionManager
+	backend         execution.Backend
+	intentPipeline  *intent.Pipeline
+	project         ProjectResolver
+	projectControl  ProjectCommandService
+	memoryControl   MemoryCommandService
+	serviceControl  ServiceCommandService
+	scheduleControl ScheduleCommandService
+	memoryLoader    *memoryapp.Loader
+	scopeResolver   *memoryapp.ScopeResolver
 }
 
 type RouterOption func(*Router)
@@ -100,6 +110,24 @@ func WithMemoryLoader(loader *memoryapp.Loader) RouterOption {
 func WithMemoryScopeResolver(resolver *memoryapp.ScopeResolver) RouterOption {
 	return func(r *Router) {
 		r.scopeResolver = resolver
+	}
+}
+
+func WithMemoryCommandService(memoryControl MemoryCommandService) RouterOption {
+	return func(r *Router) {
+		r.memoryControl = memoryControl
+	}
+}
+
+func WithServiceCommandService(serviceControl ServiceCommandService) RouterOption {
+	return func(r *Router) {
+		r.serviceControl = serviceControl
+	}
+}
+
+func WithScheduleCommandService(scheduleControl ScheduleCommandService) RouterOption {
+	return func(r *Router) {
+		r.scheduleControl = scheduleControl
 	}
 }
 
@@ -135,14 +163,34 @@ func (r *Router) Route(ctx context.Context, message chat.Message) (Decision, err
 		RouteKey:       strings.TrimSpace(message.RouteKey),
 		Message:        message,
 	}
-	if err := r.resolveProject(ctx, &decision); err != nil {
-		return Decision{}, err
+	if strings.TrimSpace(decision.RouteKey) == "" {
+		decision.RouteKey = "compat:" + strings.TrimSpace(decision.ConversationID)
 	}
 
-	if isBuiltInControlCommand(text) {
+	controlName, isControl := builtInControlCommandName(text)
+	if isControl {
 		decision.Kind = DecisionControl
 		decision.Command = text
+		// Project control commands must remain executable even when the current
+		// route binding points to a broken project; otherwise /project use|repair
+		// cannot self-heal the route.
+		if controlName == "project" {
+			projectID := strings.TrimSpace(r.cfg.Projects.DefaultProjectID)
+			if projectID == "" {
+				projectID = "main"
+			}
+			decision.ProjectID = projectID
+			decision.ProjectMode = "fallback"
+			return decision, nil
+		}
+		if err := r.resolveProject(ctx, &decision); err != nil {
+			return Decision{}, err
+		}
 		return decision, nil
+	}
+
+	if err := r.resolveProject(ctx, &decision); err != nil {
+		return Decision{}, err
 	}
 
 	if r.intentPipeline != nil {
@@ -172,6 +220,28 @@ func (r *Router) Route(ctx context.Context, message chat.Message) (Decision, err
 				decision.Command = buildProjectSuggestCommand(targetProjectID, intentResult.ProposalConfidence, intentResult.ProposalReason)
 			}
 		}
+		// Let model/skill routing decide first, then use deterministic NL mapping as fallback.
+		// This avoids hijacking implementation requests into immediate control commands.
+		if decision.Kind == DecisionExecute {
+			if serviceCommand, ok := inferServiceControlCommand(text); ok {
+				decision.Kind = DecisionControl
+				decision.Command = serviceCommand
+			} else if scheduleCommand, ok := inferScheduleControlCommand(text); ok {
+				decision.Kind = DecisionControl
+				decision.Command = scheduleCommand
+			}
+		}
+		return decision, nil
+	}
+
+	if serviceCommand, ok := inferServiceControlCommand(text); ok {
+		decision.Kind = DecisionControl
+		decision.Command = serviceCommand
+		return decision, nil
+	}
+	if scheduleCommand, ok := inferScheduleControlCommand(text); ok {
+		decision.Kind = DecisionControl
+		decision.Command = scheduleCommand
 		return decision, nil
 	}
 
@@ -233,16 +303,21 @@ func isBareControlCommand(text string) bool {
 }
 
 func isBuiltInControlCommand(text string) bool {
+	_, ok := builtInControlCommandName(text)
+	return ok
+}
+
+func builtInControlCommandName(text string) (string, bool) {
 	fields := strings.Fields(strings.TrimSpace(text))
 	if len(fields) == 0 {
-		return false
+		return "", false
 	}
 	name := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fields[0])), "/")
 	switch name {
-	case "new", "resume", "switch", "list", "cancel", "current", "project":
-		return true
+	case "new", "resume", "switch", "list", "cancel", "current", "project", "memory", "service", "schedule":
+		return name, true
 	default:
-		return false
+		return "", false
 	}
 }
 
@@ -281,6 +356,127 @@ func buildProjectSuggestCommand(projectID string, confidence float64, reason str
 		confidence = 1
 	}
 	return fmt.Sprintf("/project suggest %s %.2f %s", projectID, confidence, reason)
+}
+
+func inferServiceControlCommand(text string) (string, bool) {
+	raw := strings.TrimSpace(text)
+	if raw == "" {
+		return "", false
+	}
+
+	lowerRaw := strings.ToLower(raw)
+	if idx := strings.Index(lowerRaw, "/service "); idx >= 0 {
+		candidate := strings.TrimSpace(raw[idx:])
+		if _, err := command.ParseServiceControlCommand(candidate); err == nil {
+			return candidate, true
+		}
+	}
+
+	lower := strings.ToLower(strings.Join(strings.Fields(raw), " "))
+	if !containsAny(lower, "服务", "service") {
+		return "", false
+	}
+
+	name := inferServiceName(lower)
+	if name == "" {
+		return "", false
+	}
+
+	switch {
+	case containsAny(lower, "状态", "status", "运行了吗", "运行状态", "是否在运行", "是否运行"):
+		return "/service status " + name, true
+	case containsAny(lower, "日志", "log", "输出"):
+		return "/service logs " + name + " --tail=50", true
+	case containsAny(lower, "停止", "停掉", "关闭", "kill", "stop"):
+		return "/service stop " + name, true
+	case containsAny(lower, "启动", "开启", "拉起", "start", "run"):
+		if name == "image-tool" {
+			return "/service start image-tool -- go run ./cmd/imagectl", true
+		}
+	}
+	return "", false
+}
+
+func inferServiceName(text string) string {
+	switch {
+	case containsAny(text, "image-tool", "image tool", "图片工具"):
+		return "image-tool"
+	default:
+		return ""
+	}
+}
+
+func inferScheduleControlCommand(text string) (string, bool) {
+	raw := strings.TrimSpace(text)
+	if raw == "" {
+		return "", false
+	}
+	lowerRaw := strings.ToLower(raw)
+	if idx := strings.Index(lowerRaw, "/schedule "); idx >= 0 {
+		candidate := strings.TrimSpace(raw[idx:])
+		if _, err := command.ParseScheduleControlCommand(candidate); err == nil {
+			return candidate, true
+		}
+	}
+	lower := strings.ToLower(strings.Join(strings.Fields(raw), " "))
+	// Do not hijack implementation requests into immediate control commands.
+	// Example: "你能实现每周清理并通知我吗" should go to execute workflow.
+	if isScheduleImplementationRequest(lower) {
+		return "", false
+	}
+	if containsAny(lower, "每周", "每 星期", "每星期") && containsAny(lower, "清理", "图片", "image", "长图", "缓存") {
+		return "/schedule add image-cleanup --cron \"0 3 * * 0\" --task image.cleanup --arg retention_days=30", true
+	}
+	if containsAny(lower, "立即", "马上", "run now", "运行") && containsAny(lower, "清理", "image", "图片") {
+		return "/schedule run image-cleanup", true
+	}
+	if containsAny(lower, "暂停", "pause") && containsAny(lower, "清理", "image", "图片") {
+		return "/schedule pause image-cleanup", true
+	}
+	if containsAny(lower, "恢复", "resume") && containsAny(lower, "清理", "image", "图片") {
+		return "/schedule resume image-cleanup", true
+	}
+	if !containsAny(lower, "定时", "schedule", "调度") {
+		return "", false
+	}
+	if containsAny(lower, "查看", "列出", "状态", "list") && containsAny(lower, "任务", "schedule", "调度") {
+		return "/schedule list", true
+	}
+	return "", false
+}
+
+func isScheduleImplementationRequest(text string) bool {
+	mentionsScheduleNeed := containsAny(text, "定时", "schedule", "调度", "每周", "清理", "图片", "image", "缓存")
+	if !mentionsScheduleNeed {
+		return false
+	}
+	asksImplementation := containsAny(
+		text,
+		"你能实现",
+		"能实现吗",
+		"能实现么",
+		"能不能实现",
+		"请实现",
+		"帮我实现",
+		"开发",
+		"写脚本",
+		"脚本逻辑",
+		"代码逻辑",
+		"补齐",
+		"完善",
+		"支持自动通知",
+		"自动通知我",
+	)
+	return asksImplementation
+}
+
+func containsAny(text string, keywords ...string) bool {
+	for _, keyword := range keywords {
+		if strings.Contains(text, strings.ToLower(strings.TrimSpace(keyword))) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Router) ValidateContext(message chat.Message) error {

@@ -108,16 +108,16 @@
 
 ### 测试任务（US3）
 
-- [ ] T033 [P] [US3] 增加主会话判定单测（private + owner allowlist）于 /home/ubuntu/workspace/ClawX/tests/unit/memory_main_session_acl_test.go
-- [ ] T034 [P] [US3] 增加共享会话禁读 `MEMORY.md` 集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_shared_acl_test.go
-- [ ] T035 [P] [US3] 增加 ACL 冲突降级与审计集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_acl_degrade_test.go
+- [X] T033 [P] [US3] 增加主会话判定单测（private + owner allowlist）于 /home/ubuntu/workspace/ClawX/tests/unit/memory_main_session_acl_test.go
+- [X] T034 [P] [US3] 增加共享会话禁读 `MEMORY.md` 集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_shared_acl_test.go
+- [X] T035 [P] [US3] 增加 ACL 冲突降级与审计集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_acl_degrade_test.go
 
 ### 实现任务（US3）
 
-- [ ] T036 [US3] 实现主会话分类器（chat_mode 决策）于 /home/ubuntu/workspace/ClawX/internal/application/memory/session_classifier.go
-- [ ] T037 [US3] 在加载器接入 `main_private` ACL 判定于 /home/ubuntu/workspace/ClawX/internal/application/memory/loader_acl.go
-- [ ] T038 [US3] 实现最小权限降级策略于 /home/ubuntu/workspace/ClawX/internal/application/memory/degrade_policy.go
-- [ ] T039 [US3] 记录 `memory_scope/memory_acl_mode` 审计字段于 /home/ubuntu/workspace/ClawX/cmd/clawx/main.go
+- [X] T036 [US3] 实现主会话分类器（chat_mode 决策）于 /home/ubuntu/workspace/ClawX/internal/application/memory/session_classifier.go
+- [X] T037 [US3] 在加载器接入 `main_private` ACL 判定于 /home/ubuntu/workspace/ClawX/internal/application/memory/loader_acl.go
+- [X] T038 [US3] 实现最小权限降级策略于 /home/ubuntu/workspace/ClawX/internal/application/memory/degrade_policy.go
+- [X] T039 [US3] 记录 `memory_scope/memory_acl_mode` 审计字段于 /home/ubuntu/workspace/ClawX/cmd/clawx/main.go
 
 **检查点**: US3 完成后，主/共享会话 ACL 可独立验收
 
@@ -131,22 +131,22 @@
 
 ### 测试任务（US4）
 
-- [ ] T040 [P] [US4] 增加 `/memory note` 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_note_contract_test.go
-- [ ] T041 [P] [US4] 增加 `/memory digest` 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_digest_contract_test.go
-- [ ] T042 [P] [US4] 增加 `/memory audit` 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_audit_contract_test.go
-- [ ] T043 [P] [US4] 增加 note/digest/audit 集成验收测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_commands_flow_test.go
-- [ ] T044 [P] [US4] 增加 `/memory note --shared` ACL 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_note_shared_contract_test.go
-- [ ] T045 [P] [US4] 增加共享写入成功/拒绝集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_note_shared_flow_test.go
+- [X] T040 [P] [US4] 增加 `/memory note` 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_note_contract_test.go
+- [X] T041 [P] [US4] 增加 `/memory digest` 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_digest_contract_test.go
+- [X] T042 [P] [US4] 增加 `/memory audit` 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_audit_contract_test.go
+- [X] T043 [P] [US4] 增加 note/digest/audit 集成验收测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_commands_flow_test.go
+- [X] T044 [P] [US4] 增加 `/memory note --shared` ACL 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/memory_note_shared_contract_test.go
+- [X] T045 [P] [US4] 增加共享写入成功/拒绝集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_note_shared_flow_test.go
 
 ### 实现任务（US4）
 
-- [ ] T046 [US4] 新增 `/memory` CLI 命令入口于 /home/ubuntu/workspace/ClawX/cmd/clawx/memory.go
-- [ ] T047 [US4] 实现 `note` 应用服务（默认私有写回）于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_note.go
-- [ ] T048 [US4] 实现 `digest` 应用服务（手工触发 + 自动默认关闭）于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_digest.go
-- [ ] T049 [US4] 实现 `audit` 应用服务（缺失/权限/隔离异常汇总）于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_audit.go
-- [ ] T050 [US4] 在控制流接入 `/memory` 命令优先级于 /home/ubuntu/workspace/ClawX/internal/application/service/router_control_flow.go
-- [ ] T051 [US4] 实现 `note --shared` 写入路径与 ACL 判定于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_note.go
-- [ ] T052 [US4] 在 `/memory` 命令解析中接入 `--shared` 参数于 /home/ubuntu/workspace/ClawX/cmd/clawx/memory.go
+- [X] T046 [US4] 新增 `/memory` CLI 命令入口于 /home/ubuntu/workspace/ClawX/cmd/clawx/memory.go
+- [X] T047 [US4] 实现 `note` 应用服务（默认私有写回）于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_note.go
+- [X] T048 [US4] 实现 `digest` 应用服务（手工触发 + 自动默认关闭）于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_digest.go
+- [X] T049 [US4] 实现 `audit` 应用服务（缺失/权限/隔离异常汇总）于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_audit.go
+- [X] T050 [US4] 在控制流接入 `/memory` 命令优先级于 /home/ubuntu/workspace/ClawX/internal/application/service/router_control_flow.go
+- [X] T051 [US4] 实现 `note --shared` 写入路径与 ACL 判定于 /home/ubuntu/workspace/ClawX/internal/application/memory/service_note.go
+- [X] T052 [US4] 在 `/memory` 命令解析中接入 `--shared` 参数于 /home/ubuntu/workspace/ClawX/cmd/clawx/memory.go
 
 **检查点**: US4 完成后，写回与治理闭环可独立验收
 
@@ -156,15 +156,15 @@
 
 **目的**: 指标、文档、回归与发布门禁收口
 
-- [ ] T053 [P] 补充 memory 命令契约文档细节于 /home/ubuntu/workspace/ClawX/specs/006-memory-context-layer/contracts/memory-command-contract.md
-- [ ] T054 [P] 补充 memory 加载契约文档细节于 /home/ubuntu/workspace/ClawX/specs/006-memory-context-layer/contracts/memory-loading-contract.md
-- [ ] T055 [P] 更新 memory 快速验收指南于 /home/ubuntu/workspace/ClawX/specs/006-memory-context-layer/quickstart.md
-- [ ] T056 输出 SC-001~SC-006 指标采集测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_context_metrics_report_test.go
-- [ ] T057 运行全量回归并修复问题（`go test ./...`）于 /home/ubuntu/workspace/ClawX/tests/
-- [ ] T058 [P] 增加 `/resume`、`/switch` 项目记忆接入后语义不回归测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_control_resume_switch_regression_test.go
-- [ ] T059 [P] 增加 `/list`、`/current`、`/cancel` 项目记忆接入后语义不回归测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_control_list_current_cancel_regression_test.go
-- [ ] T060 [P] 增加审计字段 `memory_loaded_files/memory_denied_files/error_summary` 检索测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_audit_fields_search_test.go
-- [ ] T061 [P] 增加 `/new` 在记忆接入后语义不回归测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_control_new_regression_test.go
+- [X] T053 [P] 补充 memory 命令契约文档细节于 /home/ubuntu/workspace/ClawX/specs/006-memory-context-layer/contracts/memory-command-contract.md
+- [X] T054 [P] 补充 memory 加载契约文档细节于 /home/ubuntu/workspace/ClawX/specs/006-memory-context-layer/contracts/memory-loading-contract.md
+- [X] T055 [P] 更新 memory 快速验收指南于 /home/ubuntu/workspace/ClawX/specs/006-memory-context-layer/quickstart.md
+- [X] T056 输出 SC-001~SC-006 指标采集测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_context_metrics_report_test.go
+- [X] T057 运行全量回归并修复问题（`go test ./...`）于 /home/ubuntu/workspace/ClawX/tests/
+- [X] T058 [P] 增加 `/resume`、`/switch` 项目记忆接入后语义不回归测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_control_resume_switch_regression_test.go
+- [X] T059 [P] 增加 `/list`、`/current`、`/cancel` 项目记忆接入后语义不回归测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_control_list_current_cancel_regression_test.go
+- [X] T060 [P] 增加审计字段 `memory_loaded_files/memory_denied_files/error_summary` 检索测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_audit_fields_search_test.go
+- [X] T061 [P] 增加 `/new` 在记忆接入后语义不回归测试于 /home/ubuntu/workspace/ClawX/tests/integration/memory_control_new_regression_test.go
 
 ---
 

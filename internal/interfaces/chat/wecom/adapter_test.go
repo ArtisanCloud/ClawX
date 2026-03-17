@@ -2,6 +2,7 @@ package wecom
 
 import (
 	"bytes"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -10,9 +11,12 @@ import (
 	"encoding/binary"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -177,4 +181,111 @@ func pkcs7Pad(data []byte, blockSize int) []byte {
 	}
 	padText := bytes.Repeat([]byte{byte(padding)}, padding)
 	return append(data, padText...)
+}
+
+func TestSendLocalFileUploadsMediaThenSendsFileMessage(t *testing.T) {
+	var calledGetToken bool
+	var calledUpload bool
+	var calledSend bool
+	var gotUploadFilename string
+	var gotUploadBody string
+	var gotMediaIDInSend string
+
+	adapter, err := NewAdapter(Options{
+		CorpID:         "ww_test_corp",
+		AgentID:        "1000002",
+		Secret:         "corp-secret",
+		Token:          "verify-token",
+		EncodingAESKey: "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG",
+		BaseURL:        "https://qyapi.weixin.qq.com",
+		HTTPClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				switch {
+				case strings.Contains(req.URL.Path, "/cgi-bin/gettoken"):
+					calledGetToken = true
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     make(http.Header),
+						Body:       io.NopCloser(strings.NewReader(`{"errcode":0,"errmsg":"ok","access_token":"token-abc","expires_in":7200}`)),
+					}, nil
+				case strings.Contains(req.URL.Path, "/cgi-bin/media/upload"):
+					calledUpload = true
+					if err := req.ParseMultipartForm(2 * 1024 * 1024); err != nil {
+						t.Fatalf("parse upload multipart: %v", err)
+					}
+					file, header, err := req.FormFile("media")
+					if err != nil {
+						t.Fatalf("read upload media file: %v", err)
+					}
+					defer file.Close()
+					body, err := io.ReadAll(file)
+					if err != nil {
+						t.Fatalf("read upload media body: %v", err)
+					}
+					gotUploadFilename = header.Filename
+					gotUploadBody = string(body)
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     make(http.Header),
+						Body:       io.NopCloser(strings.NewReader(`{"errcode":0,"errmsg":"ok","media_id":"MEDIA123"}`)),
+					}, nil
+				case strings.Contains(req.URL.Path, "/cgi-bin/message/send"):
+					calledSend = true
+					payload, err := io.ReadAll(req.Body)
+					if err != nil {
+						t.Fatalf("read send body: %v", err)
+					}
+					if !strings.Contains(string(payload), `"msgtype":"file"`) {
+						t.Fatalf("unexpected send payload: %s", string(payload))
+					}
+					if !strings.Contains(string(payload), `"media_id":"MEDIA123"`) {
+						t.Fatalf("missing media id in send payload: %s", string(payload))
+					}
+					gotMediaIDInSend = "MEDIA123"
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     make(http.Header),
+						Body:       io.NopCloser(strings.NewReader(`{"errcode":0,"errmsg":"ok"}`)),
+					}, nil
+				default:
+					return &http.Response{
+						StatusCode: http.StatusNotFound,
+						Header:     make(http.Header),
+						Body:       io.NopCloser(strings.NewReader(`{"errcode":404,"errmsg":"not found"}`)),
+					}, nil
+				}
+			}),
+		},
+	})
+	if err != nil {
+		t.Fatalf("new adapter: %v", err)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test-long.png")
+	if err := os.WriteFile(path, []byte("png-bytes"), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+	if err := adapter.SendLocalFile(context.Background(), Target{ToUser: "zhangsan"}, path, "ignored caption"); err != nil {
+		t.Fatalf("send local file: %v", err)
+	}
+
+	if !calledGetToken || !calledUpload || !calledSend {
+		t.Fatalf("unexpected call chain: getToken=%v upload=%v send=%v", calledGetToken, calledUpload, calledSend)
+	}
+	if gotUploadFilename != "test-long.png" {
+		t.Fatalf("unexpected upload filename: %q", gotUploadFilename)
+	}
+	if gotUploadBody != "png-bytes" {
+		t.Fatalf("unexpected upload body: %q", gotUploadBody)
+	}
+	if gotMediaIDInSend != "MEDIA123" {
+		t.Fatalf("unexpected media id in send: %q", gotMediaIDInSend)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
