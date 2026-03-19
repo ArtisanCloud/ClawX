@@ -12,6 +12,7 @@
 - [phase_3_multi_agent.md](./phase_3_multi_agent.md)
 - [phase_4_channels.md](./phase_4_channels.md)
 - [phase_5_project_workspace_routing.md](./phase_5_project_workspace_routing.md)
+- [phase_6_agent_context_intent_unification.md](./phase_6_agent_context_intent_unification.md)
 - [persistence_strategy.md](./persistence_strategy.md)
 - [feature/](./feature/)
 

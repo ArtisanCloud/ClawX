@@ -2003,6 +2003,7 @@ func handleTelegramInbound(
 	message := envelope.Message
 	message.ConversationID = scopedConversationID
 	if handled, response, err := handleConfigChatCommand(message); handled {
+		logConfigControlHandled("telegram", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
 		if err != nil {
 			sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
@@ -2095,6 +2096,7 @@ func handleFeishuInbound(
 	message := envelope.Message
 	message.ConversationID = scopedConversationID
 	if handled, response, err := handleConfigChatCommand(message); handled {
+		logConfigControlHandled("feishu", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
 		if err != nil {
 			sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
@@ -2186,6 +2188,7 @@ func handleWeComInbound(
 	message := envelope.Message
 	message.ConversationID = scopedConversationID
 	if handled, response, err := handleConfigChatCommand(message); handled {
+		logConfigControlHandled("wecom", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
 		if err != nil {
 			sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
@@ -2278,6 +2281,7 @@ func handleDiscordInbound(
 	message := envelope.Message
 	message.ConversationID = scopedConversationID
 	if handled, response, err := handleConfigChatCommand(message); handled {
+		logConfigControlHandled("discord", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
 		if err != nil {
 			sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
@@ -2359,6 +2363,26 @@ func sendDiscordDirect(ctx context.Context, adapter *discordchat.Adapter, target
 	if err := adapter.SendDirect(ctx, target, message); err != nil {
 		log.Printf("send discord message: %v", err)
 	}
+}
+
+func logConfigControlHandled(channel, instanceID, conversationID, userID, input, response string, err error) {
+	status := "ok"
+	errText := ""
+	if err != nil {
+		status = "error"
+		errText = err.Error()
+	}
+	log.Printf(
+		"config_control handled channel=%s instance=%s conversation_id=%s user_id=%s status=%s input_chars=%d output_chars=%d err=%q",
+		strings.TrimSpace(channel),
+		strings.TrimSpace(instanceID),
+		strings.TrimSpace(conversationID),
+		strings.TrimSpace(userID),
+		status,
+		len(strings.TrimSpace(input)),
+		len(strings.TrimSpace(response)),
+		errText,
+	)
 }
 
 func handleClawXSkillMetaCommand(runtime agentRuntime, rawText string) (bool, string) {

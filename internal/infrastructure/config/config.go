@@ -577,6 +577,17 @@ type AgentUpsertOptions struct {
 	SetAsDefault   bool
 }
 
+type AgentDeleteOptions struct {
+	ID string
+}
+
+type AgentRenameOptions struct {
+	FromID           string
+	ToID             string
+	Workspace        string
+	MigrateWorkspace bool
+}
+
 type fileSnapshot struct {
 	Runtime      fileRuntime      `json:"runtime"`
 	Providers    fileProviders    `json:"providers"`
@@ -1281,6 +1292,112 @@ func SetDefaultAgent(agentID string) (string, error) {
 		return "", fmt.Errorf("write config: %w", err)
 	}
 	return path, nil
+}
+
+func DeleteAgent(opts AgentDeleteOptions) (string, string, error) {
+	id := strings.TrimSpace(opts.ID)
+	if id == "" {
+		return "", "", fmt.Errorf("agent id is required")
+	}
+
+	path := configPath()
+	file, err := readOrDefaultFileSnapshot(path)
+	if err != nil {
+		return "", "", err
+	}
+
+	index := -1
+	workspace := ""
+	for idx := range file.Agents.List {
+		if strings.TrimSpace(file.Agents.List[idx].ID) == id {
+			index = idx
+			workspace = strings.TrimSpace(file.Agents.List[idx].Workspace)
+			break
+		}
+	}
+	if index < 0 {
+		return "", "", fmt.Errorf("agent %q not found", id)
+	}
+
+	file.Agents.List = append(file.Agents.List[:index], file.Agents.List[index+1:]...)
+	nextDefault := strings.TrimSpace(file.Agents.Default)
+	if nextDefault == id {
+		nextDefault = ""
+	}
+	if nextDefault == "" && len(file.Agents.List) > 0 {
+		candidates := make([]string, 0, len(file.Agents.List))
+		for _, item := range file.Agents.List {
+			candidate := strings.TrimSpace(item.ID)
+			if candidate != "" {
+				candidates = append(candidates, candidate)
+			}
+		}
+		sort.Strings(candidates)
+		if len(candidates) > 0 {
+			nextDefault = candidates[0]
+		}
+	}
+	file.Agents.Default = nextDefault
+	rewriteAgentReferencesInFileSnapshot(&file, id, nextDefault)
+	setDefaultFlag(&file.Agents, nextDefault)
+
+	if err := writeFileSnapshot(path, file); err != nil {
+		return "", "", fmt.Errorf("write config: %w", err)
+	}
+	return path, workspace, nil
+}
+
+func RenameAgent(opts AgentRenameOptions) (string, string, string, error) {
+	fromID := strings.TrimSpace(opts.FromID)
+	toID := strings.TrimSpace(opts.ToID)
+	if fromID == "" || toID == "" {
+		return "", "", "", fmt.Errorf("from/to agent id is required")
+	}
+	if fromID == toID {
+		return "", "", "", fmt.Errorf("from/to agent id cannot be identical")
+	}
+
+	path := configPath()
+	file, err := readOrDefaultFileSnapshot(path)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	fromIndex := -1
+	for idx := range file.Agents.List {
+		current := strings.TrimSpace(file.Agents.List[idx].ID)
+		if current == toID {
+			return "", "", "", fmt.Errorf("agent %q already exists", toID)
+		}
+		if current == fromID {
+			fromIndex = idx
+		}
+	}
+	if fromIndex < 0 {
+		return "", "", "", fmt.Errorf("agent %q not found", fromID)
+	}
+
+	oldWorkspace := strings.TrimSpace(file.Agents.List[fromIndex].Workspace)
+	newWorkspace := oldWorkspace
+	if target := strings.TrimSpace(opts.Workspace); target != "" {
+		newWorkspace = target
+	} else if opts.MigrateWorkspace {
+		newWorkspace = rewriteWorkspaceOnAgentIDChange(oldWorkspace, fromID, toID)
+	}
+
+	file.Agents.List[fromIndex].ID = toID
+	file.Agents.List[fromIndex].Workspace = newWorkspace
+	if strings.TrimSpace(file.Agents.Default) == fromID {
+		file.Agents.Default = toID
+	}
+	rewriteAgentReferencesInFileSnapshot(&file, fromID, toID)
+	setDefaultFlag(&file.Agents, file.Agents.Default)
+	ensureAllowedRootContainsWorkspace(&file.Runtime, newWorkspace)
+
+	if err := writeFileSnapshot(path, file); err != nil {
+		return "", "", "", fmt.Errorf("write config: %w", err)
+	}
+	return path, oldWorkspace, newWorkspace, nil
 }
 
 func GetValueByDotKey(key string) (any, error) {
@@ -2064,6 +2181,124 @@ func setDefaultFlag(agents *fileAgents, defaultID string) {
 	for idx := range agents.List {
 		agents.List[idx].Default = strings.TrimSpace(agents.List[idx].ID) == defaultID && defaultID != ""
 	}
+}
+
+func rewriteAgentReferencesInFileSnapshot(file *fileSnapshot, fromID, toID string) {
+	if file == nil {
+		return
+	}
+	fromID = strings.TrimSpace(fromID)
+	toID = strings.TrimSpace(toID)
+	if fromID == "" || fromID == toID {
+		return
+	}
+	file.Agents.Default = replaceAgentRef(file.Agents.Default, fromID, toID)
+
+	file.Channels.Discord.DefaultAgent = replaceAgentRef(file.Channels.Discord.DefaultAgent, fromID, toID)
+	file.Channels.Discord.AgentBindings = replaceAgentBinding(file.Channels.Discord.AgentBindings, fromID, toID)
+	for i := range file.Channels.Discord.Instances {
+		file.Channels.Discord.Instances[i].DefaultAgent = replaceAgentRef(file.Channels.Discord.Instances[i].DefaultAgent, fromID, toID)
+		file.Channels.Discord.Instances[i].AgentBindings = replaceAgentBinding(file.Channels.Discord.Instances[i].AgentBindings, fromID, toID)
+	}
+
+	file.Channels.Telegram.DefaultAgent = replaceAgentRef(file.Channels.Telegram.DefaultAgent, fromID, toID)
+	file.Channels.Telegram.AgentBindings = replaceAgentBinding(file.Channels.Telegram.AgentBindings, fromID, toID)
+	for i := range file.Channels.Telegram.Instances {
+		file.Channels.Telegram.Instances[i].DefaultAgent = replaceAgentRef(file.Channels.Telegram.Instances[i].DefaultAgent, fromID, toID)
+		file.Channels.Telegram.Instances[i].AgentBindings = replaceAgentBinding(file.Channels.Telegram.Instances[i].AgentBindings, fromID, toID)
+	}
+
+	file.Channels.Feishu.DefaultAgent = replaceAgentRef(file.Channels.Feishu.DefaultAgent, fromID, toID)
+	file.Channels.Feishu.AgentBindings = replaceAgentBinding(file.Channels.Feishu.AgentBindings, fromID, toID)
+	for i := range file.Channels.Feishu.Instances {
+		file.Channels.Feishu.Instances[i].DefaultAgent = replaceAgentRef(file.Channels.Feishu.Instances[i].DefaultAgent, fromID, toID)
+		file.Channels.Feishu.Instances[i].AgentBindings = replaceAgentBinding(file.Channels.Feishu.Instances[i].AgentBindings, fromID, toID)
+	}
+
+	file.Channels.WeCom.DefaultAgent = replaceAgentRef(file.Channels.WeCom.DefaultAgent, fromID, toID)
+	file.Channels.WeCom.AgentBindings = replaceAgentBinding(file.Channels.WeCom.AgentBindings, fromID, toID)
+	for i := range file.Channels.WeCom.Instances {
+		file.Channels.WeCom.Instances[i].DefaultAgent = replaceAgentRef(file.Channels.WeCom.Instances[i].DefaultAgent, fromID, toID)
+		file.Channels.WeCom.Instances[i].AgentBindings = replaceAgentBinding(file.Channels.WeCom.Instances[i].AgentBindings, fromID, toID)
+	}
+
+	for _, channel := range []*fileExtendedChannel{
+		file.Channels.Slack,
+		file.Channels.WhatsApp,
+		file.Channels.Signal,
+		file.Channels.GoogleChat,
+		file.Channels.IRC,
+		file.Channels.Matrix,
+		file.Channels.Mattermost,
+		file.Channels.MSTeams,
+		file.Channels.NextcloudTalk,
+		file.Channels.Line,
+		file.Channels.Nostr,
+		file.Channels.SynologyChat,
+		file.Channels.Twitch,
+		file.Channels.Zalo,
+		file.Channels.ZaloUser,
+		file.Channels.BlueBubbles,
+		file.Channels.IMessageLegacy,
+		file.Channels.Tlon,
+		file.Channels.WebChat,
+	} {
+		if channel == nil {
+			continue
+		}
+		channel.DefaultAgent = replaceAgentRef(channel.DefaultAgent, fromID, toID)
+		for i := range channel.Instances {
+			channel.Instances[i].DefaultAgent = replaceAgentRef(channel.Instances[i].DefaultAgent, fromID, toID)
+		}
+	}
+}
+
+func replaceAgentRef(current, fromID, toID string) string {
+	current = strings.TrimSpace(current)
+	if current == "" {
+		return ""
+	}
+	if current != strings.TrimSpace(fromID) {
+		return current
+	}
+	return strings.TrimSpace(toID)
+}
+
+func replaceAgentBinding(bindings map[string]string, fromID, toID string) map[string]string {
+	if len(bindings) == 0 {
+		return bindings
+	}
+	updated := make(map[string]string, len(bindings))
+	for key, value := range bindings {
+		current := strings.TrimSpace(value)
+		if current == strings.TrimSpace(fromID) {
+			current = strings.TrimSpace(toID)
+		}
+		if current == "" {
+			continue
+		}
+		updated[key] = current
+	}
+	if len(updated) == 0 {
+		return nil
+	}
+	return updated
+}
+
+func rewriteWorkspaceOnAgentIDChange(workspace, oldID, newID string) string {
+	workspace = strings.TrimSpace(workspace)
+	oldID = strings.TrimSpace(oldID)
+	newID = strings.TrimSpace(newID)
+	if workspace == "" || oldID == "" || newID == "" || oldID == newID {
+		return workspace
+	}
+	if strings.HasSuffix(workspace, "/"+oldID) {
+		return strings.TrimSuffix(workspace, oldID) + newID
+	}
+	if strings.HasSuffix(workspace, "\\"+oldID) {
+		return strings.TrimSuffix(workspace, oldID) + newID
+	}
+	return workspace
 }
 
 func ensureAllowedRootContainsWorkspace(runtime *fileRuntime, workspace string) {
