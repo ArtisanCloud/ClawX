@@ -87,6 +87,7 @@ func TestHandleConfigChatCommandPlanAndApply(t *testing.T) {
 }
 
 func TestHandleConfigChatCommandNaturalLanguagePlan(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 	homeDir := filepath.Join(tempDir, "home")
@@ -135,6 +136,7 @@ func TestHandleConfigChatCommandNaturalLanguagePlan(t *testing.T) {
 }
 
 func TestHandleConfigChatCommandNaturalLanguagePlanKeepsExplicitAgentID(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	clearPendingConfigPlans()
 	message := chatiface.Message{
 		ConversationID: "conv-nl-sanitize",
@@ -174,6 +176,7 @@ func TestHandleConfigChatCommandNaturalLanguageNonConfigFallsBack(t *testing.T) 
 }
 
 func TestHandleConfigChatCommandNaturalLanguagePatchWorkspace(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 	homeDir := filepath.Join(tempDir, "home")
@@ -230,6 +233,7 @@ func TestHandleConfigChatCommandNaturalLanguagePatchWorkspace(t *testing.T) {
 }
 
 func TestHandleConfigChatCommandNaturalLanguagePatchTimeout(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	clearPendingConfigPlans()
 	planMessage := chatiface.Message{
 		ConversationID: "conv-timeout",
@@ -260,6 +264,7 @@ func TestHandleConfigChatCommandNaturalLanguagePatchTimeout(t *testing.T) {
 }
 
 func TestHandleConfigChatCommandNaturalLanguagePatchAgentIDCorrection(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	clearPendingConfigPlans()
 	planMessage := chatiface.Message{
 		ConversationID: "conv-agent-id-correct",
@@ -304,6 +309,7 @@ func TestHandleConfigChatCommandNaturalLanguagePatchAgentIDCorrection(t *testing
 }
 
 func TestHandleConfigChatCommandShowContainsSummaryAndRecentTrails(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	clearPendingConfigPlans()
 	planMessage := chatiface.Message{
 		ConversationID: "conv-show-summary",
@@ -350,6 +356,7 @@ func TestHandleConfigChatCommandShowContainsSummaryAndRecentTrails(t *testing.T)
 }
 
 func TestHandleConfigChatCommandMultiRoundPatchContextContinuity(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	clearPendingConfigPlans()
 	planMessage := chatiface.Message{
 		ConversationID: "conv-context-continuity",
@@ -398,6 +405,7 @@ func TestHandleConfigChatCommandMultiRoundPatchContextContinuity(t *testing.T) {
 }
 
 func TestHandleConfigChatCommandNaturalLanguagePatchWithoutPendingPlanFallsBack(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	clearPendingConfigPlans()
 	message := chatiface.Message{
 		ConversationID: "conv-no-plan-patch",
@@ -585,6 +593,7 @@ func TestHandleConfigChatCommandApplyCreatesWorkspaceDir(t *testing.T) {
 }
 
 func TestHandleConfigChatCommandMixedIntentRequiresClarification(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	clearPendingConfigPlans()
 	message := chatiface.Message{
 		ConversationID: "conv-mixed",
@@ -614,6 +623,7 @@ func TestHandleConfigChatCommandMixedIntentRequiresClarification(t *testing.T) {
 }
 
 func TestHandleConfigChatCommandMixedIntentConfirmConfigAppliesConfigPath(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	clearPendingConfigPlans()
 	first := chatiface.Message{
 		ConversationID: "conv-mixed-confirm",
@@ -649,6 +659,7 @@ func TestHandleConfigChatCommandMixedIntentConfirmConfigAppliesConfigPath(t *tes
 }
 
 func TestHandleConfigChatCommandMixedIntentConfirmTaskStopsConfigFlow(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	clearPendingConfigPlans()
 	first := chatiface.Message{
 		ConversationID: "conv-mixed-task",
@@ -681,6 +692,7 @@ func TestHandleConfigChatCommandMixedIntentConfirmTaskStopsConfigFlow(t *testing
 }
 
 func TestHandleConfigChatCommandLowConfidenceSuggestOnly(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	clearPendingConfigPlans()
 	message := chatiface.Message{
 		ConversationID: "conv-low-confidence",
@@ -705,6 +717,7 @@ func TestHandleConfigChatCommandLowConfidenceSuggestOnly(t *testing.T) {
 }
 
 func TestHandleConfigChatCommandInteractionStepMetric(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 	homeDir := filepath.Join(tempDir, "home")
@@ -757,6 +770,7 @@ func TestHandleConfigChatCommandInteractionStepMetric(t *testing.T) {
 }
 
 func TestHandleConfigChatCommandSummaryApplyConsistency(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 	homeDir := filepath.Join(tempDir, "home")
@@ -822,6 +836,7 @@ func TestHandleConfigChatCommandSummaryApplyConsistency(t *testing.T) {
 }
 
 func TestHandleConfigChatCommandShowPerformanceWithHighPatchCount(t *testing.T) {
+	t.Skip("config natural language routing moved to LLM pipeline; config_chat handles slash commands only")
 	clearPendingConfigPlans()
 
 	plan := chatiface.Message{

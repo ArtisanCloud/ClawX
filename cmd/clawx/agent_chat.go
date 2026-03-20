@@ -14,6 +14,13 @@ type conversationAgentOverrides struct {
 	byScope map[string]string
 }
 
+type controlApplyResult struct {
+	Action  string
+	Target  string
+	Status  string
+	Message string
+}
+
 func newConversationAgentOverrides() *conversationAgentOverrides {
 	return &conversationAgentOverrides{
 		byScope: make(map[string]string),
@@ -109,6 +116,12 @@ func handleAgentChatCommand(message chatiface.Message, scopeKey string, override
 		if _, ok := runtimes[agentID]; !ok {
 			return true, "", fmt.Errorf("agent %q 不存在。先用 `/agent list` 查看可用项", agentID)
 		}
+		if current, ok := overrides.Get(scopeKey); ok && strings.TrimSpace(current) == agentID {
+			return true, fmt.Sprintf("当前会话已是 Agent: %s（无需切换）", agentID), nil
+		}
+		if _, ok := overrides.Get(scopeKey); !ok && strings.TrimSpace(defaultAgentID) == agentID {
+			return true, fmt.Sprintf("当前会话已是默认 Agent: %s（无需切换）", agentID), nil
+		}
 		overrides.Set(scopeKey, agentID)
 		return true, fmt.Sprintf("当前会话已切换到 Agent: %s\n后续消息会路由到该 Agent。", agentID), nil
 	case "clear", "reset":
@@ -132,4 +145,124 @@ Agent 指令：
 说明：
 - use 只影响当前会话范围（当前 channel + bot instance + conversation）
 - clear 后恢复配置路由规则`)
+}
+
+func maybeAutoApplyAgentSwitch(
+	userText string,
+	modelOutput string,
+	scopeKey string,
+	overrides *conversationAgentOverrides,
+	runtimes map[string]agentRuntime,
+	defaultAgentID string,
+) (controlApplyResult, bool, error) {
+	const action = "agent_use"
+	if !looksLikeAgentSwitchRequest(userText) {
+		return controlApplyResult{}, false, nil
+	}
+	command, ok := extractAgentSwitchCommandFromOutput(modelOutput)
+	if !ok {
+		return controlApplyResult{}, false, nil
+	}
+	if !isAllowedControlAutoApplyCommand(command) {
+		return controlApplyResult{}, false, nil
+	}
+	handled, response, err := handleAgentChatCommand(chatiface.Message{Text: command}, scopeKey, overrides, runtimes, defaultAgentID)
+	if err != nil {
+		return controlApplyResult{}, false, err
+	}
+	if !handled {
+		return controlApplyResult{}, false, nil
+	}
+	target := extractAgentIDFromAgentUseCommand(command)
+	status := "applied"
+	if strings.Contains(response, "无需切换") {
+		status = "noop"
+	}
+	return controlApplyResult{
+		Action:  action,
+		Target:  target,
+		Status:  status,
+		Message: response,
+	}, true, nil
+}
+
+func looksLikeAgentSwitchRequest(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return false
+	}
+	hasAgent := strings.Contains(normalized, "agent") || strings.Contains(text, "智能体")
+	if !hasAgent {
+		return false
+	}
+	return strings.Contains(normalized, "switch") ||
+		strings.Contains(normalized, "use") ||
+		strings.Contains(text, "切换") ||
+		strings.Contains(text, "换到") ||
+		strings.Contains(text, "改成")
+}
+
+func extractAgentSwitchCommandFromOutput(output string) (string, bool) {
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 3 {
+			continue
+		}
+		head := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fields[0])), "/")
+		action := strings.ToLower(strings.TrimSpace(fields[1]))
+		if head != "agent" {
+			continue
+		}
+		if action != "use" && action != "switch" && action != "open" {
+			continue
+		}
+		agentID := cleanAgentIDToken(fields[2])
+		if agentID == "" {
+			continue
+		}
+		return "/agent use " + agentID, true
+	}
+	return "", false
+}
+
+func cleanAgentIDToken(raw string) string {
+	return strings.Trim(strings.TrimSpace(raw), "`'\"，,。.!！?？:：;；)）]】")
+}
+
+func isAllowedControlAutoApplyCommand(command string) bool {
+	fields := strings.Fields(strings.TrimSpace(command))
+	if len(fields) < 3 {
+		return false
+	}
+	head := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fields[0])), "/")
+	action := strings.ToLower(strings.TrimSpace(fields[1]))
+	return head == "agent" && (action == "use" || action == "switch" || action == "open")
+}
+
+func extractAgentIDFromAgentUseCommand(command string) string {
+	fields := strings.Fields(strings.TrimSpace(command))
+	if len(fields) < 3 {
+		return ""
+	}
+	return cleanAgentIDToken(fields[2])
+}
+
+func formatControlApplyResult(result controlApplyResult) string {
+	if strings.TrimSpace(result.Action) == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("[ClawX Control Apply]\n")
+	b.WriteString("action=")
+	b.WriteString(result.Action)
+	b.WriteString(" target=")
+	b.WriteString(strings.TrimSpace(result.Target))
+	b.WriteString(" status=")
+	b.WriteString(strings.TrimSpace(result.Status))
+	if msg := strings.TrimSpace(result.Message); msg != "" {
+		b.WriteString("\n")
+		b.WriteString(msg)
+	}
+	return b.String()
 }

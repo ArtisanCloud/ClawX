@@ -18,6 +18,53 @@ func ensureWorkspacesReady(cfg config.Snapshot) error {
 			return err
 		}
 	}
+	if err := ensureSkillSourcesReady(cfg, paths); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureSkillSourcesReady(cfg config.Snapshot, workspacePaths []string) error {
+	if userDir := strings.TrimSpace(cfg.SkillUserDir()); userDir != "" {
+		if err := ensureDirectoryReady(userDir, "skill user dir"); err != nil {
+			return err
+		}
+	}
+	for _, workspace := range workspacePaths {
+		skillDir := strings.TrimSpace(cfg.WorkspaceSkillDir(workspace))
+		if skillDir == "" {
+			continue
+		}
+		if err := ensureDirectoryReady(skillDir, "workspace skill dir"); err != nil {
+			return err
+		}
+	}
+	if cfg.Skills.Sources.BuiltinEnabled {
+		builtin := strings.TrimSpace(resolveBuiltinSkillRootCreateTarget(cfg.Skills.Sources.BuiltinDir))
+		if builtin != "" {
+			if err := ensureDirectoryReady(builtin, "builtin skill dir"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func ensureDirectoryReady(path string, label string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return fmt.Errorf("create %s %q: %w", label, path, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat %s %q: %w", label, path, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s %q is not a directory", label, path)
+	}
 	return nil
 }
 

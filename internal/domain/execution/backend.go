@@ -9,6 +9,7 @@ type Request struct {
 	SessionID        string
 	BackendSessionID string
 	CWD              string
+	AllowedRoots     []string
 	MemoryContext    string
 	MemoryScope      string
 	MemoryACLMode    string

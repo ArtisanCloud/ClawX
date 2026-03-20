@@ -9,7 +9,7 @@
 
 ## 步骤
 1. 私聊 Bot：`/new`
-2. 发送：`/sx-skills`
+2. 发送：`/clawx-skills`
 3. 发送：`/sx-skill echo 请返回 discord-skill-ok`
 4. 发送：`echo discord-exact-ok`
 5. 发送：`repeat discord-alias-ok`

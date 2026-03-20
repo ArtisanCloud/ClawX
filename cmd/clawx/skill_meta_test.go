@@ -10,12 +10,17 @@ import (
 func TestHandleClawXSkillMetaCommand(t *testing.T) {
 	runtime := agentRuntime{}
 
-	handled, response := handleClawXSkillMetaCommand(runtime, "/sx-skills")
+	handled, response := handleClawXSkillMetaCommand(runtime, "/clawx-skills")
 	if !handled {
-		t.Fatalf("expected sx-skills to be handled")
+		t.Fatalf("expected clawx-skills to be handled")
 	}
 	if response == "" {
-		t.Fatalf("expected sx-skills response")
+		t.Fatalf("expected clawx-skills response")
+	}
+
+	handled, _ = handleClawXSkillMetaCommand(runtime, "/sx-skills")
+	if handled {
+		t.Fatalf("did not expect sx-skills to be handled")
 	}
 
 	handled, _ = handleClawXSkillMetaCommand(runtime, "hello")
@@ -38,7 +43,7 @@ func TestApplyExecutionSourceLabel(t *testing.T) {
 
 func TestApplyExecutionCompletionGateBlocksClaimWithoutEvidence(t *testing.T) {
 	decision := service.Decision{
-		Kind: service.DecisionExecute,
+		Kind:    service.DecisionExecute,
 		Message: service.Decision{}.Message,
 	}
 	decision.Message.Text = "请实现图片工具的清理定时脚本，并支持执行后自动通知我报告"

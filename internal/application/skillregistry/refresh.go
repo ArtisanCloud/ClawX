@@ -109,3 +109,20 @@ func FormatList(entries []skilldomain.CatalogEntry) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// RefreshWithRollback executes refresh and triggers rollback when refresh fails.
+// Caller owns rollback side effects (e.g. package files/metadata cleanup).
+func RefreshWithRollback(ctx context.Context, refresh func(context.Context) error, rollback func() error) error {
+	if refresh == nil {
+		return fmt.Errorf("refresh callback is required")
+	}
+	if err := refresh(ctx); err != nil {
+		if rollback != nil {
+			if rollbackErr := rollback(); rollbackErr != nil {
+				return fmt.Errorf("refresh failed: %w (rollback failed: %v)", err, rollbackErr)
+			}
+		}
+		return err
+	}
+	return nil
+}

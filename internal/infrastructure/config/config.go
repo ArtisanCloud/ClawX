@@ -872,7 +872,7 @@ func Load() (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	if len(cfg.AllowedRoots) == 0 {
-		cfg.AllowedRoots = []string{cfg.DefaultCWD}
+		cfg.AllowedRoots = []string{stateDir()}
 	}
 	if err := cfg.resolveActiveAgent(); err != nil {
 		return Snapshot{}, err
@@ -1742,7 +1742,7 @@ func LoadFromEnv() (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	if len(cfg.AllowedRoots) == 0 {
-		cfg.AllowedRoots = []string{cfg.DefaultCWD}
+		cfg.AllowedRoots = []string{stateDir()}
 	}
 	cfg.normalizeChannelInstances()
 	cfg.normalizeDatabase()
@@ -1764,7 +1764,7 @@ func defaultFileSnapshot() fileSnapshot {
 
 	return fileSnapshot{
 		Runtime: fileRuntime{
-			AllowedRoots:   []string{workspaceRoot},
+			AllowedRoots:   []string{stateDir()},
 			DefaultCWD:     mainWorkspace,
 			TimeoutSeconds: 600,
 		},
@@ -2306,9 +2306,8 @@ func ensureAllowedRootContainsWorkspace(runtime *fileRuntime, workspace string) 
 	if workspace == "" {
 		return
 	}
-	cleanWorkspace := filepath.Clean(workspace)
 	roots := append([]string(nil), runtime.AllowedRoots...)
-	roots = append(roots, defaultWorkspaceRoot(), cleanWorkspace)
+	roots = append(roots, stateDir())
 	runtime.AllowedRoots = dedupePathList(roots)
 	if strings.TrimSpace(runtime.DefaultCWD) == "" {
 		runtime.DefaultCWD = defaultAgentWorkspace("main")
@@ -2341,7 +2340,7 @@ func defaultSnapshot() Snapshot {
 	workspaceRoot := defaultWorkspaceRoot()
 
 	return Snapshot{
-		AllowedRoots:                  []string{workspaceRoot},
+		AllowedRoots:                  []string{stateDir()},
 		DefaultCWD:                    mainWorkspace,
 		Timeout:                       600 * time.Second,
 		ExecCommand:                   "cat",

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	chatiface "clawx/internal/interfaces/chat"
@@ -59,4 +60,89 @@ func TestHandleAgentChatCommandUnknownAgent(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected unknown agent error")
 	}
+}
+
+func TestMaybeAutoApplyAgentSwitchFromModelOutput(t *testing.T) {
+	overrides := newConversationAgentOverrides()
+	runtimes := map[string]agentRuntime{
+		"main":    {agentID: "main"},
+		"bid-all": {agentID: "bid-all"},
+	}
+	scopeKey := routingScopeKey("discord", "discord-main", "discord:-:u1")
+	applyMsg := "可以，切换命令直接发这一条即可：\n\n/agent use bid-all"
+
+	applied, ok, err := maybeAutoApplyAgentSwitch("我现在需要切换到智能体bid-all", applyMsg, scopeKey, overrides, runtimes, "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected auto apply to run")
+	}
+	if applied.Action != "agent_use" || applied.Target != "bid-all" || applied.Status != "applied" {
+		t.Fatalf("unexpected apply result: %#v", applied)
+	}
+	if applied.Message == "" {
+		t.Fatalf("expected non-empty response")
+	}
+	gotAgent, exists := overrides.Get(scopeKey)
+	if !exists || gotAgent != "bid-all" {
+		t.Fatalf("unexpected override after auto apply: exists=%v agent=%q", exists, gotAgent)
+	}
+}
+
+func TestMaybeAutoApplyAgentSwitchIgnoresNonSwitchRequest(t *testing.T) {
+	overrides := newConversationAgentOverrides()
+	runtimes := map[string]agentRuntime{
+		"main":    {agentID: "main"},
+		"bid-all": {agentID: "bid-all"},
+	}
+	scopeKey := routingScopeKey("discord", "discord-main", "discord:-:u1")
+	_, ok, err := maybeAutoApplyAgentSwitch("现在有多少个智能体？", "/agent use bid-all", scopeKey, overrides, runtimes, "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Fatalf("did not expect auto apply")
+	}
+}
+
+func TestHandleAgentChatCommandUseNoopWhenAlreadyCurrent(t *testing.T) {
+	overrides := newConversationAgentOverrides()
+	runtimes := map[string]agentRuntime{
+		"main":    {agentID: "main"},
+		"bid-all": {agentID: "bid-all"},
+	}
+	scopeKey := routingScopeKey("discord", "discord-main", "discord:-:u1")
+	overrides.Set(scopeKey, "bid-all")
+	handled, response, err := handleAgentChatCommand(chatiface.Message{
+		Text: "/agent use bid-all",
+	}, scopeKey, overrides, runtimes, "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !handled {
+		t.Fatalf("expected handled")
+	}
+	if response == "" || !containsNoop(response) {
+		t.Fatalf("expected noop response, got: %q", response)
+	}
+}
+
+func TestFormatControlApplyResult(t *testing.T) {
+	text := formatControlApplyResult(controlApplyResult{
+		Action:  "agent_use",
+		Target:  "bid-all",
+		Status:  "applied",
+		Message: "当前会话已切换到 Agent: bid-all",
+	})
+	if text == "" {
+		t.Fatalf("expected formatted text")
+	}
+	if !strings.Contains(text, "[ClawX Control Apply]") || !strings.Contains(text, "action=agent_use") || !strings.Contains(text, "status=applied") {
+		t.Fatalf("unexpected formatted text: %q", text)
+	}
+}
+
+func containsNoop(value string) bool {
+	return strings.Contains(value, "无需切换")
 }

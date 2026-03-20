@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -25,7 +27,7 @@ func TestBuildExecutionInputIncludesAttachmentsForDirectExecution(t *testing.T) 
 		},
 	}
 
-	input := buildExecutionInput(decision)
+	input := buildExecutionInput(decision, agentRuntime{})
 	if !strings.Contains(input, "[Attachments]") {
 		t.Fatalf("expected attachments section, got: %q", input)
 	}
@@ -37,5 +39,52 @@ func TestBuildExecutionInputIncludesAttachmentsForDirectExecution(t *testing.T) 
 	}
 	if !strings.Contains(input, "local_path=") {
 		t.Fatalf("expected local path in input, got: %q", input)
+	}
+}
+
+func TestBuildExecutionInputInjectsAgentInventoryContext(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	stateDir := filepath.Join(home, ".clawx")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("mkdir state dir: %v", err)
+	}
+	configBody := `{
+  "providers": {
+    "profiles": {
+      "codex": {
+        "kind": "codex-cli",
+        "command": "codex"
+      }
+    }
+  },
+  "agents": {
+    "default": "main",
+    "list": [
+      {"id":"main","profile":"codex","workspace":"/home/ubuntu/.clawx/workspaces/main","timeoutSeconds":600,"default":true},
+      {"id":"local-smoke","profile":"codex","workspace":"/home/ubuntu/.clawx/workspaces/local-smoke","timeoutSeconds":600},
+      {"id":"bid-all智能体","profile":"codex","workspace":"/home/ubuntu/.clawx/workspaces/bid-all智能体","timeoutSeconds":600}
+    ]
+  }
+}`
+	if err := os.WriteFile(filepath.Join(stateDir, "config.json"), []byte(configBody), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	decision := service.Decision{
+		Kind: service.DecisionExecute,
+		Message: chatiface.Message{
+			Text: "现在我们有多少个智能体？",
+		},
+	}
+	input := buildExecutionInput(decision, agentRuntime{agentID: "main"})
+	if !strings.Contains(input, "tool.agent_inventory") {
+		t.Fatalf("expected agent inventory tool context, got: %q", input)
+	}
+	if !strings.Contains(input, "total_registered_agents=3") {
+		t.Fatalf("expected total agent count in context, got: %q", input)
+	}
+	if !strings.Contains(input, "id=bid-all智能体") {
+		t.Fatalf("expected bid-all智能体 listed in context, got: %q", input)
 	}
 }

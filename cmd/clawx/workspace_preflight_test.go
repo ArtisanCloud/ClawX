@@ -45,6 +45,49 @@ func TestEnsureWorkspacesReadyCreatesMissingDirectories(t *testing.T) {
 	}
 }
 
+func TestEnsureWorkspacesReadyCreatesSkillSourceDirectories(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "workspaces", "main")
+	reviewPath := filepath.Join(root, "workspaces", "review")
+	userSkills := filepath.Join(root, "user-skills")
+	builtinSkills := filepath.Join(root, "builtin-skills")
+
+	cfg := config.Snapshot{
+		DefaultCWD: mainPath,
+		Agents: map[string]config.Agent{
+			"main": {
+				ID:        "main",
+				ProfileID: "codex",
+				Workspace: mainPath,
+				Timeout:   10 * time.Minute,
+			},
+			"review": {
+				ID:        "review",
+				ProfileID: "claude",
+				Workspace: reviewPath,
+				Timeout:   10 * time.Minute,
+			},
+		},
+		Skills: config.SkillConfig{
+			Sources: config.SkillSources{
+				UserDir:        userSkills,
+				WorkspaceDir:   ".clawx/skills",
+				BuiltinEnabled: true,
+				BuiltinDir:     builtinSkills,
+			},
+		},
+	}
+
+	if err := ensureWorkspacesReady(cfg); err != nil {
+		t.Fatalf("ensure workspaces with skill dirs ready: %v", err)
+	}
+
+	assertDirExists(t, userSkills)
+	assertDirExists(t, filepath.Join(mainPath, ".clawx", "skills"))
+	assertDirExists(t, filepath.Join(reviewPath, ".clawx", "skills"))
+	assertDirExists(t, builtinSkills)
+}
+
 func TestEnsureWorkspacePathRejectsFile(t *testing.T) {
 	root := t.TempDir()
 	filePath := filepath.Join(root, "not-a-dir")
@@ -130,5 +173,16 @@ func TestLooksLikeProjectDirectory(t *testing.T) {
 	}
 	if ok {
 		t.Fatalf("plain dir should not be recognized as project")
+	}
+}
+
+func assertDirExists(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("expected dir %q to exist: %v", path, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected %q to be dir", path)
 	}
 }

@@ -553,8 +553,8 @@ func interactionToCommandText(data discordInteractionData) (string, bool, error)
 			return "", false, fmt.Errorf("discord interaction /memory missing args option")
 		}
 		return "/memory " + args, true, nil
-	case "sx-skills":
-		return "/sx-skills", true, nil
+	case "clawx-skills":
+		return "/clawx-skills", true, nil
 	case "resume":
 		sessionID := strings.TrimSpace(interactionOptionValue(data.Options, "session_id"))
 		if sessionID == "" {
@@ -819,7 +819,7 @@ func (a *Adapter) syncSlashCommands(ctx context.Context) error {
 		},
 		{
 			Type:        discordApplicationCommandTypeChatInput,
-			Name:        "sx-skills",
+			Name:        "clawx-skills",
 			Description: "列出 ClawX 技能目录",
 		},
 		{

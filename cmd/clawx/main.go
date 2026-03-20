@@ -23,9 +23,11 @@ import (
 
 	"clawx/internal/application/command"
 	"clawx/internal/application/service"
+	"clawx/internal/application/skillorchestrator"
 	"clawx/internal/application/skillregistry"
 	projectdomain "clawx/internal/domain/project"
 	sessiondomain "clawx/internal/domain/session"
+	skilldomain "clawx/internal/domain/skill"
 	"clawx/internal/infrastructure/backend"
 	"clawx/internal/infrastructure/config"
 	"clawx/internal/infrastructure/health"
@@ -66,6 +68,7 @@ type agentRuntime struct {
 	agentID         string
 	backendName     string
 	cwd             string
+	cfgSnapshot     config.Snapshot
 	projectCWD      executionCWDProjectResolver
 	attachmentStore *attachmentContextStore
 	profileKind     string
@@ -73,6 +76,7 @@ type agentRuntime struct {
 	router          *service.Router
 	runner          *backend.DirectRunner
 	skills          *skillregistry.Service
+	skillControl    *skillorchestrator.Runtime
 }
 
 type runnerWrapper interface {
@@ -270,7 +274,7 @@ func runServe() error {
 			}
 			runtime := selectRuntime(runtimes, defaultRuntimeID, requestedAgentID)
 			scopedConversationID := scopeConversationID(envelope.Message.ConversationID, "telegram", instanceCopy.ID, runtime.agentID)
-			handleTelegramInbound(messageCtx, runtime, delivery, telegramAdapter, envelope, scopedConversationID, instanceCopy.ID)
+			handleTelegramInbound(messageCtx, runtime, scopeKey, agentOverrides, runtimes, defaultRuntimeID, delivery, telegramAdapter, envelope, scopedConversationID, instanceCopy.ID)
 			return nil
 		}
 
@@ -389,7 +393,7 @@ func runServe() error {
 			}
 			runtime := selectRuntime(runtimes, defaultRuntimeID, requestedAgentID)
 			scopedConversationID := scopeConversationID(envelope.Message.ConversationID, "feishu", instanceCopy.ID, runtime.agentID)
-			handleFeishuInbound(messageCtx, runtime, delivery, feishuAdapterCopy, envelope, scopedConversationID, instanceCopy.ID)
+			handleFeishuInbound(messageCtx, runtime, scopeKey, agentOverrides, runtimes, defaultRuntimeID, delivery, feishuAdapterCopy, envelope, scopedConversationID, instanceCopy.ID)
 			return nil
 		}
 
@@ -471,7 +475,7 @@ func runServe() error {
 			}
 			runtime := selectRuntime(runtimes, defaultRuntimeID, requestedAgentID)
 			scopedConversationID := scopeConversationID(envelope.Message.ConversationID, "wecom", instanceCopy.ID, runtime.agentID)
-			handleWeComInbound(messageCtx, runtime, delivery, wecomAdapterCopy, envelope, scopedConversationID, instanceCopy.ID)
+			handleWeComInbound(messageCtx, runtime, scopeKey, agentOverrides, runtimes, defaultRuntimeID, delivery, wecomAdapterCopy, envelope, scopedConversationID, instanceCopy.ID)
 			return nil
 		}
 
@@ -562,7 +566,7 @@ func runServe() error {
 					}
 					runtime := selectRuntime(runtimes, defaultRuntimeID, requestedAgentID)
 					scopedConversationID := scopeConversationID(envelope.Message.ConversationID, "discord", instanceCopy.ID, runtime.agentID)
-					handleDiscordInbound(messageCtx, runtime, delivery, discordAdapter, envelope, scopedConversationID, instanceCopy.ID)
+					handleDiscordInbound(messageCtx, runtime, scopeKey, agentOverrides, runtimes, defaultRuntimeID, delivery, discordAdapter, envelope, scopedConversationID, instanceCopy.ID)
 					return nil
 				})
 			})
@@ -1646,6 +1650,10 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			if err != nil {
 				return nil, "", nil, fmt.Errorf("init skill runtime for agent %q: %w", agent.ID, err)
 			}
+			skillControl, err := buildSkillControlRuntime(cfg, agent.ID)
+			if err != nil {
+				return nil, "", nil, fmt.Errorf("init skill control runtime for agent %q: %w", agent.ID, err)
+			}
 			router := service.NewRouter(
 				runtimeCfg,
 				sessionManager,
@@ -1670,6 +1678,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 				agentID:         agent.ID,
 				backendName:     runner.Name(),
 				cwd:             workspace,
+				cfgSnapshot:     cfg,
 				projectCWD:      projectService,
 				attachmentStore: attachmentStore,
 				profileKind:     profile.Kind,
@@ -1677,6 +1686,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 				router:          router,
 				runner:          runner,
 				skills:          registry,
+				skillControl:    skillControl,
 			}
 		}
 	}
@@ -1712,6 +1722,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 		}
 	}
 	var primaryRegistry *skillregistry.Service
+	var primarySkillControl *skillorchestrator.Runtime
 	primaryRouter := func() *service.Router {
 		registry, pipeline, err := buildSkillRuntimeComponents(cfg, primaryID, cfg.DefaultCWD)
 		if err != nil {
@@ -1726,6 +1737,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			)
 		}
 		primaryRegistry = registry
+		primarySkillControl, _ = buildSkillControlRuntime(cfg, primaryID)
 		return service.NewRouter(
 			cfg,
 			sessionManager,
@@ -1742,6 +1754,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 		agentID:         primaryID,
 		backendName:     runner.Name(),
 		cwd:             cfg.DefaultCWD,
+		cfgSnapshot:     cfg,
 		projectCWD:      projectService,
 		attachmentStore: attachmentStore,
 		profileKind:     profileKind,
@@ -1749,8 +1762,49 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 		router:          primaryRouter,
 		runner:          runner,
 		skills:          primaryRegistry,
+		skillControl:    primarySkillControl,
 	}
 	return runtimes, primaryID, scheduleRunner, nil
+}
+
+func buildSkillControlRuntime(cfg config.Snapshot, agentID string) (*skillorchestrator.Runtime, error) {
+	segment := strings.TrimSpace(agentID)
+	if segment == "" {
+		segment = "default"
+	}
+	replacer := strings.NewReplacer("/", "_", "\\", "_", " ", "_", ":", "_")
+	segment = replacer.Replace(segment)
+	registryPath := filepath.Join(config.SkillStateDir(), "skill_registry_"+segment+".json")
+	policyPath := filepath.Join(config.SkillStateDir(), "skill_policy_"+segment+".json")
+	bindingPath := filepath.Join(config.SkillStateDir(), "skill_bindings.json")
+
+	registryStore, err := persistence.NewSkillRegistryFileStore(registryPath)
+	if err != nil {
+		return nil, err
+	}
+	policyStore, err := persistence.NewSkillPolicyFileStore(policyPath)
+	if err != nil {
+		return nil, err
+	}
+	bindingStore, err := persistence.NewSkillBindingFileStore(bindingPath)
+	if err != nil {
+		return nil, err
+	}
+	return skillorchestrator.NewRuntime(policyStore, bindingStore, registryStore, buildAgentStateProvider(cfg)), nil
+}
+
+func buildAgentStateProvider(cfg config.Snapshot) skillorchestrator.AgentStateProvider {
+	values := make(map[string]skillorchestrator.AgentState, len(cfg.Agents))
+	defaultID := strings.TrimSpace(cfg.DefaultAgentID)
+	for id, agent := range cfg.Agents {
+		values[strings.TrimSpace(id)] = skillorchestrator.AgentState{
+			AgentID:   strings.TrimSpace(id),
+			Workspace: strings.TrimSpace(agent.Workspace),
+			ProfileID: strings.TrimSpace(agent.ProfileID),
+			IsDefault: strings.TrimSpace(id) == defaultID,
+		}
+	}
+	return skillorchestrator.NewMapAgentStateProvider(values)
 }
 
 func sortedAgentIDs(values map[string]config.Agent) []string {
@@ -1994,6 +2048,10 @@ func normalizeExecutionDirSegment(raw string) string {
 func handleTelegramInbound(
 	ctx context.Context,
 	runtime agentRuntime,
+	scopeKey string,
+	overrides *conversationAgentOverrides,
+	runtimes map[string]agentRuntime,
+	defaultRuntimeID string,
 	delivery *service.OutputDelivery,
 	adapter *telegramchat.Adapter,
 	envelope telegramchat.InboundEnvelope,
@@ -2004,6 +2062,14 @@ func handleTelegramInbound(
 	message.ConversationID = scopedConversationID
 	if handled, response, err := handleConfigChatCommand(message); handled {
 		logConfigControlHandled("telegram", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
+		if err != nil {
+			sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+			return
+		}
+		sendTelegramDirect(ctx, adapter, envelope.Target, response)
+		return
+	}
+	if handled, response, err := handleSkillChatCommand(message, runtime); handled {
 		if err != nil {
 			sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
@@ -2048,7 +2114,7 @@ func handleTelegramInbound(
 	case service.DecisionSkill, service.DecisionExecute:
 		started := time.Now()
 		decision = mergeDecisionAttachments(runtime, decision)
-		executeInput := buildExecutionInput(decision)
+		executeInput := buildExecutionInput(decision, runtime)
 		executeCWD := resolveExecutionCWD(ctx, runtime, decision)
 		log.Printf("telegram execute begin: channel=telegram instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
@@ -2072,7 +2138,13 @@ func handleTelegramInbound(
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
-		output := finalizeExecutionOutput(decision, flowResult.Execution.Output)
+		output := flowResult.Execution.Output
+		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, scopeKey, overrides, runtimes, defaultRuntimeID); autoErr != nil {
+			log.Printf("telegram auto apply agent switch failed: channel=telegram instance=%s scope=%s err=%v", instanceID, scopeKey, autoErr)
+		} else if ok {
+			output = output + "\n\n" + formatControlApplyResult(applied)
+		}
+		output = finalizeExecutionOutput(decision, output)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, telegramchat.MaxMessageLength, 1)
 		deliverTelegramOutputFiles(ctx, adapter, envelope.Target, output)
 	}
@@ -2087,6 +2159,10 @@ func sendTelegramDirect(ctx context.Context, adapter *telegramchat.Adapter, targ
 func handleFeishuInbound(
 	ctx context.Context,
 	runtime agentRuntime,
+	scopeKey string,
+	overrides *conversationAgentOverrides,
+	runtimes map[string]agentRuntime,
+	defaultRuntimeID string,
 	delivery *service.OutputDelivery,
 	adapter *feishuchat.Adapter,
 	envelope feishuchat.InboundEnvelope,
@@ -2097,6 +2173,14 @@ func handleFeishuInbound(
 	message.ConversationID = scopedConversationID
 	if handled, response, err := handleConfigChatCommand(message); handled {
 		logConfigControlHandled("feishu", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
+		if err != nil {
+			sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+			return
+		}
+		sendFeishuDirect(ctx, adapter, envelope.Target, response)
+		return
+	}
+	if handled, response, err := handleSkillChatCommand(message, runtime); handled {
 		if err != nil {
 			sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
@@ -2141,7 +2225,7 @@ func handleFeishuInbound(
 	case service.DecisionSkill, service.DecisionExecute:
 		started := time.Now()
 		decision = mergeDecisionAttachments(runtime, decision)
-		executeInput := buildExecutionInput(decision)
+		executeInput := buildExecutionInput(decision, runtime)
 		executeCWD := resolveExecutionCWD(ctx, runtime, decision)
 		log.Printf("feishu execute begin: channel=feishu instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
@@ -2165,7 +2249,13 @@ func handleFeishuInbound(
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
-		output := finalizeExecutionOutput(decision, flowResult.Execution.Output)
+		output := flowResult.Execution.Output
+		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, scopeKey, overrides, runtimes, defaultRuntimeID); autoErr != nil {
+			log.Printf("feishu auto apply agent switch failed: channel=feishu instance=%s scope=%s err=%v", instanceID, scopeKey, autoErr)
+		} else if ok {
+			output = output + "\n\n" + formatControlApplyResult(applied)
+		}
+		output = finalizeExecutionOutput(decision, output)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, feishuchat.MaxMessageLength, 1)
 	}
 }
@@ -2179,6 +2269,10 @@ func sendFeishuDirect(ctx context.Context, adapter *feishuchat.Adapter, target f
 func handleWeComInbound(
 	ctx context.Context,
 	runtime agentRuntime,
+	scopeKey string,
+	overrides *conversationAgentOverrides,
+	runtimes map[string]agentRuntime,
+	defaultRuntimeID string,
 	delivery *service.OutputDelivery,
 	adapter *wecomchat.Adapter,
 	envelope wecomchat.InboundEnvelope,
@@ -2189,6 +2283,14 @@ func handleWeComInbound(
 	message.ConversationID = scopedConversationID
 	if handled, response, err := handleConfigChatCommand(message); handled {
 		logConfigControlHandled("wecom", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
+		if err != nil {
+			sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+			return
+		}
+		sendWeComDirect(ctx, adapter, envelope.Target, response)
+		return
+	}
+	if handled, response, err := handleSkillChatCommand(message, runtime); handled {
 		if err != nil {
 			sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
@@ -2233,7 +2335,7 @@ func handleWeComInbound(
 	case service.DecisionSkill, service.DecisionExecute:
 		started := time.Now()
 		decision = mergeDecisionAttachments(runtime, decision)
-		executeInput := buildExecutionInput(decision)
+		executeInput := buildExecutionInput(decision, runtime)
 		executeCWD := resolveExecutionCWD(ctx, runtime, decision)
 		log.Printf("wecom execute begin: channel=wecom instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
@@ -2257,7 +2359,13 @@ func handleWeComInbound(
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
-		output := finalizeExecutionOutput(decision, flowResult.Execution.Output)
+		output := flowResult.Execution.Output
+		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, scopeKey, overrides, runtimes, defaultRuntimeID); autoErr != nil {
+			log.Printf("wecom auto apply agent switch failed: channel=wecom instance=%s scope=%s err=%v", instanceID, scopeKey, autoErr)
+		} else if ok {
+			output = output + "\n\n" + formatControlApplyResult(applied)
+		}
+		output = finalizeExecutionOutput(decision, output)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, wecomchat.MaxMessageLength, 1)
 		deliverWeComOutputFiles(ctx, adapter, envelope.Target, output)
 	}
@@ -2272,6 +2380,10 @@ func sendWeComDirect(ctx context.Context, adapter *wecomchat.Adapter, target wec
 func handleDiscordInbound(
 	ctx context.Context,
 	runtime agentRuntime,
+	scopeKey string,
+	overrides *conversationAgentOverrides,
+	runtimes map[string]agentRuntime,
+	defaultRuntimeID string,
 	delivery *service.OutputDelivery,
 	adapter *discordchat.Adapter,
 	envelope discordchat.InboundEnvelope,
@@ -2282,6 +2394,14 @@ func handleDiscordInbound(
 	message.ConversationID = scopedConversationID
 	if handled, response, err := handleConfigChatCommand(message); handled {
 		logConfigControlHandled("discord", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
+		if err != nil {
+			sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+			return
+		}
+		sendDiscordDirect(ctx, adapter, envelope.Target, response)
+		return
+	}
+	if handled, response, err := handleSkillChatCommand(message, runtime); handled {
 		if err != nil {
 			sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
@@ -2327,7 +2447,7 @@ func handleDiscordInbound(
 	case service.DecisionSkill, service.DecisionExecute:
 		started := time.Now()
 		decision = mergeDecisionAttachments(runtime, decision)
-		executeInput := buildExecutionInput(decision)
+		executeInput := buildExecutionInput(decision, runtime)
 		executeCWD := resolveExecutionCWD(ctx, runtime, decision)
 		log.Printf("discord execute begin: channel=discord instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, "-", runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		stopTyping := startDiscordTypingLoop(ctx, adapter, envelope.Target)
@@ -2353,7 +2473,13 @@ func handleDiscordInbound(
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
-		output := finalizeExecutionOutput(decision, flowResult.Execution.Output)
+		output := flowResult.Execution.Output
+		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, scopeKey, overrides, runtimes, defaultRuntimeID); autoErr != nil {
+			log.Printf("discord auto apply agent switch failed: channel=discord instance=%s scope=%s err=%v", instanceID, scopeKey, autoErr)
+		} else if ok {
+			output = output + "\n\n" + formatControlApplyResult(applied)
+		}
+		output = finalizeExecutionOutput(decision, output)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, discordchat.MaxMessageLength, 1)
 		deliverDiscordOutputFiles(ctx, adapter, envelope.Target, output)
 	}
@@ -2395,7 +2521,7 @@ func handleClawXSkillMetaCommand(runtime agentRuntime, rawText string) (bool, st
 		return false, ""
 	}
 	command := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fields[0])), "/")
-	if command != "sx-skills" {
+	if command != "clawx-skills" {
 		return false, ""
 	}
 	if runtime.skills == nil {
@@ -2498,8 +2624,12 @@ func containsAnyPhrase(text string, keywords ...string) bool {
 	return false
 }
 
-func buildExecutionInput(decision service.Decision) string {
+func buildExecutionInput(decision service.Decision, runtime agentRuntime) string {
 	if decision.Kind != service.DecisionSkill || decision.Skill == nil {
+		if decision.Kind == service.DecisionExecute {
+			input := buildNaturalLanguageExecutionInput(decision, runtime)
+			return appendAttachmentContext(input, decision.Message.Attachments)
+		}
 		return appendAttachmentContext(decision.Message.Text, decision.Message.Attachments)
 	}
 
@@ -2517,6 +2647,180 @@ func buildExecutionInput(decision service.Decision) string {
 	builder.WriteString("\n\n[User Request]\n")
 	builder.WriteString(userInput)
 	return appendAttachmentContext(builder.String(), decision.Message.Attachments)
+}
+
+type agentInventorySnapshot struct {
+	source         string
+	loadedAt       time.Time
+	defaultAgentID string
+	activeAgentID  string
+	agents         []config.Agent
+}
+
+func buildNaturalLanguageExecutionInput(decision service.Decision, runtime agentRuntime) string {
+	request := strings.TrimSpace(decision.Message.Text)
+	inventory := loadAgentInventorySnapshot(runtime)
+	skills := listRuntimeSkills(runtime)
+
+	var builder strings.Builder
+	builder.WriteString("[ClawX Capability Context]\n")
+	builder.WriteString("message_mode=natural_language\n")
+	builder.WriteString("routing_policy=slash_command_only_for_/prefix\n")
+	builder.WriteString("current_runtime_agent=")
+	builder.WriteString(fallbackValue(runtime.agentID, "main"))
+	builder.WriteString("\n")
+	builder.WriteString("current_backend=")
+	builder.WriteString(fallbackValue(runtime.backendName, "unknown"))
+	builder.WriteString("\n\n")
+
+	builder.WriteString("[Available Tools]\n")
+	builder.WriteString("- tool.agent_inventory: 读取全局智能体配置并回答数量/默认智能体/工作区等问题。\n")
+	builder.WriteString("- tool.skill_catalog: 读取当前运行时可用技能与来源。\n")
+	builder.WriteString("- tool.execute_runtime: 对需要操作文件/命令的请求执行实际动作。\n\n")
+
+	builder.WriteString("[Policy]\n")
+	builder.WriteString("- 非 / 开头消息必须按自然语言处理，不走硬编码命令规则。\n")
+	builder.WriteString("- 涉及“数量/状态/配置”提问时，优先使用下方快照，不要基于当前会话猜测。\n")
+	builder.WriteString("- 信息不足时明确说明缺口，禁止编造。\n\n")
+
+	builder.WriteString("[Tool Snapshot: agent_inventory]\n")
+	builder.WriteString("source=")
+	builder.WriteString(inventory.source)
+	builder.WriteString(" loaded_at=")
+	builder.WriteString(inventory.loadedAt.Format(time.RFC3339))
+	builder.WriteString(" total_registered_agents=")
+	builder.WriteString(strconv.Itoa(len(inventory.agents)))
+	builder.WriteString("\n")
+	builder.WriteString("default_agent=")
+	builder.WriteString(fallbackValue(inventory.defaultAgentID, "-"))
+	builder.WriteString(" active_agent=")
+	builder.WriteString(fallbackValue(inventory.activeAgentID, "-"))
+	builder.WriteString("\n")
+	for _, agent := range inventory.agents {
+		builder.WriteString("- id=")
+		builder.WriteString(agent.ID)
+		builder.WriteString(" profile=")
+		builder.WriteString(fallbackValue(agent.ProfileID, "-"))
+		builder.WriteString(" workspace=")
+		builder.WriteString(fallbackValue(agent.Workspace, "-"))
+		builder.WriteString(" timeout_seconds=")
+		builder.WriteString(strconv.Itoa(int(agent.Timeout.Seconds())))
+		builder.WriteString(" default=")
+		builder.WriteString(strconv.FormatBool(agent.IsDefault))
+		builder.WriteByte('\n')
+	}
+
+	builder.WriteString("\n[Tool Snapshot: skill_catalog]\n")
+	builder.WriteString("total_active_skills=")
+	builder.WriteString(strconv.Itoa(len(skills)))
+	builder.WriteByte('\n')
+	limit := len(skills)
+	if limit > 12 {
+		limit = 12
+	}
+	for idx := 0; idx < limit; idx++ {
+		def := skills[idx]
+		builder.WriteString("- name=")
+		builder.WriteString(def.Name)
+		builder.WriteString(" source=")
+		builder.WriteString(string(def.Source))
+		builder.WriteString(" aliases=")
+		builder.WriteString(strings.Join(def.Aliases, ","))
+		builder.WriteString(" description=")
+		builder.WriteString(oneLine(def.Description))
+		builder.WriteByte('\n')
+	}
+	if len(skills) > limit {
+		builder.WriteString("- omitted_skills=")
+		builder.WriteString(strconv.Itoa(len(skills) - limit))
+		builder.WriteByte('\n')
+	}
+
+	builder.WriteString("\n[User Request]\n")
+	builder.WriteString(request)
+	return strings.TrimSpace(builder.String())
+}
+
+func loadAgentInventorySnapshot(runtime agentRuntime) agentInventorySnapshot {
+	snapshot := runtime.cfgSnapshot
+	source := "runtime_snapshot"
+	if loaded, err := config.Load(); err == nil {
+		snapshot = loaded
+		source = "config_file"
+	} else {
+		log.Printf("load agent inventory from config failed, fallback runtime snapshot: %v", err)
+	}
+
+	defaultAgent := strings.TrimSpace(snapshot.DefaultAgentID)
+	if defaultAgent == "" && snapshot.ActiveAgent != nil {
+		defaultAgent = strings.TrimSpace(snapshot.ActiveAgent.ID)
+	}
+	activeAgent := ""
+	if snapshot.ActiveAgent != nil {
+		activeAgent = strings.TrimSpace(snapshot.ActiveAgent.ID)
+	}
+
+	ids := sortedAgentIDs(snapshot.Agents)
+	agents := make([]config.Agent, 0, len(ids))
+	for _, id := range ids {
+		agent := snapshot.Agents[id]
+		if strings.TrimSpace(agent.ID) == "" {
+			agent.ID = id
+		}
+		agent.Workspace = strings.TrimSpace(agent.Workspace)
+		agent.ProfileID = strings.TrimSpace(agent.ProfileID)
+		agent.IsDefault = strings.TrimSpace(agent.ID) == defaultAgent
+		agents = append(agents, agent)
+	}
+
+	return agentInventorySnapshot{
+		source:         source,
+		loadedAt:       time.Now().UTC(),
+		defaultAgentID: defaultAgent,
+		activeAgentID:  activeAgent,
+		agents:         agents,
+	}
+}
+
+func listRuntimeSkills(runtime agentRuntime) []skilldomain.Definition {
+	if runtime.skills == nil {
+		return nil
+	}
+	entries := runtime.skills.List()
+	items := make([]skilldomain.Definition, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Status != skilldomain.StatusActive || entry.Definition == nil {
+			continue
+		}
+		items = append(items, *entry.Definition)
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		left := strings.TrimSpace(items[i].Name)
+		right := strings.TrimSpace(items[j].Name)
+		if left == right {
+			return strings.TrimSpace(items[i].Description) < strings.TrimSpace(items[j].Description)
+		}
+		return left < right
+	})
+	return items
+}
+
+func oneLine(raw string) string {
+	text := strings.TrimSpace(raw)
+	text = strings.ReplaceAll(text, "\n", " ")
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) > 120 {
+		return text[:120] + "..."
+	}
+	return text
+}
+
+func fallbackValue(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func appendAttachmentContext(input string, attachments []chatiface.Attachment) string {

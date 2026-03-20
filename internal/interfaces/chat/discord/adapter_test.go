@@ -207,9 +207,9 @@ func TestInteractionToCommandText(t *testing.T) {
 		t.Fatalf("unexpected /switch mapping: got=%q ok=%v err=%v", got, ok, err)
 	}
 
-	got, ok, err = interactionToCommandText(discordInteractionData{Name: "sx-skills"})
-	if err != nil || !ok || got != "/sx-skills" {
-		t.Fatalf("unexpected /sx-skills mapping: got=%q ok=%v err=%v", got, ok, err)
+	got, ok, err = interactionToCommandText(discordInteractionData{Name: "clawx-skills"})
+	if err != nil || !ok || got != "/clawx-skills" {
+		t.Fatalf("unexpected /clawx-skills mapping: got=%q ok=%v err=%v", got, ok, err)
 	}
 
 	projectArgsRaw, _ := json.Marshal("use image_tools")

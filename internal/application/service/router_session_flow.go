@@ -53,6 +53,7 @@ func (r *Router) HandleSessionFlow(ctx context.Context, cmd command.SessionComma
 		SessionID:        lockedSession.ID,
 		BackendSessionID: lockedSession.BackendSessionID,
 		CWD:              lockedSession.CWD,
+		AllowedRoots:     append([]string(nil), r.cfg.AllowedRoots...),
 		MemoryContext:    memoryLoad.PromptContext,
 		MemoryScope:      memoryLoad.MemoryScope,
 		MemoryACLMode:    memoryLoad.MemoryACLMode,

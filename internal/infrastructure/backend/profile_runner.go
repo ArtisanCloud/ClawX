@@ -67,7 +67,7 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 		defer os.Remove(outputPath)
 
 		composedInput := composeCodexExecutionInput(request)
-		cmdArgs := buildCodexExecArgs(args, profile.Model, request.CWD, outputPath, existingThreadID, composedInput)
+		cmdArgs := buildCodexExecArgs(args, profile.Model, request.CWD, request.AllowedRoots, outputPath, existingThreadID, composedInput)
 
 		cmd := exec.CommandContext(ctx, commandName, cmdArgs...)
 		cmd.Dir = request.CWD
@@ -158,7 +158,7 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 	}
 }
 
-func buildCodexExecArgs(baseArgs []string, model, cwd, outputPath, threadID, prompt string) []string {
+func buildCodexExecArgs(baseArgs []string, model, cwd string, allowedRoots []string, outputPath, threadID, prompt string) []string {
 	cmdArgs := []string{"exec"}
 	cmdArgs = append(cmdArgs, baseArgs...)
 	if strings.TrimSpace(model) != "" {
@@ -169,12 +169,39 @@ func buildCodexExecArgs(baseArgs []string, model, cwd, outputPath, threadID, pro
 	if strings.TrimSpace(cwd) != "" {
 		cmdArgs = append(cmdArgs, "--cd", strings.TrimSpace(cwd))
 	}
+	for _, root := range normalizeWritableRootsForCodex(cwd, allowedRoots) {
+		cmdArgs = append(cmdArgs, "--add-dir", root)
+	}
 	cmdArgs = append(cmdArgs, "--skip-git-repo-check", "--json", "--output-last-message", outputPath)
 	if strings.TrimSpace(threadID) != "" {
 		cmdArgs = append(cmdArgs, "resume", strings.TrimSpace(threadID))
 	}
 	cmdArgs = append(cmdArgs, prompt)
 	return cmdArgs
+}
+
+func normalizeWritableRootsForCodex(cwd string, roots []string) []string {
+	normalizedCWD := strings.TrimSpace(cwd)
+	seen := make(map[string]struct{}, len(roots)+1)
+	result := make([]string, 0, len(roots)+1)
+	appendRoot := func(raw string) {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			return
+		}
+		if value == normalizedCWD {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	for _, root := range roots {
+		appendRoot(root)
+	}
+	return result
 }
 
 func buildClaudeCLIExecutor(profile Profile) ExecutorFunc {
@@ -236,18 +263,51 @@ func buildClaudeCLIExecutor(profile Profile) ExecutorFunc {
 func composeCodexExecutionInput(request execution.Request) string {
 	base := composeExecutionInput(request)
 	workspace := strings.TrimSpace(request.CWD)
-	if workspace == "" {
-		return base
-	}
+	allowedRoots := normalizeGuardrailRoots(request.AllowedRoots, workspace)
 	var b strings.Builder
 	b.WriteString("Workspace Guardrails:\n")
 	b.WriteString("- Current workspace: ")
-	b.WriteString(workspace)
+	if workspace == "" {
+		b.WriteString("-")
+	} else {
+		b.WriteString(workspace)
+	}
 	b.WriteString("\n")
-	b.WriteString("- Only read/write files inside the current workspace unless the user explicitly asks for a different absolute path.\n")
-	b.WriteString("- If the task appears to target another repository, stop and ask for confirmation before changing files there.\n\n")
+	if len(allowedRoots) == 0 {
+		b.WriteString("- Writable roots: (none declared; use current workspace only)\n")
+	} else {
+		b.WriteString("- Writable roots:\n")
+		for _, root := range allowedRoots {
+			b.WriteString("  - ")
+			b.WriteString(root)
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("- For absolute paths under writable roots, execute directly without extra confirmation.\n")
+	b.WriteString("- If a requested path is outside writable roots, explain the boundary and ask for authorization/config update.\n\n")
 	b.WriteString(base)
 	return b.String()
+}
+
+func normalizeGuardrailRoots(roots []string, workspace string) []string {
+	seen := make(map[string]struct{}, len(roots)+1)
+	result := make([]string, 0, len(roots)+1)
+	appendRoot := func(raw string) {
+		root := strings.TrimSpace(raw)
+		if root == "" {
+			return
+		}
+		if _, ok := seen[root]; ok {
+			return
+		}
+		seen[root] = struct{}{}
+		result = append(result, root)
+	}
+	for _, root := range roots {
+		appendRoot(root)
+	}
+	appendRoot(workspace)
+	return result
 }
 
 func defaultProfileCommand(kind string) string {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 
 	"clawx/internal/application/intent"
@@ -92,10 +93,7 @@ func buildSkillRuntimeComponents(cfg config.Snapshot, agentID, workspace string)
 		{Source: skilldomain.SourceWorkspace, Root: cfg.WorkspaceSkillDir(workspace)},
 	}
 	if cfg.Skills.Sources.BuiltinEnabled {
-		builtin := strings.TrimSpace(cfg.Skills.Sources.BuiltinDir)
-		if builtin != "" && !filepath.IsAbs(builtin) {
-			builtin = filepath.Clean(builtin)
-		}
+		builtin := resolveBuiltinSkillRoot(cfg.Skills.Sources.BuiltinDir)
 		sources = append(sources, skillsinfra.SourceSpec{
 			Source: skilldomain.SourceBuiltin,
 			Root:   builtin,
@@ -141,6 +139,64 @@ func buildSkillRuntimeComponents(cfg config.Snapshot, agentID, workspace string)
 		cfg.IntentRouter.LLMFallback.ConfidenceThreshold,
 	)
 	return registry, pipeline, nil
+}
+
+func resolveBuiltinSkillRoot(raw string) string {
+	builtin := strings.TrimSpace(raw)
+	if builtin == "" {
+		return ""
+	}
+	if filepath.IsAbs(builtin) {
+		return filepath.Clean(builtin)
+	}
+
+	candidates := []string{
+		filepath.Clean(builtin),
+	}
+	if _, file, _, ok := goruntime.Caller(0); ok {
+		repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+		candidates = append(candidates, filepath.Join(repoRoot, builtin))
+	}
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(exeDir, builtin),
+			filepath.Join(exeDir, "..", builtin),
+			filepath.Join(exeDir, "..", "..", builtin),
+		)
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		candidate = filepath.Clean(candidate)
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		info, err := os.Stat(candidate)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() {
+			return candidate
+		}
+	}
+	return resolveBuiltinSkillRootCreateTarget(builtin)
+}
+
+func resolveBuiltinSkillRootCreateTarget(raw string) string {
+	builtin := strings.TrimSpace(raw)
+	if builtin == "" {
+		return ""
+	}
+	if filepath.IsAbs(builtin) {
+		return filepath.Clean(builtin)
+	}
+	if _, file, _, ok := goruntime.Caller(0); ok {
+		repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+		return filepath.Clean(filepath.Join(repoRoot, builtin))
+	}
+	return filepath.Clean(builtin)
 }
 
 type disabledFallback struct{}

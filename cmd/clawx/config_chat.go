@@ -54,42 +54,9 @@ func handleConfigChatCommand(message chatiface.Message) (bool, string, error) {
 		return true, "", err
 	}
 	if !isConfigCommand {
-		if response, handled := handlePendingConfigClarification(message); handled {
-			return true, response, nil
-		}
-		if response, handled := tryStartMixedIntentClarification(message); handled {
-			return true, response, nil
-		}
-		if isPatchIntentMessage(message.Text) {
-			if _, ok := getPendingConfigPlan(message.ConversationID); !ok {
-				return true, "当前没有待确认的配置计划，请先发送 `/config plan ...`。", nil
-			}
-		}
-		if patchedResponse, patched, patchErr := tryPatchPendingPlanFromNaturalLanguage(message); patched || patchErr != nil {
-			if patchErr != nil {
-				return true, "", patchErr
-			}
-			return true, patchedResponse, nil
-		}
-		plan, matched, nlErr := tryBuildConfigPlanFromNaturalLanguage(message)
-		if nlErr != nil {
-			if looksLikeLowConfidenceConfigIntent(message.Text) {
-				return true, configLowConfidenceSuggestion(), nil
-			}
-			return true, "", nlErr
-		}
-		if !matched {
-			if looksLikeLowConfidenceConfigIntent(message.Text) {
-				return true, configLowConfidenceSuggestion(), nil
-			}
-			return false, "", nil
-		}
-		if err := setPendingConfigPlan(message.ConversationID, plan); err != nil {
-			return true, "", err
-		}
-		recordConfigAudit(configplan.AuditEvent{EventType: configplan.EventPlanCreated, ConversationScope: message.ConversationID, PlanID: auditPlanID(message.ConversationID, plan.Version), Actor: message.UserID, Source: plan.Source, PlanVersion: plan.Version, SummaryVersion: plan.SummaryVersion})
-		recordConfigStepCreated(message.ConversationID)
-		return true, fmt.Sprintf("已生成配置计划:\n- %s\n发送 `/config apply` 执行，或 `/config cancel` 取消。", plan.Summary), nil
+		// Natural language is no longer handled by config rule branches.
+		// It should flow into the LLM routing pipeline with tool/skill selection.
+		return false, "", nil
 	}
 
 	if cmd.Action == "apply" && !isConfigAdmin(message.UserID) {

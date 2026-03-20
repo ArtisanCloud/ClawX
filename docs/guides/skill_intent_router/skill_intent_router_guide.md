@@ -60,7 +60,7 @@ go run ./cmd/clawx
 在 Discord 或 Telegram 中发送：
 1. `/new`
 2. `list`
-3. `/sx-skills`（查看 ClawX 技能目录）
+3. `/clawx-skills`（查看 ClawX 技能目录）
 4. `/sx-skill echo 请返回: hello-skill`
 5. `echo hello-exact`
 6. `repeat hello-alias`
