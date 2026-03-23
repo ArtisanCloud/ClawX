@@ -36,8 +36,19 @@ func TestApplyExecutionSourceLabel(t *testing.T) {
 	}
 
 	executeText := applyExecutionSourceLabel(service.Decision{Kind: service.DecisionExecute}, "result")
-	if !strings.HasPrefix(executeText, "[Agent Direct]") {
-		t.Fatalf("expected execute prefix, got %q", executeText)
+	if executeText != "result" {
+		t.Fatalf("expected execute output unchanged, got %q", executeText)
+	}
+}
+
+func TestApplyRuntimeAgentLabel(t *testing.T) {
+	mainText := applyRuntimeAgentLabel("result", "main")
+	if mainText != "result" {
+		t.Fatalf("expected main agent no label, got %q", mainText)
+	}
+	bidText := applyRuntimeAgentLabel("result", "bid-all")
+	if !strings.HasPrefix(bidText, "[bid-all-agent]:") {
+		t.Fatalf("expected bid-all label, got %q", bidText)
 	}
 }
 

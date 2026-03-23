@@ -12,11 +12,15 @@ import (
 type AuditRecord struct {
 	TraceID        string
 	EventType      skilldomain.AuditEventType
+	Phase          string
 	ConversationID string
 	Actor          string
 	SkillID        string
 	Source         string
 	Intent         string
+	PlanType       string
+	PlanMode       string
+	Target         map[string]any
 	Confidence     float64
 	Arguments      map[string]any
 	Result         string
@@ -27,6 +31,7 @@ type AuditRecord struct {
 type AuditService struct {
 	mu      sync.RWMutex
 	records []AuditRecord
+	sink    func(AuditRecord)
 }
 
 func NewAuditService() *AuditService {
@@ -44,16 +49,33 @@ func (s *AuditService) Record(record AuditRecord) {
 	item.SkillID = strings.TrimSpace(item.SkillID)
 	item.Source = strings.TrimSpace(item.Source)
 	item.Intent = strings.TrimSpace(item.Intent)
+	item.Phase = strings.TrimSpace(item.Phase)
+	item.PlanType = strings.TrimSpace(item.PlanType)
+	item.PlanMode = strings.TrimSpace(item.PlanMode)
 	item.Result = strings.TrimSpace(item.Result)
 	item.Error = strings.TrimSpace(item.Error)
 	if item.OccurredAt.IsZero() {
 		item.OccurredAt = time.Now().UTC()
 	}
 	item.Arguments = cloneArguments(item.Arguments)
+	item.Target = cloneArguments(item.Target)
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.records = append(s.records, item)
+	sink := s.sink
+	s.mu.Unlock()
+	if sink != nil {
+		sink(cloneAuditRecord(item))
+	}
+}
+
+func (s *AuditService) SetSink(sink func(AuditRecord)) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sink = sink
 }
 
 func (s *AuditService) ListByTraceID(traceID string) []AuditRecord {
@@ -106,6 +128,7 @@ func (s *AuditService) ListByConversation(conversationID string, limit int) []Au
 func cloneAuditRecord(item AuditRecord) AuditRecord {
 	out := item
 	out.Arguments = cloneArguments(item.Arguments)
+	out.Target = cloneArguments(item.Target)
 	return out
 }
 

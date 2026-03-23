@@ -96,6 +96,14 @@ tests/
 - 当 `confidence` 低于阈值时，不执行；进入澄清流程并记录 `routing_rejected_low_confidence` 审计事件。
 - 阈值配置键为 `CLAWX_SKILL_ROUTER_CONFIDENCE_THRESHOLD`，默认值 `0.70`，有效范围 `0.0~1.0`。
 
+## Control Plan Execution Addendum（2026-03-20）
+
+- 自然语言控制面动作改为两阶段：`LLM Planner -> ClawX Executor`。
+- Planner 必须输出结构化 `ControlPlan`；Executor 只消费 `ControlPlan`，不消费模型自由文本命令。
+- 明确禁用“正则提取 `/command` 自动执行”模式。
+- 控制面执行采用门禁顺序：`schema -> allowlist -> permission -> idempotency -> execute -> post-verify -> audit`。
+- `/...` 开头的显式命令继续走命令处理器；非 `/` 默认走 LLM Planner。
+
 ## Complexity Tracking
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |

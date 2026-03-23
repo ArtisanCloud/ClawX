@@ -214,7 +214,11 @@
   - `/resume`
   - `/list`
   - `/cancel`
-- Natural language requests route to backend execution.
+- Routing iron law:
+  - Messages starting with `/` must be handled by deterministic command rules only.
+  - Messages not starting with `/` must be handled by LLM semantic planning first, then validated by structured schema and policy gates before execution.
+  - Rule-based semantic inference on non-`/` natural language (for example keyword intent guessing that bypasses LLM planning) is forbidden.
+- Natural language requests route to backend execution through the LLM-first planning path.
 - Command semantics must remain consistent across supported channels unless a documented channel limitation requires deviation.
 
 ## Performance and Reliability Rules

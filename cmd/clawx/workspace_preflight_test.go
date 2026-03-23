@@ -43,6 +43,8 @@ func TestEnsureWorkspacesReadyCreatesMissingDirectories(t *testing.T) {
 	if info, err := os.Stat(reviewPath); err != nil || !info.IsDir() {
 		t.Fatalf("review workspace not ready: err=%v", err)
 	}
+	assertWorkspaceDocsScaffold(t, mainPath)
+	assertWorkspaceDocsScaffold(t, reviewPath)
 }
 
 func TestEnsureWorkspacesReadyCreatesSkillSourceDirectories(t *testing.T) {
@@ -184,5 +186,28 @@ func assertDirExists(t *testing.T, path string) {
 	}
 	if !info.IsDir() {
 		t.Fatalf("expected %q to be dir", path)
+	}
+}
+
+func assertWorkspaceDocsScaffold(t *testing.T, root string) {
+	t.Helper()
+	required := []string{
+		"AGENTS.md",
+		"BOOTSTRAP.md",
+		"HEARTBEAT.md",
+		"IDENTITY.md",
+		"SOUL.md",
+		"TOOLS.md",
+		"USER.md",
+	}
+	for _, name := range required {
+		path := filepath.Join(root, name)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("expected scaffold file %q: %v", path, err)
+		}
+		if info.IsDir() {
+			t.Fatalf("expected scaffold file %q to be file", path)
+		}
 	}
 }

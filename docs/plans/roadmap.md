@@ -11,6 +11,7 @@
 | Phase 5 | 项目空间隔离与路由 | `project` 维度路由、`/project` 命令闭环、同 bot 多项目 workspace 隔离、confirm-first 项目切换建议 |
 | Phase 6 | Agent/Context/Intent 一体化 | 指令与自然语言融合、统一 pending plan、语义 patch、confirm-first 配置治理、控制面审计 |
 | Phase 7 | Agent Skill 治理与编排 | Skill Registry/Policy/Binding、自然语言 LLM-first skill 路由、技能执行审计、共享与隔离规则 |
+| Phase 8 | Prompt Caching 与分阶段 LLM 编排 | OpenAI Prompt Caching 接入（key/retention/观测）、Planner→Route Planner→Executor 分层调用、命中率与延迟门禁 |
 
 ## 规则
 - 每个阶段只引入当前必须的复杂度。

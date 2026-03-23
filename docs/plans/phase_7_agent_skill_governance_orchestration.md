@@ -42,6 +42,39 @@
 3. 单执行：统一进 `Skill Executor`（权限、校验、审计、回滚）。  
 4. 单审计：统一记录 skill 选择、参数、风险级别、审批与执行结果。
 
+## 执行契约修正（2026-03-20）
+
+为避免“从模型自然语言回复中正则提取 `/command` 并误执行”的风险，本阶段补充以下硬约束：
+
+1. 自然语言请求仅允许触发 `LLM Planner`，不得直接执行文本命令。
+2. 自动执行仅接受结构化 `ControlPlan`（JSON schema 校验通过）。
+3. 普通文本中的 `/agent ...`、`/config ...`、`/skill ...` 一律视为说明性文本，不得自动执行。
+4. 控制面动作必须由 `ClawX Executor` 执行并落审计，模型输出不作为事实来源。
+5. 高风险动作必须进入确认状态机（pending -> confirmed/rejected -> execute/noop）。
+
+### ControlPlan 最小协议
+
+```json
+{
+  "type": "control_plan",
+  "intent": "agent.use",
+  "target": {
+    "agent_id": "bid-all"
+  },
+  "mode": "execute",
+  "risk": "low",
+  "reason": "用户请求切换智能体"
+}
+```
+
+### 执行门禁
+
+- Schema 不通过：拒绝执行。
+- `intent` 不在白名单：拒绝执行。
+- 参数不合法或越权：拒绝执行。
+- 幂等命中：返回 `status=noop`，不重复执行。
+- 执行后必须 `post-verify` 读取真实状态并回写结构化结果。
+
 ## 关键机制设计
 ### 1) Skill 元数据规范（统一 schema）
 - 必填：

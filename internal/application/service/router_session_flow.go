@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"clawx/internal/application/command"
@@ -50,15 +51,17 @@ func (r *Router) HandleSessionFlow(ctx context.Context, cmd command.SessionComma
 	memoryLoad := r.buildMemoryContextForSession(ctx, cmd, lockedSession)
 
 	result, execErr := r.backend.Execute(ctx, execution.Request{
-		SessionID:        lockedSession.ID,
-		BackendSessionID: lockedSession.BackendSessionID,
-		CWD:              lockedSession.CWD,
-		AllowedRoots:     append([]string(nil), r.cfg.AllowedRoots...),
-		MemoryContext:    memoryLoad.PromptContext,
-		MemoryScope:      memoryLoad.MemoryScope,
-		MemoryACLMode:    memoryLoad.MemoryACLMode,
-		Input:            cmd.Input,
-		Timeout:          r.cfg.Timeout,
+		SessionID:            lockedSession.ID,
+		BackendSessionID:     lockedSession.BackendSessionID,
+		CWD:                  lockedSession.CWD,
+		AllowedRoots:         append([]string(nil), r.cfg.AllowedRoots...),
+		PromptCacheKey:       buildPromptCacheKey(cmd, lockedSession),
+		PromptCacheRetention: resolvePromptCacheRetention(),
+		MemoryContext:        memoryLoad.PromptContext,
+		MemoryScope:          memoryLoad.MemoryScope,
+		MemoryACLMode:        memoryLoad.MemoryACLMode,
+		Input:                cmd.Input,
+		Timeout:              r.cfg.Timeout,
 	})
 	if execErr != nil {
 		_ = r.sessionManager.MarkError(ctx, lockedSession.ID, lockToken, execErr.Error())
@@ -90,6 +93,34 @@ func (r *Router) HandleSessionFlow(ctx context.Context, cmd command.SessionComma
 		Session:   updatedSession,
 		Execution: result,
 	}, nil
+}
+
+func buildPromptCacheKey(cmd command.SessionCommand, record session.Record) string {
+	agentID := strings.TrimSpace(record.AgentID)
+	if agentID == "" {
+		agentID = strings.TrimSpace(cmd.Backend)
+	}
+	if agentID == "" {
+		agentID = "default"
+	}
+	projectID := strings.TrimSpace(cmd.ProjectID)
+	if projectID == "" {
+		projectID = "main"
+	}
+	routeKey := strings.TrimSpace(cmd.RouteKey)
+	if routeKey == "" {
+		routeKey = "route"
+	}
+	routeKey = strings.NewReplacer(":", "_", "/", "_", "\\", "_", " ", "_").Replace(routeKey)
+	return strings.Join([]string{"clawx", "nl", "execute", agentID, projectID, routeKey}, ":")
+}
+
+func resolvePromptCacheRetention() string {
+	retention := strings.TrimSpace(os.Getenv("CLAWX_PROMPT_CACHE_RETENTION"))
+	if retention == "" {
+		return "in_memory"
+	}
+	return retention
 }
 
 func (r *Router) resolveSession(ctx context.Context, cmd command.SessionCommand) (session.Record, error) {

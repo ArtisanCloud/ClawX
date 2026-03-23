@@ -53,9 +53,12 @@ func (l *Logger) write(level, message string, fields map[string]any) {
 
 func sanitizeValue(key string, value any) any {
 	lowerKey := strings.ToLower(key)
+	switch lowerKey {
+	case "prompt_tokens", "prompt_cached_tokens", "completion_tokens", "total_tokens":
+		return value
+	}
 	if strings.Contains(lowerKey, "token") || strings.Contains(lowerKey, "secret") || strings.Contains(lowerKey, "password") {
 		return "[REDACTED]"
 	}
 	return value
 }
-

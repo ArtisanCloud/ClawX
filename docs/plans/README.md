@@ -14,6 +14,7 @@
 - [phase_5_project_workspace_routing.md](./phase_5_project_workspace_routing.md)
 - [phase_6_agent_context_intent_unification.md](./phase_6_agent_context_intent_unification.md)
 - [phase_7_agent_skill_governance_orchestration.md](./phase_7_agent_skill_governance_orchestration.md)
+- [phase_8_prompt_caching_staged_orchestration.md](./phase_8_prompt_caching_staged_orchestration.md)
 - [persistence_strategy.md](./persistence_strategy.md)
 - [feature/](./feature/)
 

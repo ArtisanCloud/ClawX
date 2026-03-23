@@ -8,6 +8,7 @@ import (
 
 	"clawx/internal/application/service"
 	projectdomain "clawx/internal/domain/project"
+	"clawx/internal/infrastructure/config"
 )
 
 func TestResolveExecutionCWDUsesProjectWorkspace(t *testing.T) {
@@ -16,6 +17,9 @@ func TestResolveExecutionCWDUsesProjectWorkspace(t *testing.T) {
 	runtime := agentRuntime{
 		agentID: "main",
 		cwd:     "/home/ubuntu/workspace/ClawX",
+		cfgSnapshot: config.Snapshot{
+			AllowedRoots: []string{tempDir},
+		},
 		projectCWD: fakeExecutionCWDResolver{
 			record: projectdomain.Record{
 				ID:            "image_tools",
@@ -36,6 +40,9 @@ func TestResolveExecutionCWDFallbackToRuntimeCWD(t *testing.T) {
 	runtime := agentRuntime{
 		agentID: "main",
 		cwd:     "/home/ubuntu/workspace/ClawX",
+		cfgSnapshot: config.Snapshot{
+			AllowedRoots: []string{"/home/ubuntu/workspace"},
+		},
 		projectCWD: fakeExecutionCWDResolver{
 			err: errors.New("project not found"),
 		},
@@ -54,6 +61,9 @@ func TestResolveExecutionCWDUsesProjectWorkspaceWhenAgentIDEmpty(t *testing.T) {
 	projectWorkspace := filepath.Join(tempDir, "workspaces", "image_tools")
 	runtime := agentRuntime{
 		cwd: "/home/ubuntu/workspace/ClawX",
+		cfgSnapshot: config.Snapshot{
+			AllowedRoots: []string{tempDir},
+		},
 		projectCWD: fakeExecutionCWDResolver{
 			record: projectdomain.Record{
 				ID:            "image_tools",
@@ -76,6 +86,25 @@ func TestResolveExecutionCWDFallbackToDot(t *testing.T) {
 	got := resolveExecutionCWD(context.Background(), runtime, decision)
 	if got != "." {
 		t.Fatalf("cwd default mismatch: got %q want %q", got, ".")
+	}
+}
+
+func TestResolveExecutionCWDFallbackToAllowedRootWhenRuntimeCWDForbidden(t *testing.T) {
+	runtime := agentRuntime{
+		agentID: "main",
+		cwd:     "/home/ubuntu/workspace/ClawX",
+		cfgSnapshot: config.Snapshot{
+			AllowedRoots: []string{"/home/ubuntu/.clawx"},
+		},
+		projectCWD: fakeExecutionCWDResolver{
+			err: errors.New("project not found"),
+		},
+	}
+	decision := service.Decision{ProjectID: "image_tools"}
+
+	got := resolveExecutionCWD(context.Background(), runtime, decision)
+	if got != "/home/ubuntu/.clawx" {
+		t.Fatalf("cwd fallback mismatch: got %q want %q", got, "/home/ubuntu/.clawx")
 	}
 }
 

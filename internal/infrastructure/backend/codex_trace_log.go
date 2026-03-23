@@ -15,18 +15,24 @@ import (
 var codexLogMu sync.Mutex
 
 type codexRunTrace struct {
-	Timestamp        time.Time             `json:"timestamp"`
-	SessionID        string                `json:"session_id"`
-	BackendSessionID string                `json:"backend_session_id"`
-	CWD              string                `json:"cwd"`
-	Command          string                `json:"command"`
-	Args             []string              `json:"args"`
-	State            execution.ResultState `json:"state"`
-	DurationMS       int64                 `json:"duration_ms"`
-	Output           string                `json:"output"`
-	Stdout           string                `json:"stdout"`
-	Stderr           string                `json:"stderr"`
-	Error            string                `json:"error,omitempty"`
+	Timestamp            time.Time             `json:"timestamp"`
+	SessionID            string                `json:"session_id"`
+	BackendSessionID     string                `json:"backend_session_id"`
+	CWD                  string                `json:"cwd"`
+	PromptCacheKey       string                `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention string                `json:"prompt_cache_retention,omitempty"`
+	PromptCachedTokens   int                   `json:"prompt_cached_tokens,omitempty"`
+	PromptTokens         int                   `json:"prompt_tokens,omitempty"`
+	CompletionTokens     int                   `json:"completion_tokens,omitempty"`
+	TotalTokens          int                   `json:"total_tokens,omitempty"`
+	Command              string                `json:"command"`
+	Args                 []string              `json:"args"`
+	State                execution.ResultState `json:"state"`
+	DurationMS           int64                 `json:"duration_ms"`
+	Output               string                `json:"output"`
+	Stdout               string                `json:"stdout"`
+	Stderr               string                `json:"stderr"`
+	Error                string                `json:"error,omitempty"`
 }
 
 type traceIndexEntry struct {
@@ -45,6 +51,10 @@ func appendCodexTrace(
 	startedAt time.Time,
 	completedAt time.Time,
 	backendSessionID string,
+	promptCachedTokens int,
+	promptTokens int,
+	completionTokens int,
+	totalTokens int,
 	output string,
 	stdout string,
 	stderr string,
@@ -54,17 +64,23 @@ func appendCodexTrace(
 	logFile := filepath.Join(logRoot, "codex", sanitizeFileSegment(request.SessionID)+".jsonl")
 
 	trace := codexRunTrace{
-		Timestamp:        completedAt.UTC(),
-		SessionID:        strings.TrimSpace(request.SessionID),
-		BackendSessionID: strings.TrimSpace(backendSessionID),
-		CWD:              strings.TrimSpace(request.CWD),
-		Command:          strings.TrimSpace(command),
-		Args:             append([]string(nil), args...),
-		State:            state,
-		DurationMS:       completedAt.Sub(startedAt).Milliseconds(),
-		Output:           output,
-		Stdout:           stdout,
-		Stderr:           stderr,
+		Timestamp:            completedAt.UTC(),
+		SessionID:            strings.TrimSpace(request.SessionID),
+		BackendSessionID:     strings.TrimSpace(backendSessionID),
+		CWD:                  strings.TrimSpace(request.CWD),
+		PromptCacheKey:       strings.TrimSpace(request.PromptCacheKey),
+		PromptCacheRetention: strings.TrimSpace(request.PromptCacheRetention),
+		PromptCachedTokens:   promptCachedTokens,
+		PromptTokens:         promptTokens,
+		CompletionTokens:     completionTokens,
+		TotalTokens:          totalTokens,
+		Command:              strings.TrimSpace(command),
+		Args:                 append([]string(nil), args...),
+		State:                state,
+		DurationMS:           completedAt.Sub(startedAt).Milliseconds(),
+		Output:               output,
+		Stdout:               stdout,
+		Stderr:               stderr,
 	}
 	if runErr != nil {
 		trace.Error = runErr.Error()

@@ -318,6 +318,28 @@
 ### 测试任务（US2/US3 增量）
 
 - [x] T087 [P] [US2] 增加内置技能发现契约测试（builtin 目录可见）于 /home/ubuntu/workspace/ClawX/tests/contract/skill_builtin_discovery_contract_test.go
+
+---
+
+## Phase 10：控制面执行契约对齐（结构化 ControlPlan）
+
+**目的**: 替换文本正则自动执行链路，统一为 `LLM Planner -> ControlPlan -> ClawX Executor`
+
+### 测试任务（控制面增量）
+
+- [x] T101 [P] [US1] 增加 ControlPlan schema 契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/control_plan_schema_contract_test.go
+- [x] T102 [P] [US1] 增加“普通文本含 `/command` 不自动执行”契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/control_plan_no_regex_autorun_contract_test.go
+- [x] T103 [P] [US1] 增加“agent.use 控制计划自动执行”集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/control_plan_agent_use_flow_test.go
+- [x] T104 [P] [US4] 增加控制动作 post-verify 一致性契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/control_plan_post_verify_contract_test.go
+- [x] T105 [P] [US4] 增加控制动作幂等 noop 集成测试于 /home/ubuntu/workspace/ClawX/tests/integration/control_plan_idempotency_flow_test.go
+
+### 实现任务（控制面增量）
+
+- [x] T106 [US1] 实现 ControlPlan 领域模型与校验器于 /home/ubuntu/workspace/ClawX/internal/domain/skill/action.go（或独立 control_plan.go）
+- [x] T107 [US1] 在自然语言主链路接入 Planner 输出解析（仅 JSON 结构化块）于 /home/ubuntu/workspace/ClawX/cmd/clawx/main.go
+- [x] T108 [US1] 删除/下线基于正则的自动命令提取执行逻辑于 /home/ubuntu/workspace/ClawX/cmd/clawx/agent_chat.go
+- [x] T109 [US4] 新增控制面执行器与 post-verify 回写于 /home/ubuntu/workspace/ClawX/internal/application/skillorchestrator/executor.go（或 control_executor.go）
+- [x] T110 [US4] 增加控制面审计事件字段（plan/validate/execute/verify）于 /home/ubuntu/workspace/ClawX/internal/application/skillorchestrator/audit_service.go
 - [x] T088 [P] [US2] 增加 `web-search` 技能清单字段契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/skill_builtin_web_search_contract_test.go
 - [x] T089 [P] [US2] 增加 `web-fetch` 技能清单字段契约测试于 /home/ubuntu/workspace/ClawX/tests/contract/skill_builtin_web_fetch_contract_test.go
 - [x] T090 [P] [US2] 增加第三方技能安装流程集成测试（下载/解包/登记）于 /home/ubuntu/workspace/ClawX/tests/integration/skill_marketplace_install_flow_test.go

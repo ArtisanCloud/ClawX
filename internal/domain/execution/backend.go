@@ -6,26 +6,34 @@ import (
 )
 
 type Request struct {
-	SessionID        string
-	BackendSessionID string
-	CWD              string
-	AllowedRoots     []string
-	MemoryContext    string
-	MemoryScope      string
-	MemoryACLMode    string
-	Input            string
-	Timeout          time.Duration
+	SessionID            string
+	BackendSessionID     string
+	CWD                  string
+	AllowedRoots         []string
+	PromptCacheKey       string
+	PromptCacheRetention string
+	MemoryContext        string
+	MemoryScope          string
+	MemoryACLMode        string
+	Input                string
+	Timeout              time.Duration
 }
 
 type Result struct {
-	BackendSessionID string
-	Output           string
-	MemoryScope      string
-	MemoryACLMode    string
-	State            ResultState
-	StartedAt        time.Time
-	CompletedAt      time.Time
-	FailureReason    string
+	BackendSessionID     string
+	Output               string
+	PromptCacheKey       string
+	PromptCacheRetention string
+	PromptCachedTokens   int
+	PromptTokens         int
+	CompletionTokens     int
+	TotalTokens          int
+	MemoryScope          string
+	MemoryACLMode        string
+	State                ResultState
+	StartedAt            time.Time
+	CompletedAt          time.Time
+	FailureReason        string
 }
 
 type Backend interface {

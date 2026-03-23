@@ -36,6 +36,8 @@ func TestBuildCodexExecArgsEnforcesWorkspaceWriteAndCD(t *testing.T) {
 		"gpt-5-codex",
 		"/home/ubuntu/.clawx/workspaces/image_tools/.agents/main/workspace",
 		[]string{"/home/ubuntu/.clawx"},
+		"clawx:nl:execute:main:image_tools:route_1",
+		"in_memory",
 		"/tmp/last.txt",
 		"thread-123",
 		"do task",
@@ -50,7 +52,33 @@ func TestBuildCodexExecArgsEnforcesWorkspaceWriteAndCD(t *testing.T) {
 	if !strings.Contains(joined, "--add-dir /home/ubuntu/.clawx") {
 		t.Fatalf("missing --add-dir arg: %q", joined)
 	}
+	if !strings.Contains(joined, `-c prompt_cache_key="clawx:nl:execute:main:image_tools:route_1"`) {
+		t.Fatalf("missing prompt_cache_key arg: %q", joined)
+	}
+	if !strings.Contains(joined, `-c prompt_cache_retention="in_memory"`) {
+		t.Fatalf("missing prompt_cache_retention arg: %q", joined)
+	}
 	if !strings.Contains(joined, "resume thread-123") {
 		t.Fatalf("missing resume thread id: %q", joined)
+	}
+}
+
+func TestParseCodexPromptUsage(t *testing.T) {
+	raw := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"thread-1"}`,
+		`{"type":"response.completed","response":{"usage":{"prompt_tokens":2048,"completion_tokens":512,"total_tokens":2560,"prompt_tokens_details":{"cached_tokens":1024}}}}`,
+	}, "\n")
+	cached, prompt, completion, total := parseCodexPromptUsage(raw)
+	if cached != 1024 {
+		t.Fatalf("unexpected cached tokens: %d", cached)
+	}
+	if prompt != 2048 {
+		t.Fatalf("unexpected prompt tokens: %d", prompt)
+	}
+	if completion != 512 {
+		t.Fatalf("unexpected completion tokens: %d", completion)
+	}
+	if total != 2560 {
+		t.Fatalf("unexpected total tokens: %d", total)
 	}
 }

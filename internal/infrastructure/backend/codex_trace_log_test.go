@@ -31,6 +31,10 @@ func TestAppendCodexTraceWritesSessionLogAndIndex(t *testing.T) {
 		startedAt,
 		completedAt,
 		"thread-xyz",
+		128,
+		1024,
+		256,
+		1280,
 		"ok",
 		`{"type":"thread.started","thread_id":"thread-xyz"}`,
 		"",
@@ -47,6 +51,18 @@ func TestAppendCodexTraceWritesSessionLogAndIndex(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `"session_id":"sess-abc-1"`) {
 		t.Fatalf("unexpected session log body: %s", string(body))
+	}
+	if !strings.Contains(string(body), `"prompt_cached_tokens":128`) {
+		t.Fatalf("missing prompt cached token field: %s", string(body))
+	}
+	if !strings.Contains(string(body), `"prompt_tokens":1024`) {
+		t.Fatalf("missing prompt token field: %s", string(body))
+	}
+	if !strings.Contains(string(body), `"completion_tokens":256`) {
+		t.Fatalf("missing completion token field: %s", string(body))
+	}
+	if !strings.Contains(string(body), `"total_tokens":1280`) {
+		t.Fatalf("missing total token field: %s", string(body))
 	}
 
 	indexLog := filepath.Join(logRoot, "index.jsonl")

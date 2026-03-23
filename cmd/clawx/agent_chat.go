@@ -2,16 +2,20 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
 
+	"clawx/internal/application/skillorchestrator"
+	skilldomain "clawx/internal/domain/skill"
 	chatiface "clawx/internal/interfaces/chat"
 )
 
 type conversationAgentOverrides struct {
-	mu      sync.RWMutex
-	byScope map[string]string
+	mu              sync.RWMutex
+	byScope         map[string]string
+	persistencePath string
 }
 
 type controlApplyResult struct {
@@ -20,6 +24,8 @@ type controlApplyResult struct {
 	Status  string
 	Message string
 }
+
+var controlPlanBlockPattern = regexp.MustCompile("(?is)```(?:json)?\\s*(\\{.*?\\})\\s*```")
 
 func newConversationAgentOverrides() *conversationAgentOverrides {
 	return &conversationAgentOverrides{
@@ -36,6 +42,7 @@ func (o *conversationAgentOverrides) Set(scopeKey, agentID string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.byScope[scopeKey] = agentID
+	_ = o.persistLocked()
 }
 
 func (o *conversationAgentOverrides) Get(scopeKey string) (string, bool) {
@@ -58,6 +65,7 @@ func (o *conversationAgentOverrides) Clear(scopeKey string) bool {
 	defer o.mu.Unlock()
 	if _, ok := o.byScope[scopeKey]; ok {
 		delete(o.byScope, scopeKey)
+		_ = o.persistLocked()
 		return true
 	}
 	return false
@@ -150,39 +158,71 @@ Agent 指令：
 func maybeAutoApplyAgentSwitch(
 	userText string,
 	modelOutput string,
+	conversationID string,
+	actor string,
 	scopeKey string,
 	overrides *conversationAgentOverrides,
 	runtimes map[string]agentRuntime,
 	defaultAgentID string,
+	audit *skillorchestrator.AuditService,
 ) (controlApplyResult, bool, error) {
 	const action = "agent_use"
-	if !looksLikeAgentSwitchRequest(userText) {
-		return controlApplyResult{}, false, nil
-	}
-	command, ok := extractAgentSwitchCommandFromOutput(modelOutput)
-	if !ok {
-		return controlApplyResult{}, false, nil
-	}
-	if !isAllowedControlAutoApplyCommand(command) {
-		return controlApplyResult{}, false, nil
-	}
-	handled, response, err := handleAgentChatCommand(chatiface.Message{Text: command}, scopeKey, overrides, runtimes, defaultAgentID)
+	_ = userText
+	plan, ok, err := skillorchestrator.ParseControlPlanFromText(modelOutput)
 	if err != nil {
 		return controlApplyResult{}, false, err
 	}
-	if !handled {
+	if !ok {
 		return controlApplyResult{}, false, nil
 	}
-	target := extractAgentIDFromAgentUseCommand(command)
-	status := "applied"
-	if strings.Contains(response, "无需切换") {
-		status = "noop"
+	if !isAllowedControlAutoApplyPlan(plan) {
+		return controlApplyResult{}, false, nil
+	}
+	agentID := cleanAgentIDToken(plan.AgentID())
+	if agentID == "" {
+		return controlApplyResult{}, false, nil
+	}
+	controlExecutor := skillorchestrator.NewControlExecutor(audit)
+	execResult, execErr := controlExecutor.Execute(skillorchestrator.ControlExecuteRequest{
+		ConversationID: conversationID,
+		Actor:          actor,
+		Plan:           plan,
+		Apply: func(_ skilldomain.ControlPlan) (status, message string, err error) {
+			command := "/agent use " + agentID
+			handled, response, runErr := handleAgentChatCommand(chatiface.Message{Text: command}, scopeKey, overrides, runtimes, defaultAgentID)
+			if runErr != nil {
+				return "", "", runErr
+			}
+			if !handled {
+				return "", "", fmt.Errorf("agent command was not handled")
+			}
+			status = "applied"
+			if strings.Contains(response, "无需切换") {
+				status = "noop"
+			}
+			return status, response, nil
+		},
+		Verify: func(_ skilldomain.ControlPlan) (ok bool, detail string, err error) {
+			if current, exists := overrides.Get(scopeKey); exists {
+				if strings.TrimSpace(current) == agentID {
+					return true, "override_applied", nil
+				}
+				return false, "override_mismatch", nil
+			}
+			if strings.TrimSpace(defaultAgentID) == agentID {
+				return true, "default_agent_effective", nil
+			}
+			return false, "override_missing", nil
+		},
+	})
+	if execErr != nil {
+		return controlApplyResult{}, false, execErr
 	}
 	return controlApplyResult{
 		Action:  action,
-		Target:  target,
-		Status:  status,
-		Message: response,
+		Target:  agentID,
+		Status:  strings.TrimSpace(execResult.Status),
+		Message: strings.TrimSpace(execResult.Message),
 	}, true, nil
 }
 
@@ -202,67 +242,53 @@ func looksLikeAgentSwitchRequest(text string) bool {
 		strings.Contains(text, "改成")
 }
 
-func extractAgentSwitchCommandFromOutput(output string) (string, bool) {
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		fields := strings.Fields(strings.TrimSpace(line))
-		if len(fields) < 3 {
-			continue
-		}
-		head := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fields[0])), "/")
-		action := strings.ToLower(strings.TrimSpace(fields[1]))
-		if head != "agent" {
-			continue
-		}
-		if action != "use" && action != "switch" && action != "open" {
-			continue
-		}
-		agentID := cleanAgentIDToken(fields[2])
-		if agentID == "" {
-			continue
-		}
-		return "/agent use " + agentID, true
-	}
-	return "", false
-}
-
 func cleanAgentIDToken(raw string) string {
 	return strings.Trim(strings.TrimSpace(raw), "`'\"，,。.!！?？:：;；)）]】")
 }
 
-func isAllowedControlAutoApplyCommand(command string) bool {
-	fields := strings.Fields(strings.TrimSpace(command))
-	if len(fields) < 3 {
+func isAllowedControlAutoApplyPlan(plan skilldomain.ControlPlan) bool {
+	normalized := plan.Normalize()
+	if normalized.Type != "control_plan" {
 		return false
 	}
-	head := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fields[0])), "/")
-	action := strings.ToLower(strings.TrimSpace(fields[1]))
-	return head == "agent" && (action == "use" || action == "switch" || action == "open")
-}
-
-func extractAgentIDFromAgentUseCommand(command string) string {
-	fields := strings.Fields(strings.TrimSpace(command))
-	if len(fields) < 3 {
-		return ""
+	if normalized.Intent != "agent.use" {
+		return false
 	}
-	return cleanAgentIDToken(fields[2])
+	if normalized.Mode != "execute" {
+		return false
+	}
+	return strings.TrimSpace(normalized.AgentID()) != ""
 }
 
 func formatControlApplyResult(result controlApplyResult) string {
 	if strings.TrimSpace(result.Action) == "" {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString("[ClawX Control Apply]\n")
-	b.WriteString("action=")
-	b.WriteString(result.Action)
-	b.WriteString(" target=")
-	b.WriteString(strings.TrimSpace(result.Target))
-	b.WriteString(" status=")
-	b.WriteString(strings.TrimSpace(result.Status))
 	if msg := strings.TrimSpace(result.Message); msg != "" {
-		b.WriteString("\n")
-		b.WriteString(msg)
+		return msg
 	}
-	return b.String()
+	status := strings.TrimSpace(result.Status)
+	target := strings.TrimSpace(result.Target)
+	if target == "" {
+		target = "unknown"
+	}
+	if status == "noop" {
+		return "当前会话已是目标智能体，无需切换。"
+	}
+	return "当前会话已切换到 Agent: " + target
+}
+
+func stripControlPlanPayload(output string) string {
+	text := strings.TrimSpace(output)
+	if text == "" {
+		return text
+	}
+	if _, ok, err := skillorchestrator.ParseControlPlanFromText(text); err == nil && ok {
+		if strings.HasPrefix(text, "{") && strings.HasSuffix(text, "}") {
+			return ""
+		}
+		cleaned := controlPlanBlockPattern.ReplaceAllString(text, "")
+		return strings.TrimSpace(cleaned)
+	}
+	return output
 }

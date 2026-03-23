@@ -87,4 +87,28 @@ func TestBuildExecutionInputInjectsAgentInventoryContext(t *testing.T) {
 	if !strings.Contains(input, "id=bid-all智能体") {
 		t.Fatalf("expected bid-all智能体 listed in context, got: %q", input)
 	}
+	if !strings.Contains(input, "[ControlPlan Response Contract]") {
+		t.Fatalf("expected control plan response contract in input, got: %q", input)
+	}
+	if !strings.Contains(input, "\"type\": \"control_plan\"") {
+		t.Fatalf("expected control plan schema in input, got: %q", input)
+	}
+	if !strings.Contains(input, "\"type\": \"requirement_sync\"") {
+		t.Fatalf("expected requirement sync schema in input, got: %q", input)
+	}
+	if !strings.Contains(input, "\"agent_id\": \"可选；目标智能体 ID（从 agent_inventory 选择）\"") {
+		t.Fatalf("expected requirement sync agent_id schema in input, got: %q", input)
+	}
+	if !strings.Contains(input, "[Staged Routing Snapshot]") {
+		t.Fatalf("expected staged routing snapshot in input, got: %q", input)
+	}
+	if !strings.Contains(input, "route.use_route_planner=") {
+		t.Fatalf("expected staged routing plan fields in input, got: %q", input)
+	}
+	if !strings.Contains(input, "fallback.enabled=") {
+		t.Fatalf("expected staged fallback fields in input, got: %q", input)
+	}
+	if !strings.Contains(input, "execution.can_execute=") {
+		t.Fatalf("expected staged execution gate field in input, got: %q", input)
+	}
 }

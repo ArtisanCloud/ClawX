@@ -67,7 +67,17 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 		defer os.Remove(outputPath)
 
 		composedInput := composeCodexExecutionInput(request)
-		cmdArgs := buildCodexExecArgs(args, profile.Model, request.CWD, request.AllowedRoots, outputPath, existingThreadID, composedInput)
+		cmdArgs := buildCodexExecArgs(
+			args,
+			profile.Model,
+			request.CWD,
+			request.AllowedRoots,
+			request.PromptCacheKey,
+			request.PromptCacheRetention,
+			outputPath,
+			existingThreadID,
+			composedInput,
+		)
 
 		cmd := exec.CommandContext(ctx, commandName, cmdArgs...)
 		cmd.Dir = request.CWD
@@ -92,6 +102,7 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 				failure = err.Error()
 			}
 			output := readTrimmedFile(outputPath)
+			cachedTokens, promptTokens, completionTokens, totalTokens := parseCodexPromptUsage(stdout.String())
 			if traceErr := appendCodexTrace(
 				request,
 				commandName,
@@ -100,6 +111,10 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 				startedAt,
 				completedAt,
 				resolvedThreadID,
+				cachedTokens,
+				promptTokens,
+				completionTokens,
+				totalTokens,
 				output,
 				stdout.String(),
 				stderr.String(),
@@ -108,12 +123,18 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 				// Trace errors must not block execution results.
 			}
 			return execution.Result{
-				BackendSessionID: resolvedThreadID,
-				Output:           output,
-				State:            mapErrorToResultState(err),
-				StartedAt:        startedAt,
-				CompletedAt:      completedAt,
-				FailureReason:    failure,
+				BackendSessionID:     resolvedThreadID,
+				Output:               output,
+				PromptCacheKey:       strings.TrimSpace(request.PromptCacheKey),
+				PromptCacheRetention: strings.TrimSpace(request.PromptCacheRetention),
+				PromptCachedTokens:   cachedTokens,
+				PromptTokens:         promptTokens,
+				CompletionTokens:     completionTokens,
+				TotalTokens:          totalTokens,
+				State:                mapErrorToResultState(err),
+				StartedAt:            startedAt,
+				CompletedAt:          completedAt,
+				FailureReason:        failure,
 			}, fmt.Errorf("run codex cli: %s", failure)
 		}
 
@@ -132,6 +153,7 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 		if output == "" {
 			output = "执行完成，无可见输出"
 		}
+		cachedTokens, promptTokens, completionTokens, totalTokens := parseCodexPromptUsage(stdout.String())
 		if traceErr := appendCodexTrace(
 			request,
 			commandName,
@@ -140,6 +162,10 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 			startedAt,
 			completedAt,
 			resolvedThreadID,
+			cachedTokens,
+			promptTokens,
+			completionTokens,
+			totalTokens,
 			output,
 			stdout.String(),
 			stderr.String(),
@@ -149,20 +175,32 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 		}
 
 		return execution.Result{
-			BackendSessionID: resolvedThreadID,
-			Output:           output,
-			State:            execution.ResultSuccess,
-			StartedAt:        startedAt,
-			CompletedAt:      completedAt,
+			BackendSessionID:     resolvedThreadID,
+			Output:               output,
+			PromptCacheKey:       strings.TrimSpace(request.PromptCacheKey),
+			PromptCacheRetention: strings.TrimSpace(request.PromptCacheRetention),
+			PromptCachedTokens:   cachedTokens,
+			PromptTokens:         promptTokens,
+			CompletionTokens:     completionTokens,
+			TotalTokens:          totalTokens,
+			State:                execution.ResultSuccess,
+			StartedAt:            startedAt,
+			CompletedAt:          completedAt,
 		}, nil
 	}
 }
 
-func buildCodexExecArgs(baseArgs []string, model, cwd string, allowedRoots []string, outputPath, threadID, prompt string) []string {
+func buildCodexExecArgs(baseArgs []string, model, cwd string, allowedRoots []string, promptCacheKey string, promptCacheRetention string, outputPath, threadID, prompt string) []string {
 	cmdArgs := []string{"exec"}
 	cmdArgs = append(cmdArgs, baseArgs...)
 	if strings.TrimSpace(model) != "" {
 		cmdArgs = append(cmdArgs, "--model", strings.TrimSpace(model))
+	}
+	if value := strings.TrimSpace(promptCacheKey); value != "" {
+		cmdArgs = append(cmdArgs, "-c", fmt.Sprintf("prompt_cache_key=%q", value))
+	}
+	if value := strings.TrimSpace(promptCacheRetention); value != "" {
+		cmdArgs = append(cmdArgs, "-c", fmt.Sprintf("prompt_cache_retention=%q", value))
 	}
 	// Enforce writable workspace and explicit working directory per request.
 	cmdArgs = append(cmdArgs, "--sandbox", "workspace-write")
@@ -371,4 +409,81 @@ func parseCodexThreadID(raw string) string {
 		}
 	}
 	return ""
+}
+
+func parseCodexPromptUsage(raw string) (cachedTokens int, promptTokens int, completionTokens int, totalTokens int) {
+	lines := strings.Split(raw, "\n")
+	cachedTokens = 0
+	promptTokens = 0
+	completionTokens = 0
+	totalTokens = 0
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(line), &payload); err != nil {
+			continue
+		}
+		if value, ok := nestedInt(payload, "usage", "prompt_tokens_details", "cached_tokens"); ok {
+			cachedTokens = value
+		}
+		if value, ok := nestedInt(payload, "response", "usage", "prompt_tokens_details", "cached_tokens"); ok {
+			cachedTokens = value
+		}
+		if value, ok := nestedInt(payload, "usage", "prompt_tokens"); ok {
+			promptTokens = value
+		}
+		if value, ok := nestedInt(payload, "response", "usage", "prompt_tokens"); ok {
+			promptTokens = value
+		}
+		if value, ok := nestedInt(payload, "usage", "completion_tokens"); ok {
+			completionTokens = value
+		}
+		if value, ok := nestedInt(payload, "response", "usage", "completion_tokens"); ok {
+			completionTokens = value
+		}
+		if value, ok := nestedInt(payload, "usage", "total_tokens"); ok {
+			totalTokens = value
+		}
+		if value, ok := nestedInt(payload, "response", "usage", "total_tokens"); ok {
+			totalTokens = value
+		}
+	}
+	if totalTokens == 0 && (promptTokens > 0 || completionTokens > 0) {
+		totalTokens = promptTokens + completionTokens
+	}
+	return cachedTokens, promptTokens, completionTokens, totalTokens
+}
+
+func nestedInt(payload map[string]any, path ...string) (int, bool) {
+	if len(path) == 0 {
+		return 0, false
+	}
+	var current any = payload
+	for _, segment := range path {
+		obj, ok := current.(map[string]any)
+		if !ok {
+			return 0, false
+		}
+		next, exists := obj[segment]
+		if !exists {
+			return 0, false
+		}
+		current = next
+	}
+	switch value := current.(type) {
+	case float64:
+		return int(value), true
+	case int:
+		return value, true
+	case int64:
+		return int(value), true
+	case json.Number:
+		if parsed, err := value.Int64(); err == nil {
+			return int(parsed), true
+		}
+	}
+	return 0, false
 }

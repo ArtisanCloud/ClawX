@@ -58,6 +58,61 @@ journalctl --user -u clawx.service -f
 
 可选覆盖：
 - 设置 `CLAWX_LOG_DIR` 可改为其他日志根目录。
+- 会话 Agent 覆盖持久化文件：`~/.clawx/agent_overrides.json`（用于重启后恢复 conversation->agent 绑定）。
+
+## Prompt Caching 观测与门禁
+- 观测来源：`~/.clawx/logs/trace.jsonl` 中 `event=llm_io` 且 `phase=response` 的记录。
+- 关键字段：
+  - `prompt_tokens`: 本次请求 prompt token 总量
+  - `prompt_cached_tokens`: 命中缓存的 prompt token 量
+  - `intent_kind`: 分阶段执行线路（可作为 stage 维度）
+  - `channel`、`agent_id`: 维度分组
+- 命中率定义：`prompt_cached_tokens / prompt_tokens`（按聚合窗口统计）。
+
+建议门禁阈值（7 天滚动窗口）：
+- `hit_rate < 15%`：告警（缓存键稳定性可能不足，建议检查 key 是否包含高变字段）。
+- `15% <= hit_rate < 35%`：关注（可继续优化分阶段上下文稳定段）。
+- `hit_rate >= 35%`：健康（满足基础成本优化目标）。
+
+快速检查（最近 200 条 llm 响应）：
+```bash
+tail -n 200 ~/.clawx/logs/trace.jsonl \
+  | jq -r 'select(.event=="llm_io" and .phase=="response" and (.prompt_tokens // 0) > 0) | [.channel,.agent_id,.intent_kind,.prompt_cached_tokens,.prompt_tokens] | @tsv'
+```
+
+汇总报表（建议接入内部聚合器）：
+- 代码位置：`internal/infrastructure/logging/prompt_cache_metrics.go`
+- 能力：按 `channel/agent/stage` 输出 `responses/tokens/cached/hit_rate`。
+- 可用于定时任务或日志管道的二次统计，并写入你们现有监控系统。
+
+CLI 快速生成报表：
+```bash
+# 文本报表
+clawx trace cache-report --file ~/.clawx/logs/trace.jsonl
+
+# JSON 报表（便于管道接入）
+clawx trace cache-report --file ~/.clawx/logs/trace.jsonl --json
+```
+
+## Token 用量与成本观测
+- 写入文件：`~/.clawx/logs/token_usage.jsonl`（每次 LLM 响应一条记录）。
+- 关键字段：`prompt_tokens`、`completion_tokens`、`total_tokens`、`prompt_cached_tokens`、`estimated_cost_usd`。
+- 成本估算环境变量（可选）：
+  - `CLAWX_TOKEN_COST_PROMPT_PER_1M`
+  - `CLAWX_TOKEN_COST_COMPLETION_PER_1M`
+- token 日志轮转环境变量：
+  - `CLAWX_TOKEN_USAGE_LOG_FILE`（默认 `~/.clawx/logs/token_usage.jsonl`）
+  - `CLAWX_TOKEN_USAGE_LOG_MAX_MB`（默认 `20`）
+  - `CLAWX_TOKEN_USAGE_LOG_MAX_BACKUPS`（默认 `5`）
+
+CLI 汇总：
+```bash
+# 文本报表
+clawx trace token-report --file ~/.clawx/logs/token_usage.jsonl
+
+# JSON 报表（便于接入外部日志/计费系统）
+clawx trace token-report --file ~/.clawx/logs/token_usage.jsonl --json
+```
 
 ## Workspace 目录规范与迁移
 - 当前默认目录：`~/.clawx/workspaces/<agent_id>`。

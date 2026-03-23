@@ -17,6 +17,9 @@ func ensureWorkspacesReady(cfg config.Snapshot) error {
 		if err := ensureWorkspacePath(path); err != nil {
 			return err
 		}
+		if err := ensureWorkspaceDocsScaffold(path); err != nil {
+			return fmt.Errorf("prepare workspace docs for %q: %w", path, err)
+		}
 	}
 	if err := ensureSkillSourcesReady(cfg, paths); err != nil {
 		return err
@@ -69,6 +72,10 @@ func ensureDirectoryReady(path string, label string) error {
 }
 
 func autoBootstrapDefaultAgentWorkspace(cfg config.Snapshot) (config.Snapshot, bool, error) {
+	if !isEnvTrue("CLAWX_ENABLE_AUTO_WORKSPACE_BOOTSTRAP") {
+		return cfg, false, nil
+	}
+
 	defaultAgentID := strings.TrimSpace(cfg.DefaultAgentID)
 	if defaultAgentID == "" && cfg.ActiveAgent != nil {
 		defaultAgentID = strings.TrimSpace(cfg.ActiveAgent.ID)

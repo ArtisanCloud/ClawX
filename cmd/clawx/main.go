@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	stdlogging "clawx/internal/infrastructure/logging"
 	"context"
 	"encoding/json"
 	"errors"
@@ -73,6 +74,7 @@ type agentRuntime struct {
 	attachmentStore *attachmentContextStore
 	profileKind     string
 	profileCmd      string
+	profileModel    string
 	router          *service.Router
 	runner          *backend.DirectRunner
 	skills          *skillregistry.Service
@@ -94,6 +96,7 @@ type adapterRetryScope struct {
 }
 
 var channelRouteMetrics = service.NewChannelRouteMetrics(2048)
+var traceLogger *stdlogging.Logger
 
 var executionEvidenceCommandPattern = regexp.MustCompile(`(?m)(^|\n)\s*(go\s+test|go\s+run|npm\s+run|pnpm\s+run|yarn\s+|pytest|cargo\s+test|make\s+test|bash\s+|sh\s+|uv\s+run|curl\s+|systemctl\s+)`)
 
@@ -117,6 +120,8 @@ func run(args []string) error {
 		return runInstallService(args[1:])
 	case "setup-service":
 		return runSetupService(args[1:])
+	case "trace":
+		return runTraceCommand(args[1:])
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -169,6 +174,7 @@ func runServe() error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	initTraceLogger()
 	if updatedCfg, changed, err := autoBootstrapDefaultAgentWorkspace(cfg); err != nil {
 		return fmt.Errorf("workspace bootstrap failed: %w", err)
 	} else if changed {
@@ -202,11 +208,15 @@ func runServe() error {
 	if err != nil {
 		return fmt.Errorf("build runtimes: %w", err)
 	}
+	configureControlAuditSinks(runtimes)
 	defaultRuntime := selectRuntime(runtimes, defaultRuntimeID, "")
 	if defaultRuntime.runner == nil {
 		return fmt.Errorf("no runtime available")
 	}
 	agentOverrides := newConversationAgentOverrides()
+	if err := agentOverrides.EnablePersistence(filepath.Join(config.StateDir(), "agent_overrides.json")); err != nil {
+		log.Printf("load agent overrides failed: %v", err)
+	}
 	formatter := service.NewOutputFormatter()
 	streamer := service.NewOutputStreamer()
 	delivery := service.NewOutputDelivery(formatter, streamer)
@@ -1217,11 +1227,12 @@ func runConfigCommand() error {
 }
 
 func printUsage() {
-	fmt.Fprintf(os.Stdout, "Usage: clawx [serve|run|config|skill|install-service|setup-service|help]\n")
+	fmt.Fprintf(os.Stdout, "Usage: clawx [serve|run|config|skill|trace|install-service|setup-service|help]\n")
 	fmt.Fprintf(os.Stdout, "  serve  Start the service. If config.json is missing, bootstrap it first.\n")
 	fmt.Fprintf(os.Stdout, "  run    Start selected runtime target (serve|telegram|discord|feishu|wecom); defaults to config service.run.\n")
 	fmt.Fprintf(os.Stdout, "  config Launch the interactive config wizard, or run `config agent ...` for agent management.\n")
 	fmt.Fprintf(os.Stdout, "  skill  Manage skill registry (list|reload|enable|disable).\n")
+	fmt.Fprintf(os.Stdout, "  trace  Analyze trace logs (cache-report).\n")
 	fmt.Fprintf(os.Stdout, "  install-service  Install Linux user-level systemd service (supports --start).\n")
 	fmt.Fprintf(os.Stdout, "  setup-service  One-shot setup: build binary + set service.run + install/start user service.\n")
 }
@@ -1596,10 +1607,11 @@ func sanitizePromptInput(value string) string {
 
 func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionManager) (map[string]agentRuntime, string, runnerWrapper, error) {
 	runtimes := make(map[string]agentRuntime)
-	projectService, err := newProjectCommandService(cfg)
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("init project service: %w", err)
-	}
+	// Project routing persistence is intentionally disabled in runtime path.
+	// Keep route resolution in fallback mode (project=main) to avoid creating
+	// ~/.clawx/projects/*.json in default flows.
+	var projectService service.ProjectCommandService
+	var err error
 	memoryService, err := newMemoryCommandService(cfg, projectService)
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("init memory service: %w", err)
@@ -1659,7 +1671,6 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 				sessionManager,
 				runner,
 				service.WithIntentPipeline(pipeline),
-				service.WithProjectResolver(projectService),
 				service.WithMemoryCommandService(memoryService),
 				service.WithServiceCommandService(serviceCommandService),
 				service.WithScheduleCommandService(scheduleCommandService),
@@ -1683,6 +1694,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 				attachmentStore: attachmentStore,
 				profileKind:     profile.Kind,
 				profileCmd:      profileCommand,
+				profileModel:    strings.TrimSpace(profile.Model),
 				router:          router,
 				runner:          runner,
 				skills:          registry,
@@ -1713,6 +1725,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 	primaryID := "primary"
 	profileKind := "generic-cli"
 	profileCmd := cfg.ExecCommand
+	profileModel := ""
 	if cfg.ActiveProfile != nil {
 		if strings.TrimSpace(cfg.ActiveProfile.Kind) != "" {
 			profileKind = cfg.ActiveProfile.Kind
@@ -1720,6 +1733,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 		if strings.TrimSpace(cfg.ActiveProfile.Command) != "" {
 			profileCmd = cfg.ActiveProfile.Command
 		}
+		profileModel = strings.TrimSpace(cfg.ActiveProfile.Model)
 	}
 	var primaryRegistry *skillregistry.Service
 	var primarySkillControl *skillorchestrator.Runtime
@@ -1730,7 +1744,6 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 				cfg,
 				sessionManager,
 				runner,
-				service.WithProjectResolver(projectService),
 				service.WithMemoryCommandService(memoryService),
 				service.WithServiceCommandService(serviceCommandService),
 				service.WithScheduleCommandService(scheduleCommandService),
@@ -1743,7 +1756,6 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 			sessionManager,
 			runner,
 			service.WithIntentPipeline(pipeline),
-			service.WithProjectResolver(projectService),
 			service.WithMemoryCommandService(memoryService),
 			service.WithServiceCommandService(serviceCommandService),
 			service.WithScheduleCommandService(scheduleCommandService),
@@ -1759,6 +1771,7 @@ func buildAgentRuntimes(cfg config.Snapshot, sessionManager *service.SessionMana
 		attachmentStore: attachmentStore,
 		profileKind:     profileKind,
 		profileCmd:      profileCmd,
+		profileModel:    profileModel,
 		router:          primaryRouter,
 		runner:          runner,
 		skills:          primaryRegistry,
@@ -2002,27 +2015,68 @@ func resolveExecutionCWD(ctx context.Context, runtime agentRuntime, decision ser
 	}
 	projectID := strings.TrimSpace(decision.ProjectID)
 	if projectID == "" || runtime.projectCWD == nil {
-		return defaultCWD
+		return normalizeExecutionCWD(runtime, defaultCWD)
 	}
 	record, err := runtime.projectCWD.GetProject(ctx, projectID)
 	if err != nil {
 		log.Printf("resolve execute cwd fallback: agent=%s project_id=%s err=%v", runtime.agentID, projectID, err)
-		return defaultCWD
+		return normalizeExecutionCWD(runtime, defaultCWD)
 	}
 	projectWorkspace := strings.TrimSpace(record.WorkspacePath)
 	if projectWorkspace == "" {
-		return defaultCWD
+		return normalizeExecutionCWD(runtime, defaultCWD)
 	}
 	agentID := normalizeExecutionDirSegment(runtime.agentID)
 	if agentID == "" {
-		return projectWorkspace
+		return normalizeExecutionCWD(runtime, projectWorkspace)
 	}
 	agentWorkspace := filepath.Join(projectWorkspace, ".agents", agentID, "workspace")
 	if err := os.MkdirAll(agentWorkspace, 0o755); err != nil {
 		log.Printf("resolve execute cwd agent workspace fallback: agent=%s project_id=%s path=%s err=%v", runtime.agentID, projectID, agentWorkspace, err)
-		return projectWorkspace
+		return normalizeExecutionCWD(runtime, projectWorkspace)
 	}
-	return agentWorkspace
+	return normalizeExecutionCWD(runtime, agentWorkspace)
+}
+
+func normalizeExecutionCWD(runtime agentRuntime, candidate string) string {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		candidate = "."
+	}
+	if runtime.cfgSnapshot.ValidateWorkingDirectory(candidate) == nil {
+		return candidate
+	}
+
+	agentID := strings.TrimSpace(runtime.agentID)
+	if agentID != "" {
+		if agent, ok := runtime.cfgSnapshot.Agents[agentID]; ok {
+			workspace := strings.TrimSpace(agent.Workspace)
+			if workspace != "" && runtime.cfgSnapshot.ValidateWorkingDirectory(workspace) == nil {
+				return workspace
+			}
+		}
+	}
+
+	if runtime.cfgSnapshot.ActiveAgent != nil {
+		workspace := strings.TrimSpace(runtime.cfgSnapshot.ActiveAgent.Workspace)
+		if workspace != "" && runtime.cfgSnapshot.ValidateWorkingDirectory(workspace) == nil {
+			return workspace
+		}
+	}
+
+	defaultCWD := strings.TrimSpace(runtime.cfgSnapshot.DefaultCWD)
+	if defaultCWD != "" && runtime.cfgSnapshot.ValidateWorkingDirectory(defaultCWD) == nil {
+		return defaultCWD
+	}
+
+	for _, root := range runtime.cfgSnapshot.AllowedRoots {
+		root = strings.TrimSpace(root)
+		if root != "" {
+			return filepath.Clean(root)
+		}
+	}
+
+	return "."
 }
 
 func normalizeExecutionDirSegment(raw string) string {
@@ -2116,6 +2170,19 @@ func handleTelegramInbound(
 		decision = mergeDecisionAttachments(runtime, decision)
 		executeInput := buildExecutionInput(decision, runtime)
 		executeCWD := resolveExecutionCWD(ctx, runtime, decision)
+		emitTrace("llm_io", map[string]any{
+			"phase":                  "request",
+			"channel":                "telegram",
+			"instance":               strings.TrimSpace(instanceID),
+			"agent_id":               strings.TrimSpace(runtime.agentID),
+			"conversation_id":        strings.TrimSpace(decision.ConversationID),
+			"project_id":             strings.TrimSpace(decision.ProjectID),
+			"intent_kind":            string(decision.Kind),
+			"input_chars":            len(executeInput),
+			"input_preview":          tracePreview(executeInput, 400),
+			"prompt_cache_key":       buildTracePromptCacheKey(decision, runtime),
+			"prompt_cache_retention": resolveTracePromptCacheRetention(),
+		})
 		log.Printf("telegram execute begin: channel=telegram instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
 			Mode:            command.ModeContinue,
@@ -2134,19 +2201,51 @@ func handleTelegramInbound(
 			sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
 		}
+		emitTrace("llm_io", map[string]any{
+			"phase":                "response",
+			"channel":              "telegram",
+			"instance":             strings.TrimSpace(instanceID),
+			"agent_id":             strings.TrimSpace(runtime.agentID),
+			"conversation_id":      strings.TrimSpace(decision.ConversationID),
+			"project_id":           strings.TrimSpace(decision.ProjectID),
+			"intent_kind":          string(decision.Kind),
+			"output_chars":         len(flowResult.Execution.Output),
+			"output_preview":       tracePreview(flowResult.Execution.Output, 400),
+			"state":                string(flowResult.Execution.State),
+			"prompt_cached_tokens": flowResult.Execution.PromptCachedTokens,
+			"prompt_tokens":        flowResult.Execution.PromptTokens,
+			"completion_tokens":    flowResult.Execution.CompletionTokens,
+			"total_tokens":         flowResult.Execution.TotalTokens,
+		})
+		recordTokenUsage("telegram", instanceID, runtime, decision, flowResult)
 		log.Printf("telegram execute done: channel=telegram instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s session_id=%s backend_session_id=%s state=%s memory_scope=%q memory_acl_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, flowResult.Execution.MemoryScope, flowResult.Execution.MemoryACLMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
 		output := flowResult.Execution.Output
-		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, scopeKey, overrides, runtimes, defaultRuntimeID); autoErr != nil {
+		responseAgentID := strings.TrimSpace(runtime.agentID)
+		if reqSync, reqApplied, reqErr := maybeAutoApplyRequirementSyncFromModel(ctx, runtime, decision, output, "telegram", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID); reqErr != nil {
+			log.Printf("telegram requirement sync failed: channel=telegram instance=%s scope=%s err=%v", instanceID, scopeKey, reqErr)
+		} else if reqApplied {
+			output = stripRequirementSyncPlanPayload(output)
+			output = output + "\n\n" + formatRequirementSyncResult(reqSync)
+			if strings.TrimSpace(reqSync.AgentID) != "" {
+				responseAgentID = strings.TrimSpace(reqSync.AgentID)
+			}
+		}
+		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, decision.ConversationID, decision.Message.UserID, scopeKey, overrides, runtimes, defaultRuntimeID, resolveControlAudit(runtime)); autoErr != nil {
 			log.Printf("telegram auto apply agent switch failed: channel=telegram instance=%s scope=%s err=%v", instanceID, scopeKey, autoErr)
 		} else if ok {
+			output = stripControlPlanPayload(output)
 			output = output + "\n\n" + formatControlApplyResult(applied)
+			if strings.TrimSpace(applied.Target) != "" {
+				responseAgentID = strings.TrimSpace(applied.Target)
+			}
 		}
 		output = finalizeExecutionOutput(decision, output)
+		output = applyRuntimeAgentLabel(output, responseAgentID)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, telegramchat.MaxMessageLength, 1)
-		deliverTelegramOutputFiles(ctx, adapter, envelope.Target, output)
+		deliverTelegramOutputFiles(ctx, adapter, envelope.Target, output, decision.Message.Text)
 	}
 }
 
@@ -2227,6 +2326,19 @@ func handleFeishuInbound(
 		decision = mergeDecisionAttachments(runtime, decision)
 		executeInput := buildExecutionInput(decision, runtime)
 		executeCWD := resolveExecutionCWD(ctx, runtime, decision)
+		emitTrace("llm_io", map[string]any{
+			"phase":                  "request",
+			"channel":                "feishu",
+			"instance":               strings.TrimSpace(instanceID),
+			"agent_id":               strings.TrimSpace(runtime.agentID),
+			"conversation_id":        strings.TrimSpace(decision.ConversationID),
+			"project_id":             strings.TrimSpace(decision.ProjectID),
+			"intent_kind":            string(decision.Kind),
+			"input_chars":            len(executeInput),
+			"input_preview":          tracePreview(executeInput, 400),
+			"prompt_cache_key":       buildTracePromptCacheKey(decision, runtime),
+			"prompt_cache_retention": resolveTracePromptCacheRetention(),
+		})
 		log.Printf("feishu execute begin: channel=feishu instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
 			Mode:            command.ModeContinue,
@@ -2245,17 +2357,49 @@ func handleFeishuInbound(
 			sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
 		}
+		emitTrace("llm_io", map[string]any{
+			"phase":                "response",
+			"channel":              "feishu",
+			"instance":             strings.TrimSpace(instanceID),
+			"agent_id":             strings.TrimSpace(runtime.agentID),
+			"conversation_id":      strings.TrimSpace(decision.ConversationID),
+			"project_id":           strings.TrimSpace(decision.ProjectID),
+			"intent_kind":          string(decision.Kind),
+			"output_chars":         len(flowResult.Execution.Output),
+			"output_preview":       tracePreview(flowResult.Execution.Output, 400),
+			"state":                string(flowResult.Execution.State),
+			"prompt_cached_tokens": flowResult.Execution.PromptCachedTokens,
+			"prompt_tokens":        flowResult.Execution.PromptTokens,
+			"completion_tokens":    flowResult.Execution.CompletionTokens,
+			"total_tokens":         flowResult.Execution.TotalTokens,
+		})
+		recordTokenUsage("feishu", instanceID, runtime, decision, flowResult)
 		log.Printf("feishu execute done: channel=feishu instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s session_id=%s backend_session_id=%s state=%s memory_scope=%q memory_acl_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, flowResult.Execution.MemoryScope, flowResult.Execution.MemoryACLMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
 		output := flowResult.Execution.Output
-		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, scopeKey, overrides, runtimes, defaultRuntimeID); autoErr != nil {
+		responseAgentID := strings.TrimSpace(runtime.agentID)
+		if reqSync, reqApplied, reqErr := maybeAutoApplyRequirementSyncFromModel(ctx, runtime, decision, output, "feishu", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID); reqErr != nil {
+			log.Printf("feishu requirement sync failed: channel=feishu instance=%s scope=%s err=%v", instanceID, scopeKey, reqErr)
+		} else if reqApplied {
+			output = stripRequirementSyncPlanPayload(output)
+			output = output + "\n\n" + formatRequirementSyncResult(reqSync)
+			if strings.TrimSpace(reqSync.AgentID) != "" {
+				responseAgentID = strings.TrimSpace(reqSync.AgentID)
+			}
+		}
+		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, decision.ConversationID, decision.Message.UserID, scopeKey, overrides, runtimes, defaultRuntimeID, resolveControlAudit(runtime)); autoErr != nil {
 			log.Printf("feishu auto apply agent switch failed: channel=feishu instance=%s scope=%s err=%v", instanceID, scopeKey, autoErr)
 		} else if ok {
+			output = stripControlPlanPayload(output)
 			output = output + "\n\n" + formatControlApplyResult(applied)
+			if strings.TrimSpace(applied.Target) != "" {
+				responseAgentID = strings.TrimSpace(applied.Target)
+			}
 		}
 		output = finalizeExecutionOutput(decision, output)
+		output = applyRuntimeAgentLabel(output, responseAgentID)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, feishuchat.MaxMessageLength, 1)
 	}
 }
@@ -2337,6 +2481,19 @@ func handleWeComInbound(
 		decision = mergeDecisionAttachments(runtime, decision)
 		executeInput := buildExecutionInput(decision, runtime)
 		executeCWD := resolveExecutionCWD(ctx, runtime, decision)
+		emitTrace("llm_io", map[string]any{
+			"phase":                  "request",
+			"channel":                "wecom",
+			"instance":               strings.TrimSpace(instanceID),
+			"agent_id":               strings.TrimSpace(runtime.agentID),
+			"conversation_id":        strings.TrimSpace(decision.ConversationID),
+			"project_id":             strings.TrimSpace(decision.ProjectID),
+			"intent_kind":            string(decision.Kind),
+			"input_chars":            len(executeInput),
+			"input_preview":          tracePreview(executeInput, 400),
+			"prompt_cache_key":       buildTracePromptCacheKey(decision, runtime),
+			"prompt_cache_retention": resolveTracePromptCacheRetention(),
+		})
 		log.Printf("wecom execute begin: channel=wecom instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
 			Mode:            command.ModeContinue,
@@ -2355,19 +2512,51 @@ func handleWeComInbound(
 			sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
 		}
+		emitTrace("llm_io", map[string]any{
+			"phase":                "response",
+			"channel":              "wecom",
+			"instance":             strings.TrimSpace(instanceID),
+			"agent_id":             strings.TrimSpace(runtime.agentID),
+			"conversation_id":      strings.TrimSpace(decision.ConversationID),
+			"project_id":           strings.TrimSpace(decision.ProjectID),
+			"intent_kind":          string(decision.Kind),
+			"output_chars":         len(flowResult.Execution.Output),
+			"output_preview":       tracePreview(flowResult.Execution.Output, 400),
+			"state":                string(flowResult.Execution.State),
+			"prompt_cached_tokens": flowResult.Execution.PromptCachedTokens,
+			"prompt_tokens":        flowResult.Execution.PromptTokens,
+			"completion_tokens":    flowResult.Execution.CompletionTokens,
+			"total_tokens":         flowResult.Execution.TotalTokens,
+		})
+		recordTokenUsage("wecom", instanceID, runtime, decision, flowResult)
 		log.Printf("wecom execute done: channel=wecom instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s session_id=%s backend_session_id=%s state=%s memory_scope=%q memory_acl_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, flowResult.Execution.MemoryScope, flowResult.Execution.MemoryACLMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
 		output := flowResult.Execution.Output
-		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, scopeKey, overrides, runtimes, defaultRuntimeID); autoErr != nil {
+		responseAgentID := strings.TrimSpace(runtime.agentID)
+		if reqSync, reqApplied, reqErr := maybeAutoApplyRequirementSyncFromModel(ctx, runtime, decision, output, "wecom", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID); reqErr != nil {
+			log.Printf("wecom requirement sync failed: channel=wecom instance=%s scope=%s err=%v", instanceID, scopeKey, reqErr)
+		} else if reqApplied {
+			output = stripRequirementSyncPlanPayload(output)
+			output = output + "\n\n" + formatRequirementSyncResult(reqSync)
+			if strings.TrimSpace(reqSync.AgentID) != "" {
+				responseAgentID = strings.TrimSpace(reqSync.AgentID)
+			}
+		}
+		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, decision.ConversationID, decision.Message.UserID, scopeKey, overrides, runtimes, defaultRuntimeID, resolveControlAudit(runtime)); autoErr != nil {
 			log.Printf("wecom auto apply agent switch failed: channel=wecom instance=%s scope=%s err=%v", instanceID, scopeKey, autoErr)
 		} else if ok {
+			output = stripControlPlanPayload(output)
 			output = output + "\n\n" + formatControlApplyResult(applied)
+			if strings.TrimSpace(applied.Target) != "" {
+				responseAgentID = strings.TrimSpace(applied.Target)
+			}
 		}
 		output = finalizeExecutionOutput(decision, output)
+		output = applyRuntimeAgentLabel(output, responseAgentID)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, wecomchat.MaxMessageLength, 1)
-		deliverWeComOutputFiles(ctx, adapter, envelope.Target, output)
+		deliverWeComOutputFiles(ctx, adapter, envelope.Target, output, decision.Message.Text)
 	}
 }
 
@@ -2449,6 +2638,19 @@ func handleDiscordInbound(
 		decision = mergeDecisionAttachments(runtime, decision)
 		executeInput := buildExecutionInput(decision, runtime)
 		executeCWD := resolveExecutionCWD(ctx, runtime, decision)
+		emitTrace("llm_io", map[string]any{
+			"phase":                  "request",
+			"channel":                "discord",
+			"instance":               strings.TrimSpace(instanceID),
+			"agent_id":               strings.TrimSpace(runtime.agentID),
+			"conversation_id":        strings.TrimSpace(decision.ConversationID),
+			"project_id":             strings.TrimSpace(decision.ProjectID),
+			"intent_kind":            string(decision.Kind),
+			"input_chars":            len(executeInput),
+			"input_preview":          tracePreview(executeInput, 400),
+			"prompt_cache_key":       buildTracePromptCacheKey(decision, runtime),
+			"prompt_cache_retention": resolveTracePromptCacheRetention(),
+		})
 		log.Printf("discord execute begin: channel=discord instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, "-", runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		stopTyping := startDiscordTypingLoop(ctx, adapter, envelope.Target)
 		defer stopTyping()
@@ -2469,19 +2671,51 @@ func handleDiscordInbound(
 			sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 			return
 		}
+		emitTrace("llm_io", map[string]any{
+			"phase":                "response",
+			"channel":              "discord",
+			"instance":             strings.TrimSpace(instanceID),
+			"agent_id":             strings.TrimSpace(runtime.agentID),
+			"conversation_id":      strings.TrimSpace(decision.ConversationID),
+			"project_id":           strings.TrimSpace(decision.ProjectID),
+			"intent_kind":          string(decision.Kind),
+			"output_chars":         len(flowResult.Execution.Output),
+			"output_preview":       tracePreview(flowResult.Execution.Output, 400),
+			"state":                string(flowResult.Execution.State),
+			"prompt_cached_tokens": flowResult.Execution.PromptCachedTokens,
+			"prompt_tokens":        flowResult.Execution.PromptTokens,
+			"completion_tokens":    flowResult.Execution.CompletionTokens,
+			"total_tokens":         flowResult.Execution.TotalTokens,
+		})
+		recordTokenUsage("discord", instanceID, runtime, decision, flowResult)
 		log.Printf("discord execute done: channel=discord instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s session_id=%s backend_session_id=%s state=%s memory_scope=%q memory_acl_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d output_chars=%d", instanceID, "-", runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, flowResult.Session.ID, flowResult.Execution.BackendSessionID, flowResult.Execution.State, flowResult.Execution.MemoryScope, flowResult.Execution.MemoryACLMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), len(flowResult.Execution.Output))
 
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
 		output := flowResult.Execution.Output
-		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, scopeKey, overrides, runtimes, defaultRuntimeID); autoErr != nil {
+		responseAgentID := strings.TrimSpace(runtime.agentID)
+		if reqSync, reqApplied, reqErr := maybeAutoApplyRequirementSyncFromModel(ctx, runtime, decision, output, "discord", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID); reqErr != nil {
+			log.Printf("discord requirement sync failed: channel=discord instance=%s scope=%s err=%v", instanceID, scopeKey, reqErr)
+		} else if reqApplied {
+			output = stripRequirementSyncPlanPayload(output)
+			output = output + "\n\n" + formatRequirementSyncResult(reqSync)
+			if strings.TrimSpace(reqSync.AgentID) != "" {
+				responseAgentID = strings.TrimSpace(reqSync.AgentID)
+			}
+		}
+		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, decision.ConversationID, decision.Message.UserID, scopeKey, overrides, runtimes, defaultRuntimeID, resolveControlAudit(runtime)); autoErr != nil {
 			log.Printf("discord auto apply agent switch failed: channel=discord instance=%s scope=%s err=%v", instanceID, scopeKey, autoErr)
 		} else if ok {
+			output = stripControlPlanPayload(output)
 			output = output + "\n\n" + formatControlApplyResult(applied)
+			if strings.TrimSpace(applied.Target) != "" {
+				responseAgentID = strings.TrimSpace(applied.Target)
+			}
 		}
 		output = finalizeExecutionOutput(decision, output)
+		output = applyRuntimeAgentLabel(output, responseAgentID)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, discordchat.MaxMessageLength, 1)
-		deliverDiscordOutputFiles(ctx, adapter, envelope.Target, output)
+		deliverDiscordOutputFiles(ctx, adapter, envelope.Target, output, decision.Message.Text)
 	}
 }
 
@@ -2489,6 +2723,145 @@ func sendDiscordDirect(ctx context.Context, adapter *discordchat.Adapter, target
 	if err := adapter.SendDirect(ctx, target, message); err != nil {
 		log.Printf("send discord message: %v", err)
 	}
+}
+
+func resolveControlAudit(runtime agentRuntime) *skillorchestrator.AuditService {
+	if runtime.skillControl == nil {
+		return nil
+	}
+	return runtime.skillControl.Audit
+}
+
+func initTraceLogger() {
+	if traceLogger != nil {
+		return
+	}
+	maxMB := parsePositiveIntEnv("CLAWX_TRACE_LOG_MAX_MB", 20)
+	maxBackups := parsePositiveIntEnv("CLAWX_TRACE_LOG_MAX_BACKUPS", 5)
+	mirrorStdout := parseBoolEnv("CLAWX_TRACE_LOG_STDOUT", true)
+	tracePath := strings.TrimSpace(os.Getenv("CLAWX_TRACE_LOG_FILE"))
+	if tracePath == "" {
+		tracePath = filepath.Join(config.StateDir(), "logs", "trace.jsonl")
+	}
+
+	writers := make([]io.Writer, 0, 2)
+	if mirrorStdout {
+		writers = append(writers, os.Stdout)
+	}
+	if strings.TrimSpace(tracePath) != "" {
+		writer, err := stdlogging.NewRotatingWriter(tracePath, int64(maxMB)*1024*1024, maxBackups)
+		if err != nil {
+			log.Printf("trace logger rotating writer disabled: path=%s err=%v", tracePath, err)
+		} else {
+			writers = append(writers, writer)
+		}
+	}
+	if len(writers) == 0 {
+		writers = append(writers, os.Stdout)
+	}
+	traceLogger = stdlogging.New(io.MultiWriter(writers...))
+}
+
+func emitTrace(event string, fields map[string]any) {
+	if traceLogger == nil {
+		return
+	}
+	payload := make(map[string]any, len(fields)+1)
+	payload["event"] = strings.TrimSpace(event)
+	for key, value := range fields {
+		payload[key] = value
+	}
+	traceLogger.Info("trace", payload)
+}
+
+func configureControlAuditSinks(runtimes map[string]agentRuntime) {
+	for agentID, runtime := range runtimes {
+		if runtime.skillControl == nil || runtime.skillControl.Audit == nil {
+			continue
+		}
+		agentID := strings.TrimSpace(agentID)
+		runtime.skillControl.Audit.SetSink(func(record skillorchestrator.AuditRecord) {
+			if strings.TrimSpace(record.Source) != "control_plan" {
+				return
+			}
+			emitTrace("control_apply_trace", map[string]any{
+				"agent_id":        agentID,
+				"trace_id":        strings.TrimSpace(record.TraceID),
+				"phase":           strings.TrimSpace(record.Phase),
+				"conversation_id": strings.TrimSpace(record.ConversationID),
+				"actor":           strings.TrimSpace(record.Actor),
+				"intent":          strings.TrimSpace(record.Intent),
+				"plan_type":       strings.TrimSpace(record.PlanType),
+				"plan_mode":       strings.TrimSpace(record.PlanMode),
+				"target":          record.Target,
+				"result":          strings.TrimSpace(record.Result),
+				"error":           strings.TrimSpace(record.Error),
+			})
+		})
+	}
+}
+
+func parsePositiveIntEnv(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func parseBoolEnv(key string, fallback bool) bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if raw == "" {
+		return fallback
+	}
+	switch raw {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
+}
+
+func tracePreview(text string, limit int) string {
+	if limit <= 0 {
+		limit = 256
+	}
+	normalized := strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
+	if len(normalized) <= limit {
+		return normalized
+	}
+	return normalized[:limit] + "..."
+}
+
+func buildTracePromptCacheKey(decision service.Decision, runtime agentRuntime) string {
+	agentID := strings.TrimSpace(runtime.agentID)
+	if agentID == "" {
+		agentID = "default"
+	}
+	projectID := strings.TrimSpace(decision.ProjectID)
+	if projectID == "" {
+		projectID = "main"
+	}
+	routeKey := strings.TrimSpace(decision.RouteKey)
+	if routeKey == "" {
+		routeKey = "route"
+	}
+	routeKey = strings.NewReplacer(":", "_", "/", "_", "\\", "_", " ", "_").Replace(routeKey)
+	return strings.Join([]string{"clawx", "nl", "execute", agentID, projectID, routeKey}, ":")
+}
+
+func resolveTracePromptCacheRetention() string {
+	value := strings.TrimSpace(os.Getenv("CLAWX_PROMPT_CACHE_RETENTION"))
+	if value == "" {
+		return "in_memory"
+	}
+	return value
 }
 
 func logConfigControlHandled(channel, instanceID, conversationID, userID, input, response string, err error) {
@@ -2551,11 +2924,7 @@ func applyExecutionSourceLabel(decision service.Decision, output string) string 
 		}
 		return prefix + "\n" + text
 	}
-	prefix := "[Agent Direct]"
-	if strings.HasPrefix(text, prefix) {
-		return text
-	}
-	return prefix + "\n" + text
+	return text
 }
 
 func finalizeExecutionOutput(decision service.Decision, raw string) string {
@@ -2563,8 +2932,22 @@ func finalizeExecutionOutput(decision service.Decision, raw string) string {
 	if output == "" {
 		output = "执行完成，无可见输出"
 	}
+	output = suppressVerboseCodeBlocks(decision.Message.Text, output)
 	output = applyExecutionCompletionGate(decision, output)
 	return applyExecutionSourceLabel(decision, output)
+}
+
+func applyRuntimeAgentLabel(output string, agentID string) string {
+	text := strings.TrimSpace(output)
+	agentID = strings.TrimSpace(agentID)
+	if text == "" || agentID == "" || strings.EqualFold(agentID, "main") {
+		return text
+	}
+	prefix := "[" + agentID + "-agent]:"
+	if strings.HasPrefix(text, prefix) {
+		return text
+	}
+	return prefix + "\n" + text
 }
 
 func applyExecutionCompletionGate(decision service.Decision, output string) string {
@@ -2673,6 +3056,12 @@ func buildNaturalLanguageExecutionInput(decision service.Decision, runtime agent
 	builder.WriteString(fallbackValue(runtime.backendName, "unknown"))
 	builder.WriteString("\n\n")
 
+	if staged := buildStagedRoutingSnapshot(decision, runtime, skills); staged != "" {
+		builder.WriteString("[Staged Routing Snapshot]\n")
+		builder.WriteString(staged)
+		builder.WriteString("\n\n")
+	}
+
 	builder.WriteString("[Available Tools]\n")
 	builder.WriteString("- tool.agent_inventory: 读取全局智能体配置并回答数量/默认智能体/工作区等问题。\n")
 	builder.WriteString("- tool.skill_catalog: 读取当前运行时可用技能与来源。\n")
@@ -2681,7 +3070,38 @@ func buildNaturalLanguageExecutionInput(decision service.Decision, runtime agent
 	builder.WriteString("[Policy]\n")
 	builder.WriteString("- 非 / 开头消息必须按自然语言处理，不走硬编码命令规则。\n")
 	builder.WriteString("- 涉及“数量/状态/配置”提问时，优先使用下方快照，不要基于当前会话猜测。\n")
+	builder.WriteString("- 涉及控制面变更（如切换/创建/删除智能体）时，先输出结构化 ControlPlan JSON，再由执行器落地。\n")
+	builder.WriteString("- 若用户在补充/修订项目需求，优先输出结构化 requirement_sync JSON 计划，由平台落盘到需求文档。\n")
 	builder.WriteString("- 信息不足时明确说明缺口，禁止编造。\n\n")
+
+	builder.WriteString("[ControlPlan Response Contract]\n")
+	builder.WriteString("- 仅当需要执行控制面动作时输出 ControlPlan。\n")
+	builder.WriteString("- 优先输出纯 JSON；如必须附带解释，将 JSON 放在 ```json 代码块中。\n")
+	builder.WriteString("- ControlPlan schema:\n")
+	builder.WriteString("  {\n")
+	builder.WriteString("    \"type\": \"control_plan\",\n")
+	builder.WriteString("    \"intent\": \"agent.use|agent.clear|config.apply|...\",\n")
+	builder.WriteString("    \"target\": {\"agent_id\": \"...\"},\n")
+	builder.WriteString("    \"mode\": \"execute|suggest\",\n")
+	builder.WriteString("    \"risk\": \"low|medium|high\",\n")
+	builder.WriteString("    \"reason\": \"...\"\n")
+	builder.WriteString("  }\n\n")
+
+	builder.WriteString("[Requirement Sync Response Contract]\n")
+	builder.WriteString("- 当且仅当用户在明确补充或修订项目需求时输出 requirement_sync。\n")
+	builder.WriteString("- 优先输出纯 JSON；如必须附带解释，将 JSON 放在 ```json 代码块中。\n")
+	builder.WriteString("- 若用户明确点名某个智能体（如 bid-all），必须在 plan 中填 agent_id，平台会切换当前会话到该智能体再落盘需求。\n")
+	builder.WriteString("- 若目标智能体不明确、或你认为应切换到其他智能体再落盘，输出 mode=suggest，并给出 reason；若可从 agent_inventory 推断最可能目标，必须填 agent_id 作为推荐目标。\n")
+	builder.WriteString("- 在 mode=suggest 中，除非确实无法判断，否则不要省略 agent_id。\n")
+	builder.WriteString("- requirement_sync schema:\n")
+	builder.WriteString("  {\n")
+	builder.WriteString("    \"type\": \"requirement_sync\",\n")
+	builder.WriteString("    \"intent\": \"requirement.update\",\n")
+	builder.WriteString("    \"mode\": \"execute|suggest\",\n")
+	builder.WriteString("    \"agent_id\": \"可选；目标智能体 ID（从 agent_inventory 选择）\",\n")
+	builder.WriteString("    \"requirement\": \"提炼后的需求文本\",\n")
+	builder.WriteString("    \"reason\": \"为什么这是需求更新\"\n")
+	builder.WriteString("  }\n\n")
 
 	builder.WriteString("[Tool Snapshot: agent_inventory]\n")
 	builder.WriteString("source=")
@@ -2739,6 +3159,43 @@ func buildNaturalLanguageExecutionInput(decision service.Decision, runtime agent
 	builder.WriteString("\n[User Request]\n")
 	builder.WriteString(request)
 	return strings.TrimSpace(builder.String())
+}
+
+func buildStagedRoutingSnapshot(decision service.Decision, runtime agentRuntime, skills []skilldomain.Definition) string {
+	hints := make([]string, 0, 3)
+	for idx := 0; idx < len(skills) && idx < 3; idx++ {
+		name := strings.TrimSpace(skills[idx].Name)
+		if name != "" {
+			hints = append(hints, "skill."+name)
+		}
+	}
+
+	result := skillorchestrator.NewStagedRouter().Plan(skillorchestrator.StagedRoutingInput{
+		Message:          strings.TrimSpace(decision.Message.Text),
+		CurrentAgentID:   strings.TrimSpace(runtime.agentID),
+		ProjectID:        strings.TrimSpace(decision.ProjectID),
+		SkillCatalogSize: len(skills),
+		TopSkillHints:    hints,
+	})
+	intent := result.Intent.Normalize()
+	route := result.Route.Normalize()
+	return strings.Join([]string{
+		"intent.type=" + intent.Type,
+		"intent.value=" + fallbackValue(intent.Intent, "-"),
+		"intent.route=" + fallbackValue(intent.Route, "-"),
+		"intent.risk=" + fallbackValue(intent.Risk, "-"),
+		"intent.complexity=" + fallbackValue(intent.Complexity, "-"),
+		"route.type=" + route.Type,
+		"route.value=" + fallbackValue(route.Route, "-"),
+		"route.use_route_planner=" + strconv.FormatBool(route.UseRoutePlanner),
+		"route.skip_route_planner=" + strconv.FormatBool(result.SkipRoutePlanner),
+		"route.context_budget_tier=" + fallbackValue(route.ContextBudgetTier, "-"),
+		"route.tool_hints=" + strings.Join(route.ToolHints, ","),
+		"fallback.enabled=" + strconv.FormatBool(result.Fallback.Enabled),
+		"fallback.mode=" + fallbackValue(result.Fallback.Mode, "-"),
+		"fallback.reason=" + fallbackValue(result.Fallback.Reason, "-"),
+		"execution.can_execute=" + strconv.FormatBool(result.CanExecute),
+	}, "\n")
 }
 
 func loadAgentInventorySnapshot(runtime agentRuntime) agentInventorySnapshot {
@@ -2920,10 +3377,14 @@ func toControlResponse(result service.ControlFlowResult) chatiface.ControlRespon
 var (
 	markdownFilePathPattern = regexp.MustCompile(`\[[^\]]+\]\((/[^)\n]+)\)`)
 	absolutePathPattern     = regexp.MustCompile(`(?m)(/[^\s\]\)\(<>\"` + "`" + `]+)`)
+	codeFencePattern        = regexp.MustCompile("(?s)```[a-zA-Z0-9_+-]*\\n.*?```")
 )
 
-func deliverDiscordOutputFiles(ctx context.Context, adapter *discordchat.Adapter, target discordchat.Target, output string) {
+func deliverDiscordOutputFiles(ctx context.Context, adapter *discordchat.Adapter, target discordchat.Target, output string, userText string) {
 	if adapter == nil {
+		return
+	}
+	if !shouldDeliverOutputFiles(userText) {
 		return
 	}
 	paths := extractOutputLocalFiles(output, 3)
@@ -2936,8 +3397,11 @@ func deliverDiscordOutputFiles(ctx context.Context, adapter *discordchat.Adapter
 	}
 }
 
-func deliverTelegramOutputFiles(ctx context.Context, adapter *telegramchat.Adapter, target telegramchat.Target, output string) {
+func deliverTelegramOutputFiles(ctx context.Context, adapter *telegramchat.Adapter, target telegramchat.Target, output string, userText string) {
 	if adapter == nil {
+		return
+	}
+	if !shouldDeliverOutputFiles(userText) {
 		return
 	}
 	paths := extractOutputLocalFiles(output, 3)
@@ -2950,8 +3414,11 @@ func deliverTelegramOutputFiles(ctx context.Context, adapter *telegramchat.Adapt
 	}
 }
 
-func deliverWeComOutputFiles(ctx context.Context, adapter *wecomchat.Adapter, target wecomchat.Target, output string) {
+func deliverWeComOutputFiles(ctx context.Context, adapter *wecomchat.Adapter, target wecomchat.Target, output string, userText string) {
 	if adapter == nil {
+		return
+	}
+	if !shouldDeliverOutputFiles(userText) {
 		return
 	}
 	paths := extractOutputLocalFiles(output, 3)
@@ -3003,6 +3470,37 @@ func extractOutputLocalFiles(output string, max int) []string {
 		appendPath(match[1])
 	}
 	return result
+}
+
+func shouldDeliverOutputFiles(userText string) bool {
+	text := strings.ToLower(strings.TrimSpace(userText))
+	if text == "" {
+		return false
+	}
+	if containsAnyPhrase(text,
+		"不要贴代码", "不需要代码", "无需代码", "只要路径", "仅路径", "不要附件", "无需附件",
+		"no code", "no attachment", "without code",
+	) {
+		return false
+	}
+	return containsAnyPhrase(text,
+		"贴代码", "发代码", "源码", "代码文件", "产物文件", "发我文件", "下载附件", "上传附件",
+		"show code", "source code", "send file", "attach file",
+	)
+}
+
+func suppressVerboseCodeBlocks(userText string, output string) string {
+	text := strings.TrimSpace(output)
+	if text == "" {
+		return text
+	}
+	if shouldDeliverOutputFiles(userText) {
+		return text
+	}
+	if !codeFencePattern.MatchString(text) {
+		return text
+	}
+	return strings.TrimSpace(codeFencePattern.ReplaceAllString(text, "（代码内容已省略；如需查看请回复：贴代码）"))
 }
 
 func sanitizeLocalPathToken(raw string) string {
