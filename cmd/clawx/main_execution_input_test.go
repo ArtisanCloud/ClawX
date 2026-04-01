@@ -87,18 +87,6 @@ func TestBuildExecutionInputInjectsAgentInventoryContext(t *testing.T) {
 	if !strings.Contains(input, "id=bid-all智能体") {
 		t.Fatalf("expected bid-all智能体 listed in context, got: %q", input)
 	}
-	if !strings.Contains(input, "[ControlPlan Response Contract]") {
-		t.Fatalf("expected control plan response contract in input, got: %q", input)
-	}
-	if !strings.Contains(input, "\"type\": \"control_plan\"") {
-		t.Fatalf("expected control plan schema in input, got: %q", input)
-	}
-	if !strings.Contains(input, "\"type\": \"requirement_sync\"") {
-		t.Fatalf("expected requirement sync schema in input, got: %q", input)
-	}
-	if !strings.Contains(input, "\"agent_id\": \"可选；目标智能体 ID（从 agent_inventory 选择）\"") {
-		t.Fatalf("expected requirement sync agent_id schema in input, got: %q", input)
-	}
 	if !strings.Contains(input, "[Staged Routing Snapshot]") {
 		t.Fatalf("expected staged routing snapshot in input, got: %q", input)
 	}
@@ -110,5 +98,80 @@ func TestBuildExecutionInputInjectsAgentInventoryContext(t *testing.T) {
 	}
 	if !strings.Contains(input, "execution.can_execute=") {
 		t.Fatalf("expected staged execution gate field in input, got: %q", input)
+	}
+	if !strings.Contains(input, "[Autonomous Recovery Playbook]") {
+		t.Fatalf("expected autonomous recovery playbook in input, got: %q", input)
+	}
+	if !strings.Contains(input, "禁止第一轮直接向用户索要环境参数/镜像/离线包") {
+		t.Fatalf("expected autonomy-first recovery rule in input, got: %q", input)
+	}
+	if !strings.Contains(input, "[Execution Blocker Contract]") {
+		t.Fatalf("expected execution blocker contract in input, got: %q", input)
+	}
+	if !strings.Contains(input, "\"type\": \"execution_blocker\"") {
+		t.Fatalf("expected execution blocker schema in input, got: %q", input)
+	}
+	if !strings.Contains(input, "\"evidence_exec_ids\"") {
+		t.Fatalf("expected execution blocker attestation ids in input, got: %q", input)
+	}
+	if !strings.Contains(input, "[Unified Action Plan Contract]") {
+		t.Fatalf("expected unified action plan contract in input, got: %q", input)
+	}
+	if !strings.Contains(input, "\"type\": \"action_plan\"") {
+		t.Fatalf("expected action plan schema in input, got: %q", input)
+	}
+	if !strings.Contains(input, "旧版 control_plan / requirement_sync / runtime_exec_plan 已废弃") {
+		t.Fatalf("expected deprecated protocol warning in input, got: %q", input)
+	}
+}
+
+func TestBuildExecutionInputIncludesContinuationSnapshot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".clawx"), 0o755); err != nil {
+		t.Fatalf("mkdir state dir: %v", err)
+	}
+
+	convID := "discord:-:c1:u1|ch=discord|inst=default|agent=bid-all"
+	if err := appendRuntimeExecAttestation(runtimeExecAttestationRecord{
+		ExecID:         "rexec-test-1",
+		ConversationID: convID,
+		AgentID:        "bid-all",
+		CWD:            "/home/ubuntu/.clawx/workspaces/bid-all",
+		Command:        "python3.11 -m venv .venv311",
+		Success:        true,
+		OutputPreview:  "ok",
+	}); err != nil {
+		t.Fatalf("append attestation #1: %v", err)
+	}
+	if err := appendRuntimeExecAttestation(runtimeExecAttestationRecord{
+		ExecID:         "rexec-test-2",
+		ConversationID: convID,
+		AgentID:        "bid-all",
+		CWD:            "/home/ubuntu/.clawx/workspaces/bid-all",
+		Command:        "source .venv311/bin/activate && pip install -e . --no-build-isolation",
+		Success:        false,
+		OutputPreview:  "build backend failed",
+		ErrorSummary:   "exit status 1",
+	}); err != nil {
+		t.Fatalf("append attestation #2: %v", err)
+	}
+
+	decision := service.Decision{
+		Kind:           service.DecisionExecute,
+		ConversationID: convID,
+		Message: chatiface.Message{
+			Text: "继续",
+		},
+	}
+	input := buildExecutionInput(decision, agentRuntime{agentID: "bid-all"})
+	if !strings.Contains(input, "[Execution Continuation Snapshot]") {
+		t.Fatalf("expected continuation snapshot, got: %q", input)
+	}
+	if !strings.Contains(input, "continuation_hint=advance_from_recent_runtime_exec") {
+		t.Fatalf("expected continuation hint, got: %q", input)
+	}
+	if !strings.Contains(input, "不要重复最近已成功命令") {
+		t.Fatalf("expected continuation rule in input, got: %q", input)
 	}
 }

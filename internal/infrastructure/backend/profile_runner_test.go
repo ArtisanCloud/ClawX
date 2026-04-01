@@ -3,6 +3,7 @@ package backend
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"clawx/internal/domain/execution"
 )
@@ -80,5 +81,25 @@ func TestParseCodexPromptUsage(t *testing.T) {
 	}
 	if total != 2560 {
 		t.Fatalf("unexpected total tokens: %d", total)
+	}
+}
+
+func TestBuildCodexExecArgsSanitizesInvalidUTF8(t *testing.T) {
+	invalid := string([]byte{'o', 'k', 0xff, 'x'})
+	args := buildCodexExecArgs(
+		nil,
+		"gpt-5-codex",
+		"/tmp/work",
+		[]string{"/tmp/work"},
+		"cache-key",
+		"in_memory",
+		"/tmp/out.txt",
+		"thread-1",
+		invalid,
+	)
+	for i, arg := range args {
+		if !utf8.ValidString(arg) {
+			t.Fatalf("arg[%d] is not valid utf8: %q", i, arg)
+		}
 	}
 }

@@ -97,3 +97,43 @@ func TestRunTraceTokenReportJSON(t *testing.T) {
 		t.Fatalf("expected json summary, got: %s", output.String())
 	}
 }
+
+func TestRunTraceAutonomyReport(t *testing.T) {
+	dir := t.TempDir()
+	autonomyFile := filepath.Join(dir, "autonomy.jsonl")
+	body := strings.Join([]string{
+		`{"timestamp":"2026-03-24T00:00:00Z","phase":"classify","status":"failed","failure_class":"network"}`,
+		`{"timestamp":"2026-03-24T00:00:01Z","phase":"attempt","status":"auto_attempted","failure_class":"network"}`,
+		`{"timestamp":"2026-03-24T00:00:02Z","phase":"escalate","status":"prompted","failure_class":"network"}`,
+		`{"timestamp":"2026-03-24T00:00:03Z","phase":"result","status":"escalated","failure_class":"network"}`,
+	}, "\n")
+	if err := os.WriteFile(autonomyFile, []byte(body), 0o644); err != nil {
+		t.Fatalf("write autonomy file: %v", err)
+	}
+
+	var output bytes.Buffer
+	if err := runTraceAutonomyReport([]string{"--file", autonomyFile}, &output); err != nil {
+		t.Fatalf("run trace autonomy report: %v", err)
+	}
+	text := output.String()
+	if !strings.Contains(text, "Autonomy Metrics") || !strings.Contains(text, "by_phase") {
+		t.Fatalf("expected autonomy metrics report, got: %s", text)
+	}
+}
+
+func TestRunTraceAutonomyReportJSON(t *testing.T) {
+	dir := t.TempDir()
+	autonomyFile := filepath.Join(dir, "autonomy.jsonl")
+	body := `{"timestamp":"2026-03-24T00:00:00Z","phase":"classify","status":"failed","failure_class":"network"}`
+	if err := os.WriteFile(autonomyFile, []byte(body), 0o644); err != nil {
+		t.Fatalf("write autonomy file: %v", err)
+	}
+
+	var output bytes.Buffer
+	if err := runTraceAutonomyReport([]string{"--file", autonomyFile, "--json"}, &output); err != nil {
+		t.Fatalf("run trace autonomy report json: %v", err)
+	}
+	if !strings.Contains(output.String(), "\"Total\": 1") {
+		t.Fatalf("expected json summary, got: %s", output.String())
+	}
+}

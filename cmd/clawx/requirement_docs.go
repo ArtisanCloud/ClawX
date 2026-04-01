@@ -5,25 +5,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"clawx/internal/application/service"
-	"clawx/internal/application/skillorchestrator"
-	chatiface "clawx/internal/interfaces/chat"
 )
 
-var requirementSyncBlockPattern = regexp.MustCompile("(?is)```(?:json)?\\s*(\\{.*?\\})\\s*```")
-
 var defaultWorkspaceDocTemplates = map[string]string{
-	"AGENTS.md":    "# AGENTS\n\n- status: initialized\n",
-	"BOOTSTRAP.md": "# BOOTSTRAP\n\n- status: initialized\n",
-	"HEARTBEAT.md": "# HEARTBEAT\n\n- status: active\n",
-	"IDENTITY.md":  "# IDENTITY\n\n- role: workspace context\n",
-	"SOUL.md":      "# SOUL\n\n- principle: keep tasks focused\n",
-	"TOOLS.md":     "# TOOLS\n\n- workflow: command and skill driven\n",
-	"USER.md":      "# USER\n\n- preferences: concise and actionable\n",
+	"AGENTS.md":         "# AGENTS\n\n- status: initialized\n",
+	"BOOTSTRAP.md":      "# BOOTSTRAP\n\n- status: initialized\n",
+	"HEARTBEAT.md":      "# HEARTBEAT\n\n- status: active\n",
+	"IDENTITY.md":       "# IDENTITY\n\n- role: workspace context\n",
+	"SOUL.md":           "# SOUL\n\n- principle: keep tasks focused\n",
+	"TASK_EXECUTION.md": "# TASK_EXECUTION\n\n## Runs\n",
+	"TASK_PLAN.md":      "# TASK_PLAN\n\n## Goals\n",
+	"TOOLS.md":          "# TOOLS\n\n- workflow: command and skill driven\n",
+	"USER.md":           "# USER\n\n- preferences: concise and actionable\n",
 }
 
 func ensureWorkspaceDocsScaffold(root string) error {
@@ -222,137 +219,6 @@ type requirementSyncResult struct {
 	Message   string
 }
 
-func maybeAutoApplyRequirementSyncFromModel(
-	ctx context.Context,
-	runtime agentRuntime,
-	decision service.Decision,
-	modelOutput string,
-	channel string,
-	instanceID string,
-	scopeKey string,
-	overrides *conversationAgentOverrides,
-	runtimes map[string]agentRuntime,
-	defaultAgentID string,
-) (requirementSyncResult, bool, error) {
-	plan, ok, err := skillorchestrator.ParseRequirementSyncPlanFromText(modelOutput)
-	if err != nil {
-		emitTrace("requirement_doc_sync", map[string]any{
-			"channel":         strings.TrimSpace(channel),
-			"instance":        strings.TrimSpace(instanceID),
-			"agent_id":        strings.TrimSpace(runtime.agentID),
-			"conversation_id": strings.TrimSpace(decision.ConversationID),
-			"project_id":      strings.TrimSpace(decision.ProjectID),
-			"status":          "error",
-			"source":          "llm_plan",
-			"error":           tracePreview(err.Error(), 240),
-		})
-		return requirementSyncResult{}, false, err
-	}
-	if ok {
-		targetRuntime := runtime
-		targetAgentID := cleanAgentIDToken(plan.AgentID)
-		if strings.TrimSpace(plan.Mode) == "suggest" {
-			suggestAgent := targetAgentID
-			if suggestAgent == "" {
-				suggestAgent = strings.TrimSpace(runtime.agentID)
-			}
-			message := strings.TrimSpace(plan.Reason)
-			if message == "" {
-				if suggestAgent == strings.TrimSpace(runtime.agentID) || suggestAgent == "" {
-					message = "已识别需求更新建议。请确认是否继续执行 requirement_sync。"
-				} else {
-					message = fmt.Sprintf("已识别需求更新建议。请确认是否切换到 `%s` 并执行 requirement_sync。", suggestAgent)
-				}
-			}
-			return requirementSyncResult{
-				Status:  "suggest",
-				Source:  "llm_plan",
-				AgentID: suggestAgent,
-				Message: message,
-			}, true, nil
-		}
-		switchMsg := ""
-		if targetAgentID != "" {
-			if _, exists := runtimes[targetAgentID]; !exists {
-				return requirementSyncResult{
-					Status:  "skipped",
-					Source:  "llm_plan",
-					Message: "requirement_sync 指定的 agent_id 不存在，未更新文档。",
-				}, true, nil
-			}
-			if targetAgentID != strings.TrimSpace(runtime.agentID) {
-				command := "/agent use " + targetAgentID
-				handled, response, switchErr := handleAgentChatCommand(chatiface.Message{Text: command}, scopeKey, overrides, runtimes, defaultAgentID)
-				if switchErr != nil {
-					return requirementSyncResult{}, true, switchErr
-				}
-				if handled {
-					switchMsg = strings.TrimSpace(response)
-				}
-			}
-			targetRuntime = selectRuntime(runtimes, defaultAgentID, targetAgentID)
-		}
-
-		root, _ := resolveRequirementWorkspace(ctx, targetRuntime, decision)
-		if strings.TrimSpace(root) == "" {
-			return requirementSyncResult{
-				Status:  "skipped",
-				Source:  "llm_plan",
-				AgentID: strings.TrimSpace(targetRuntime.agentID),
-				Message: "检测到 requirement_sync，但当前未解析到可写 workspace，未落盘。请检查 agent workspace 配置。",
-			}, true, nil
-		}
-		if err := maybeSyncRequirementDocsWithText(ctx, targetRuntime, decision, plan.Requirement, true); err != nil {
-			emitTrace("requirement_doc_sync", map[string]any{
-				"channel":         strings.TrimSpace(channel),
-				"instance":        strings.TrimSpace(instanceID),
-				"agent_id":        strings.TrimSpace(runtime.agentID),
-				"conversation_id": strings.TrimSpace(decision.ConversationID),
-				"project_id":      strings.TrimSpace(decision.ProjectID),
-				"status":          "error",
-				"source":          "llm_plan",
-				"error":           tracePreview(err.Error(), 240),
-			})
-			return requirementSyncResult{}, true, err
-		}
-		if contains, err := markdownContains(filepath.Join(root, "USER.md"), plan.Requirement); err == nil && !contains {
-			return requirementSyncResult{
-				Status:    "skipped",
-				Source:    "llm_plan",
-				Workspace: root,
-				AgentID:   strings.TrimSpace(targetRuntime.agentID),
-				Message:   "requirement_sync 已识别，但未检测到 USER.md 内容变化。",
-			}, true, nil
-		}
-		msg := "已根据结构化 requirement_sync 计划更新需求文档"
-		if switchMsg != "" && !strings.Contains(switchMsg, "无需切换") {
-			msg = switchMsg + "\n" + msg
-		}
-		return requirementSyncResult{
-			Status:    "applied",
-			Source:    "llm_plan",
-			Workspace: root,
-			AgentID:   strings.TrimSpace(targetRuntime.agentID),
-			Message:   msg,
-		}, true, nil
-	}
-
-	if err := maybeSyncRequirementDocs(ctx, runtime, decision); err != nil {
-		emitTrace("requirement_doc_sync", map[string]any{
-			"channel":         strings.TrimSpace(channel),
-			"instance":        strings.TrimSpace(instanceID),
-			"agent_id":        strings.TrimSpace(runtime.agentID),
-			"conversation_id": strings.TrimSpace(decision.ConversationID),
-			"project_id":      strings.TrimSpace(decision.ProjectID),
-			"status":          "error",
-			"source":          "keyword_fallback",
-			"error":           tracePreview(err.Error(), 240),
-		})
-		return requirementSyncResult{}, false, err
-	}
-	return requirementSyncResult{}, false, nil
-}
-
 func resolveRequirementWorkspace(ctx context.Context, runtime agentRuntime, decision service.Decision) (string, string) {
 	agentID := strings.TrimSpace(runtime.agentID)
 	if agentID != "" {
@@ -477,19 +343,4 @@ func formatRequirementSyncResult(result requirementSyncResult) string {
 		}
 		return message
 	}
-}
-
-func stripRequirementSyncPlanPayload(output string) string {
-	text := strings.TrimSpace(output)
-	if text == "" {
-		return text
-	}
-	if _, ok, err := skillorchestrator.ParseRequirementSyncPlanFromText(text); err == nil && ok {
-		if strings.HasPrefix(text, "{") && strings.HasSuffix(text, "}") {
-			return ""
-		}
-		cleaned := requirementSyncBlockPattern.ReplaceAllString(text, "")
-		return strings.TrimSpace(cleaned)
-	}
-	return output
 }

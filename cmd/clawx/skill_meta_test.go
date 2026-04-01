@@ -77,3 +77,29 @@ func TestApplyExecutionCompletionGateAllowsClaimWithEvidence(t *testing.T) {
 		t.Fatalf("expected output pass gate, got %q", gated)
 	}
 }
+
+func TestApplyExecutionCompletionGateSkipsForSpecKitWorkflow(t *testing.T) {
+	decision := service.Decision{}
+	decision.Kind = service.DecisionExecute
+	decision.Message.Text = "请先用 Spec Kit 生成规范，不要直接写代码。"
+
+	output := "已完成规范草案，下一步补 plan/tasks。"
+	gated := applyExecutionCompletionGate(decision, output)
+	if gated != output {
+		t.Fatalf("expected spec workflow to bypass completion gate, got %q", gated)
+	}
+}
+
+func TestApplyExecutionCompletionGateSkipsForSpecKitContinuation(t *testing.T) {
+	setSpecKitFlowActive("conv-spec", true)
+	decision := service.Decision{}
+	decision.Kind = service.DecisionExecute
+	decision.ConversationID = "conv-spec"
+	decision.Message.Text = "继续补齐"
+
+	output := "已完成 PLAN.md 与 ANALYZE.md。"
+	gated := applyExecutionCompletionGate(decision, output)
+	if gated != output {
+		t.Fatalf("expected spec continuation to bypass completion gate, got %q", gated)
+	}
+}

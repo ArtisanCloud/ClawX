@@ -22,6 +22,8 @@ func runTraceCommand(args []string) error {
 		return runTraceCacheReport(args[1:], os.Stdout)
 	case "token-report":
 		return runTraceTokenReport(args[1:], os.Stdout)
+	case "autonomy-report":
+		return runTraceAutonomyReport(args[1:], os.Stdout)
 	case "help", "-h", "--help":
 		printTraceUsage()
 		return nil
@@ -71,6 +73,7 @@ func printTraceUsage() {
 	fmt.Println("Trace 命令：")
 	fmt.Println("- clawx trace cache-report [--file <trace.jsonl>] [--json]")
 	fmt.Println("- clawx trace token-report [--file <token_usage.jsonl>] [--json]")
+	fmt.Println("- clawx trace autonomy-report [--file <autonomy.jsonl>] [--json]")
 }
 
 func runTraceTokenReport(args []string, stdout io.Writer) error {
@@ -101,5 +104,42 @@ func runTraceTokenReport(args []string, stdout io.Writer) error {
 		return nil
 	}
 	_, err = fmt.Fprintln(stdout, renderTokenUsageSummary(summary))
+	return err
+}
+
+func runTraceAutonomyReport(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("trace autonomy-report", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	file := fs.String("file", "", "autonomy jsonl file path")
+	jsonOutput := fs.Bool("json", false, "print json output")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	autonomyFile := strings.TrimSpace(*file)
+	if autonomyFile == "" {
+		autonomyFile = filepath.Join(config.StateDir(), "logs", "autonomy.jsonl")
+	}
+	f, err := os.Open(autonomyFile)
+	if err != nil {
+		return fmt.Errorf("open autonomy file: %w", err)
+	}
+	defer f.Close()
+
+	metrics, err := stdlogging.AggregateAutonomyMetrics(f)
+	if err != nil {
+		return fmt.Errorf("aggregate autonomy metrics: %w", err)
+	}
+	if *jsonOutput {
+		body, err := json.MarshalIndent(metrics, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal autonomy metrics json: %w", err)
+		}
+		if _, err := stdout.Write(append(body, '\n')); err != nil {
+			return err
+		}
+		return nil
+	}
+	_, err = fmt.Fprintln(stdout, stdlogging.RenderAutonomyMetricsReport(metrics))
 	return err
 }

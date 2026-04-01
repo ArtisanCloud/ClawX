@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	stdlogging "clawx/internal/infrastructure/logging"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"clawx/internal/application/autonomy"
 	"clawx/internal/application/command"
 	"clawx/internal/application/service"
 	"clawx/internal/application/skillorchestrator"
@@ -32,6 +32,7 @@ import (
 	"clawx/internal/infrastructure/backend"
 	"clawx/internal/infrastructure/config"
 	"clawx/internal/infrastructure/health"
+	stdlogging "clawx/internal/infrastructure/logging"
 	"clawx/internal/infrastructure/persistence"
 	adminiface "clawx/internal/interfaces/admin"
 	chatiface "clawx/internal/interfaces/chat"
@@ -98,7 +99,7 @@ type adapterRetryScope struct {
 var channelRouteMetrics = service.NewChannelRouteMetrics(2048)
 var traceLogger *stdlogging.Logger
 
-var executionEvidenceCommandPattern = regexp.MustCompile(`(?m)(^|\n)\s*(go\s+test|go\s+run|npm\s+run|pnpm\s+run|yarn\s+|pytest|cargo\s+test|make\s+test|bash\s+|sh\s+|uv\s+run|curl\s+|systemctl\s+)`)
+var executionEvidenceCommandPattern = regexp.MustCompile(`(?m)(^|\n)\s*(go\s+test|go\s+run|npm\s+run|pnpm\s+run|yarn\s+|pytest|cargo\s+test|make\s+test|bash\s+|sh\s+|uv\s+run|curl\s+|systemctl\s+|pip\s+install|pip3\s+install|python(?:3)?\s+-m\s+pip\s+install)`)
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -174,6 +175,7 @@ func runServe() error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	runStartupExecutionSelfCheck(cfg)
 	initTraceLogger()
 	if updatedCfg, changed, err := autoBootstrapDefaultAgentWorkspace(cfg); err != nil {
 		return fmt.Errorf("workspace bootstrap failed: %w", err)
@@ -208,7 +210,6 @@ func runServe() error {
 	if err != nil {
 		return fmt.Errorf("build runtimes: %w", err)
 	}
-	configureControlAuditSinks(runtimes)
 	defaultRuntime := selectRuntime(runtimes, defaultRuntimeID, "")
 	if defaultRuntime.runner == nil {
 		return fmt.Errorf("no runtime available")
@@ -2099,6 +2100,180 @@ func normalizeExecutionDirSegment(raw string) string {
 	return strings.Trim(b.String(), "-_")
 }
 
+func enforceRoutingIronLaw(message chatiface.Message, decision service.Decision) error {
+	return autonomy.EnforceRoutingIronLaw(message.Text, string(decision.Kind))
+}
+
+var defaultEscalationPolicy = autonomy.NewEscalationPolicy()
+
+type taskReceiptPhase string
+
+const (
+	taskReceiptReceived taskReceiptPhase = "received"
+	taskReceiptProgress taskReceiptPhase = "progress"
+	taskReceiptComplete taskReceiptPhase = "complete"
+	taskReceiptFailed   taskReceiptPhase = "failed"
+)
+
+func formatTaskReceipt(phase taskReceiptPhase, detail string) string {
+	detail = strings.TrimSpace(detail)
+	switch phase {
+	case taskReceiptReceived:
+		if detail == "" {
+			return "已接收，开始处理。"
+		}
+		return "已接收，开始处理：" + detail
+	case taskReceiptProgress:
+		if detail == "" {
+			return "处理中，请稍候。"
+		}
+		return "处理中：" + detail
+	case taskReceiptComplete:
+		if detail == "" {
+			return "处理完成。"
+		}
+		return detail
+	case taskReceiptFailed:
+		if detail == "" {
+			return "处理失败。"
+		}
+		if strings.Contains(detail, "\n") {
+			return "处理失败。\n" + detail
+		}
+		return "处理失败：" + detail
+	default:
+		return detail
+	}
+}
+
+func emitExecutionFailureClassification(channel string, instanceID string, runtime agentRuntime, decision service.Decision, execErr error) {
+	classification := autonomy.ClassifyFailure(execErr)
+	emitAutonomyFlow(channel, instanceID, runtime, decision, "classify", "failed", classification, "execution_failed", execErr)
+}
+
+func buildAutonomyEscalationPrompt(classification autonomy.FailureClassification, attempted []string, recommendation string) string {
+	lines := []string{
+		"执行失败，需你确认后继续。",
+		"失败类型: " + string(classification.Class),
+		"失败原因: " + classification.Reason,
+		"已尝试:",
+	}
+	if len(attempted) == 0 {
+		lines = append(lines, "- 尚无可自动重试步骤")
+	} else {
+		for _, step := range attempted {
+			step = strings.TrimSpace(step)
+			if step == "" {
+				continue
+			}
+			lines = append(lines, "- "+step)
+		}
+	}
+	if strings.TrimSpace(recommendation) == "" {
+		recommendation = "请确认是否授权继续执行恢复动作。"
+	}
+	lines = append(lines, "推荐操作: "+recommendation)
+	return strings.Join(lines, "\n")
+}
+
+func defaultEscalationRecommendation(classification autonomy.FailureClassification) string {
+	switch classification.Class {
+	case autonomy.FailureClassPermission:
+		return "请确认授权范围或调整 runtime.allowedRoots 后重试。"
+	case autonomy.FailureClassAuth:
+		return "请确认凭据配置（token/secret/profile）后重试。"
+	case autonomy.FailureClassResource:
+		return "执行进程超时或被系统中断。请提高该 agent timeout（例如 1200s）或将任务拆成更小步骤后继续。"
+	case autonomy.FailureClassUnknown:
+		return "请确认是否继续按保守策略重试，或由我输出详细诊断。"
+	default:
+		return "请确认是否继续执行恢复动作。"
+	}
+}
+
+func formatExecutionFailureResponse(execErr error, attempted []string, recoveryExhausted bool) string {
+	classification := autonomy.ClassifyFailure(execErr)
+	decision := defaultEscalationPolicy.Decide(classification, recoveryExhausted)
+	if !decision.ShouldEscalate {
+		return formatTaskReceipt(taskReceiptFailed, chatiface.FormatError(execErr))
+	}
+	escalationBody := buildAutonomyEscalationPrompt(classification, attempted, defaultEscalationRecommendation(classification))
+	return formatTaskReceipt(taskReceiptFailed, "自动恢复失败，需要你确认后继续。") + "\n" + escalationBody
+}
+
+func handleExecutionFailure(channel string, instanceID string, runtime agentRuntime, decision service.Decision, execErr error) string {
+	classification := autonomy.ClassifyFailure(execErr)
+	emitAutonomyFlow(channel, instanceID, runtime, decision, "classify", "failed", classification, "execution_failed", execErr)
+	emitAutonomyFlow(channel, instanceID, runtime, decision, "attempt", "failed", classification, "auto_recovery_exhausted_or_unavailable", execErr)
+	escalation := defaultEscalationPolicy.Decide(classification, true)
+	if escalation.ShouldEscalate {
+		emitAutonomyFlow(channel, instanceID, runtime, decision, "escalate", "prompted", classification, escalation.Reason, nil)
+		emitAutonomyFlow(channel, instanceID, runtime, decision, "result", "escalated", classification, "awaiting_user_decision", nil)
+		escalationBody := buildAutonomyEscalationPrompt(classification, nil, defaultEscalationRecommendation(classification))
+		return formatTaskReceipt(taskReceiptFailed, "自动恢复失败，需要你确认后继续。") + "\n" + escalationBody
+	}
+	emitAutonomyFlow(channel, instanceID, runtime, decision, "escalate", "skipped", classification, escalation.Reason, nil)
+	emitAutonomyFlow(channel, instanceID, runtime, decision, "result", "failed_no_escalation", classification, "returned_direct_error", execErr)
+	return formatTaskReceipt(taskReceiptFailed, chatiface.FormatError(execErr))
+}
+
+func buildSessionCommandFromDecision(decision service.Decision, runtime agentRuntime, executeInput string, executeCWD string) command.SessionCommand {
+	return command.SessionCommand{
+		Mode:            command.ModeContinue,
+		ConversationID:  decision.ConversationID,
+		WindowID:        decision.WindowID,
+		ProjectID:       decision.ProjectID,
+		RouteKey:        decision.RouteKey,
+		UserID:          decision.Message.UserID,
+		IsDirectMessage: decision.Message.ContextFlags.IsDirectMessage,
+		Input:           executeInput,
+		Backend:         runtime.backendName,
+		CWD:             executeCWD,
+	}
+}
+
+func tryRecoverSessionFlow(
+	ctx context.Context,
+	channel string,
+	instanceID string,
+	runtime agentRuntime,
+	decision service.Decision,
+	classification autonomy.FailureClassification,
+	runAttempt func(context.Context, int) (service.SessionFlowResult, error),
+) (service.SessionFlowResult, autonomy.RecoveryExecutionResult, bool) {
+	executor := autonomy.NewRecoveryExecutor(autonomy.NewDefaultRecoveryRegistry())
+	var recovered service.SessionFlowResult
+	result := executor.Execute(ctx, classification, func(attemptCtx context.Context, attempt int) error {
+		emitAutonomyFlow(channel, instanceID, runtime, decision, "attempt", "retrying", classification, fmt.Sprintf("retry_attempt=%d", attempt), nil)
+		flowResult, err := runAttempt(attemptCtx, attempt)
+		if err != nil {
+			emitAutonomyFlow(channel, instanceID, runtime, decision, "attempt", "retry_failed", classification, fmt.Sprintf("retry_attempt=%d", attempt), err)
+			return err
+		}
+		recovered = flowResult
+		emitAutonomyFlow(channel, instanceID, runtime, decision, "attempt", "retry_succeeded", classification, fmt.Sprintf("retry_attempt=%d", attempt), nil)
+		return nil
+	})
+	if result.Recovered {
+		emitAutonomyFlow(channel, instanceID, runtime, decision, "result", "recovered", classification, fmt.Sprintf("policy=%s attempts=%d", strings.TrimSpace(result.Policy.Name), result.Attempts), nil)
+		return recovered, result, true
+	}
+	emitAutonomyFlow(channel, instanceID, runtime, decision, "result", "not_recovered", classification, fmt.Sprintf("attempts=%d stop_reason=%s", result.Attempts, strings.TrimSpace(result.StopReason)), result.LastError)
+	return service.SessionFlowResult{}, result, false
+}
+
+func enforceAutonomyStructuredPlanGateOnOutput(output string) (string, bool, error) {
+	if err := autonomy.EnforceStructuredPlanGate(output); err != nil {
+		trimmed := stripActionPlanPayload(output)
+		msg := "已拦截未通过 schema/allowlist 校验的结构化计划，未执行任何自动动作。"
+		if strings.TrimSpace(trimmed) == "" {
+			return msg, true, err
+		}
+		return trimmed + "\n\n" + msg, true, err
+	}
+	return output, false, nil
+}
+
 func handleTelegramInbound(
 	ctx context.Context,
 	runtime agentRuntime,
@@ -2117,7 +2292,7 @@ func handleTelegramInbound(
 	if handled, response, err := handleConfigChatCommand(message); handled {
 		logConfigControlHandled("telegram", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
 		if err != nil {
-			sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+			sendTelegramDirect(ctx, adapter, envelope.Target, formatExecutionFailureResponse(err, nil, false))
 			return
 		}
 		sendTelegramDirect(ctx, adapter, envelope.Target, response)
@@ -2143,8 +2318,12 @@ func handleTelegramInbound(
 		sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 		return
 	}
+	if err := enforceRoutingIronLaw(message, decision); err != nil {
+		sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+		return
+	}
 	eventID := normalizeAuditEventID(envelope.EventID)
-	sendTelegramDirect(ctx, adapter, envelope.Target, "正在思考...")
+	sendTelegramDirect(ctx, adapter, envelope.Target, formatTaskReceipt(taskReceiptProgress, "正在思考并执行。"))
 
 	switch decision.Kind {
 	case service.DecisionControl:
@@ -2184,22 +2363,19 @@ func handleTelegramInbound(
 			"prompt_cache_retention": resolveTracePromptCacheRetention(),
 		})
 		log.Printf("telegram execute begin: channel=telegram instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
-		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
-			Mode:            command.ModeContinue,
-			ConversationID:  decision.ConversationID,
-			WindowID:        decision.WindowID,
-			ProjectID:       decision.ProjectID,
-			RouteKey:        decision.RouteKey,
-			UserID:          decision.Message.UserID,
-			IsDirectMessage: decision.Message.ContextFlags.IsDirectMessage,
-			Input:           executeInput,
-			Backend:         runtime.backendName,
-			CWD:             executeCWD,
-		})
+		sessionCmd := buildSessionCommandFromDecision(decision, runtime, executeInput, executeCWD)
+		flowResult, err := runtime.router.HandleSessionFlow(ctx, sessionCmd)
 		if err != nil {
 			log.Printf("telegram execute failed: channel=telegram instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
-			sendTelegramDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
-			return
+			classification := autonomy.ClassifyFailure(err)
+			if recoveredResult, _, recovered := tryRecoverSessionFlow(ctx, "telegram", instanceID, runtime, decision, classification, func(retryCtx context.Context, _ int) (service.SessionFlowResult, error) {
+				return runtime.router.HandleSessionFlow(retryCtx, sessionCmd)
+			}); recovered {
+				flowResult = recoveredResult
+			} else {
+				sendTelegramDirect(ctx, adapter, envelope.Target, handleExecutionFailure("telegram", instanceID, runtime, decision, err))
+				return
+			}
 		}
 		emitTrace("llm_io", map[string]any{
 			"phase":                "response",
@@ -2224,25 +2400,29 @@ func handleTelegramInbound(
 
 		output := flowResult.Execution.Output
 		responseAgentID := strings.TrimSpace(runtime.agentID)
-		if reqSync, reqApplied, reqErr := maybeAutoApplyRequirementSyncFromModel(ctx, runtime, decision, output, "telegram", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID); reqErr != nil {
-			log.Printf("telegram requirement sync failed: channel=telegram instance=%s scope=%s err=%v", instanceID, scopeKey, reqErr)
-		} else if reqApplied {
-			output = stripRequirementSyncPlanPayload(output)
-			output = output + "\n\n" + formatRequirementSyncResult(reqSync)
-			if strings.TrimSpace(reqSync.AgentID) != "" {
-				responseAgentID = strings.TrimSpace(reqSync.AgentID)
+		blockedByGate := false
+		if gatedOutput, blocked, gateErr := enforceAutonomyStructuredPlanGateOnOutput(output); gateErr != nil {
+			log.Printf("telegram autonomy plan gate blocked: channel=telegram instance=%s scope=%s err=%v", instanceID, scopeKey, gateErr)
+			output = gatedOutput
+			blockedByGate = blocked
+			classification := autonomy.FailureClassification{Class: autonomy.FailureClassUnknown, Recoverable: false, Reason: "schema_allowlist_gate_reject"}
+			emitAutonomyFlow("telegram", instanceID, runtime, decision, "attempt", "blocked_by_gate", classification, "structured_plan_rejected", gateErr)
+			emitAutonomyFlow("telegram", instanceID, runtime, decision, "result", "blocked", classification, "no_auto_action_executed", nil)
+		} else {
+			output = gatedOutput
+		}
+		if !blockedByGate {
+			if execApplied, ok, execErr := maybeAutoApplyActionPlan(ctx, runtime, decision, output, "telegram", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID, executeCWD); execErr != nil {
+				log.Printf("telegram unified action plan apply failed: channel=telegram instance=%s scope=%s err=%v", instanceID, scopeKey, execErr)
+			} else if ok {
+				output = stripActionPlanPayload(output)
+				output = strings.TrimSpace(output + "\n\n" + formatActionPlanApplyResult(execApplied))
+				if strings.TrimSpace(execApplied.ResponseAgentID) != "" {
+					responseAgentID = strings.TrimSpace(execApplied.ResponseAgentID)
+				}
 			}
 		}
-		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, decision.ConversationID, decision.Message.UserID, scopeKey, overrides, runtimes, defaultRuntimeID, resolveControlAudit(runtime)); autoErr != nil {
-			log.Printf("telegram auto apply agent switch failed: channel=telegram instance=%s scope=%s err=%v", instanceID, scopeKey, autoErr)
-		} else if ok {
-			output = stripControlPlanPayload(output)
-			output = output + "\n\n" + formatControlApplyResult(applied)
-			if strings.TrimSpace(applied.Target) != "" {
-				responseAgentID = strings.TrimSpace(applied.Target)
-			}
-		}
-		output = finalizeExecutionOutput(decision, output)
+		output = finalizeExecutionOutput(decision, runtime, output)
 		output = applyRuntimeAgentLabel(output, responseAgentID)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, telegramchat.MaxMessageLength, 1)
 		deliverTelegramOutputFiles(ctx, adapter, envelope.Target, output, decision.Message.Text)
@@ -2273,7 +2453,7 @@ func handleFeishuInbound(
 	if handled, response, err := handleConfigChatCommand(message); handled {
 		logConfigControlHandled("feishu", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
 		if err != nil {
-			sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+			sendFeishuDirect(ctx, adapter, envelope.Target, formatExecutionFailureResponse(err, nil, false))
 			return
 		}
 		sendFeishuDirect(ctx, adapter, envelope.Target, response)
@@ -2299,8 +2479,12 @@ func handleFeishuInbound(
 		sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 		return
 	}
+	if err := enforceRoutingIronLaw(message, decision); err != nil {
+		sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+		return
+	}
 	eventID := normalizeAuditEventID(envelope.EventID)
-	sendFeishuDirect(ctx, adapter, envelope.Target, "正在思考...")
+	sendFeishuDirect(ctx, adapter, envelope.Target, formatTaskReceipt(taskReceiptProgress, "正在思考并执行。"))
 
 	switch decision.Kind {
 	case service.DecisionControl:
@@ -2340,22 +2524,19 @@ func handleFeishuInbound(
 			"prompt_cache_retention": resolveTracePromptCacheRetention(),
 		})
 		log.Printf("feishu execute begin: channel=feishu instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
-		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
-			Mode:            command.ModeContinue,
-			ConversationID:  decision.ConversationID,
-			WindowID:        decision.WindowID,
-			ProjectID:       decision.ProjectID,
-			RouteKey:        decision.RouteKey,
-			UserID:          decision.Message.UserID,
-			IsDirectMessage: decision.Message.ContextFlags.IsDirectMessage,
-			Input:           executeInput,
-			Backend:         runtime.backendName,
-			CWD:             executeCWD,
-		})
+		sessionCmd := buildSessionCommandFromDecision(decision, runtime, executeInput, executeCWD)
+		flowResult, err := runtime.router.HandleSessionFlow(ctx, sessionCmd)
 		if err != nil {
 			log.Printf("feishu execute failed: channel=feishu instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
-			sendFeishuDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
-			return
+			classification := autonomy.ClassifyFailure(err)
+			if recoveredResult, _, recovered := tryRecoverSessionFlow(ctx, "feishu", instanceID, runtime, decision, classification, func(retryCtx context.Context, _ int) (service.SessionFlowResult, error) {
+				return runtime.router.HandleSessionFlow(retryCtx, sessionCmd)
+			}); recovered {
+				flowResult = recoveredResult
+			} else {
+				sendFeishuDirect(ctx, adapter, envelope.Target, handleExecutionFailure("feishu", instanceID, runtime, decision, err))
+				return
+			}
 		}
 		emitTrace("llm_io", map[string]any{
 			"phase":                "response",
@@ -2380,25 +2561,29 @@ func handleFeishuInbound(
 
 		output := flowResult.Execution.Output
 		responseAgentID := strings.TrimSpace(runtime.agentID)
-		if reqSync, reqApplied, reqErr := maybeAutoApplyRequirementSyncFromModel(ctx, runtime, decision, output, "feishu", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID); reqErr != nil {
-			log.Printf("feishu requirement sync failed: channel=feishu instance=%s scope=%s err=%v", instanceID, scopeKey, reqErr)
-		} else if reqApplied {
-			output = stripRequirementSyncPlanPayload(output)
-			output = output + "\n\n" + formatRequirementSyncResult(reqSync)
-			if strings.TrimSpace(reqSync.AgentID) != "" {
-				responseAgentID = strings.TrimSpace(reqSync.AgentID)
+		blockedByGate := false
+		if gatedOutput, blocked, gateErr := enforceAutonomyStructuredPlanGateOnOutput(output); gateErr != nil {
+			log.Printf("feishu autonomy plan gate blocked: channel=feishu instance=%s scope=%s err=%v", instanceID, scopeKey, gateErr)
+			output = gatedOutput
+			blockedByGate = blocked
+			classification := autonomy.FailureClassification{Class: autonomy.FailureClassUnknown, Recoverable: false, Reason: "schema_allowlist_gate_reject"}
+			emitAutonomyFlow("feishu", instanceID, runtime, decision, "attempt", "blocked_by_gate", classification, "structured_plan_rejected", gateErr)
+			emitAutonomyFlow("feishu", instanceID, runtime, decision, "result", "blocked", classification, "no_auto_action_executed", nil)
+		} else {
+			output = gatedOutput
+		}
+		if !blockedByGate {
+			if execApplied, ok, execErr := maybeAutoApplyActionPlan(ctx, runtime, decision, output, "feishu", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID, executeCWD); execErr != nil {
+				log.Printf("feishu unified action plan apply failed: channel=feishu instance=%s scope=%s err=%v", instanceID, scopeKey, execErr)
+			} else if ok {
+				output = stripActionPlanPayload(output)
+				output = strings.TrimSpace(output + "\n\n" + formatActionPlanApplyResult(execApplied))
+				if strings.TrimSpace(execApplied.ResponseAgentID) != "" {
+					responseAgentID = strings.TrimSpace(execApplied.ResponseAgentID)
+				}
 			}
 		}
-		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, decision.ConversationID, decision.Message.UserID, scopeKey, overrides, runtimes, defaultRuntimeID, resolveControlAudit(runtime)); autoErr != nil {
-			log.Printf("feishu auto apply agent switch failed: channel=feishu instance=%s scope=%s err=%v", instanceID, scopeKey, autoErr)
-		} else if ok {
-			output = stripControlPlanPayload(output)
-			output = output + "\n\n" + formatControlApplyResult(applied)
-			if strings.TrimSpace(applied.Target) != "" {
-				responseAgentID = strings.TrimSpace(applied.Target)
-			}
-		}
-		output = finalizeExecutionOutput(decision, output)
+		output = finalizeExecutionOutput(decision, runtime, output)
 		output = applyRuntimeAgentLabel(output, responseAgentID)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, feishuchat.MaxMessageLength, 1)
 	}
@@ -2428,7 +2613,7 @@ func handleWeComInbound(
 	if handled, response, err := handleConfigChatCommand(message); handled {
 		logConfigControlHandled("wecom", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
 		if err != nil {
-			sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+			sendWeComDirect(ctx, adapter, envelope.Target, formatExecutionFailureResponse(err, nil, false))
 			return
 		}
 		sendWeComDirect(ctx, adapter, envelope.Target, response)
@@ -2454,8 +2639,12 @@ func handleWeComInbound(
 		sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 		return
 	}
+	if err := enforceRoutingIronLaw(message, decision); err != nil {
+		sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+		return
+	}
 	eventID := normalizeAuditEventID(envelope.EventID)
-	sendWeComDirect(ctx, adapter, envelope.Target, "正在思考...")
+	sendWeComDirect(ctx, adapter, envelope.Target, formatTaskReceipt(taskReceiptProgress, "正在思考并执行。"))
 
 	switch decision.Kind {
 	case service.DecisionControl:
@@ -2495,22 +2684,19 @@ func handleWeComInbound(
 			"prompt_cache_retention": resolveTracePromptCacheRetention(),
 		})
 		log.Printf("wecom execute begin: channel=wecom instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
-		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
-			Mode:            command.ModeContinue,
-			ConversationID:  decision.ConversationID,
-			WindowID:        decision.WindowID,
-			ProjectID:       decision.ProjectID,
-			RouteKey:        decision.RouteKey,
-			UserID:          decision.Message.UserID,
-			IsDirectMessage: decision.Message.ContextFlags.IsDirectMessage,
-			Input:           executeInput,
-			Backend:         runtime.backendName,
-			CWD:             executeCWD,
-		})
+		sessionCmd := buildSessionCommandFromDecision(decision, runtime, executeInput, executeCWD)
+		flowResult, err := runtime.router.HandleSessionFlow(ctx, sessionCmd)
 		if err != nil {
 			log.Printf("wecom execute failed: channel=wecom instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, eventID, runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
-			sendWeComDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
-			return
+			classification := autonomy.ClassifyFailure(err)
+			if recoveredResult, _, recovered := tryRecoverSessionFlow(ctx, "wecom", instanceID, runtime, decision, classification, func(retryCtx context.Context, _ int) (service.SessionFlowResult, error) {
+				return runtime.router.HandleSessionFlow(retryCtx, sessionCmd)
+			}); recovered {
+				flowResult = recoveredResult
+			} else {
+				sendWeComDirect(ctx, adapter, envelope.Target, handleExecutionFailure("wecom", instanceID, runtime, decision, err))
+				return
+			}
 		}
 		emitTrace("llm_io", map[string]any{
 			"phase":                "response",
@@ -2535,25 +2721,29 @@ func handleWeComInbound(
 
 		output := flowResult.Execution.Output
 		responseAgentID := strings.TrimSpace(runtime.agentID)
-		if reqSync, reqApplied, reqErr := maybeAutoApplyRequirementSyncFromModel(ctx, runtime, decision, output, "wecom", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID); reqErr != nil {
-			log.Printf("wecom requirement sync failed: channel=wecom instance=%s scope=%s err=%v", instanceID, scopeKey, reqErr)
-		} else if reqApplied {
-			output = stripRequirementSyncPlanPayload(output)
-			output = output + "\n\n" + formatRequirementSyncResult(reqSync)
-			if strings.TrimSpace(reqSync.AgentID) != "" {
-				responseAgentID = strings.TrimSpace(reqSync.AgentID)
+		blockedByGate := false
+		if gatedOutput, blocked, gateErr := enforceAutonomyStructuredPlanGateOnOutput(output); gateErr != nil {
+			log.Printf("wecom autonomy plan gate blocked: channel=wecom instance=%s scope=%s err=%v", instanceID, scopeKey, gateErr)
+			output = gatedOutput
+			blockedByGate = blocked
+			classification := autonomy.FailureClassification{Class: autonomy.FailureClassUnknown, Recoverable: false, Reason: "schema_allowlist_gate_reject"}
+			emitAutonomyFlow("wecom", instanceID, runtime, decision, "attempt", "blocked_by_gate", classification, "structured_plan_rejected", gateErr)
+			emitAutonomyFlow("wecom", instanceID, runtime, decision, "result", "blocked", classification, "no_auto_action_executed", nil)
+		} else {
+			output = gatedOutput
+		}
+		if !blockedByGate {
+			if execApplied, ok, execErr := maybeAutoApplyActionPlan(ctx, runtime, decision, output, "wecom", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID, executeCWD); execErr != nil {
+				log.Printf("wecom unified action plan apply failed: channel=wecom instance=%s scope=%s err=%v", instanceID, scopeKey, execErr)
+			} else if ok {
+				output = stripActionPlanPayload(output)
+				output = strings.TrimSpace(output + "\n\n" + formatActionPlanApplyResult(execApplied))
+				if strings.TrimSpace(execApplied.ResponseAgentID) != "" {
+					responseAgentID = strings.TrimSpace(execApplied.ResponseAgentID)
+				}
 			}
 		}
-		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, decision.ConversationID, decision.Message.UserID, scopeKey, overrides, runtimes, defaultRuntimeID, resolveControlAudit(runtime)); autoErr != nil {
-			log.Printf("wecom auto apply agent switch failed: channel=wecom instance=%s scope=%s err=%v", instanceID, scopeKey, autoErr)
-		} else if ok {
-			output = stripControlPlanPayload(output)
-			output = output + "\n\n" + formatControlApplyResult(applied)
-			if strings.TrimSpace(applied.Target) != "" {
-				responseAgentID = strings.TrimSpace(applied.Target)
-			}
-		}
-		output = finalizeExecutionOutput(decision, output)
+		output = finalizeExecutionOutput(decision, runtime, output)
 		output = applyRuntimeAgentLabel(output, responseAgentID)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, wecomchat.MaxMessageLength, 1)
 		deliverWeComOutputFiles(ctx, adapter, envelope.Target, output, decision.Message.Text)
@@ -2584,7 +2774,7 @@ func handleDiscordInbound(
 	if handled, response, err := handleConfigChatCommand(message); handled {
 		logConfigControlHandled("discord", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
 		if err != nil {
-			sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+			sendDiscordDirect(ctx, adapter, envelope.Target, formatExecutionFailureResponse(err, nil, false))
 			return
 		}
 		sendDiscordDirect(ctx, adapter, envelope.Target, response)
@@ -2609,6 +2799,10 @@ func handleDiscordInbound(
 	channelRouteMetrics.Observe("discord", instanceID, time.Since(routeStarted))
 	if err != nil {
 		log.Printf("discord route rejected: %v", err)
+		sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
+		return
+	}
+	if err := enforceRoutingIronLaw(message, decision); err != nil {
 		sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
 		return
 	}
@@ -2654,22 +2848,19 @@ func handleDiscordInbound(
 		log.Printf("discord execute begin: channel=discord instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s cwd=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f", instanceID, "-", runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, executeCWD, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence)
 		stopTyping := startDiscordTypingLoop(ctx, adapter, envelope.Target)
 		defer stopTyping()
-		flowResult, err := runtime.router.HandleSessionFlow(ctx, command.SessionCommand{
-			Mode:            command.ModeContinue,
-			ConversationID:  decision.ConversationID,
-			WindowID:        decision.WindowID,
-			ProjectID:       decision.ProjectID,
-			RouteKey:        decision.RouteKey,
-			UserID:          decision.Message.UserID,
-			IsDirectMessage: decision.Message.ContextFlags.IsDirectMessage,
-			Input:           executeInput,
-			Backend:         runtime.backendName,
-			CWD:             executeCWD,
-		})
+		sessionCmd := buildSessionCommandFromDecision(decision, runtime, executeInput, executeCWD)
+		flowResult, err := runtime.router.HandleSessionFlow(ctx, sessionCmd)
 		if err != nil {
 			log.Printf("discord execute failed: channel=discord instance=%s event_id=%s agent=%s backend=%s profile_kind=%s profile_command=%s conversation_id=%s project_id=%s project_mode=%s intent.kind=%s intent.reason=%s intent.skill=%s intent.confidence=%.2f duration_ms=%d err=%v", instanceID, "-", runtime.agentID, runtime.backendName, runtime.profileKind, runtime.profileCmd, decision.ConversationID, decision.ProjectID, decision.ProjectMode, decision.Kind, decision.IntentReason, decision.SkillName, decision.Confidence, time.Since(started).Milliseconds(), err)
-			sendDiscordDirect(ctx, adapter, envelope.Target, chatiface.FormatError(err))
-			return
+			classification := autonomy.ClassifyFailure(err)
+			if recoveredResult, _, recovered := tryRecoverSessionFlow(ctx, "discord", instanceID, runtime, decision, classification, func(retryCtx context.Context, _ int) (service.SessionFlowResult, error) {
+				return runtime.router.HandleSessionFlow(retryCtx, sessionCmd)
+			}); recovered {
+				flowResult = recoveredResult
+			} else {
+				sendDiscordDirect(ctx, adapter, envelope.Target, handleExecutionFailure("discord", instanceID, runtime, decision, err))
+				return
+			}
 		}
 		emitTrace("llm_io", map[string]any{
 			"phase":                "response",
@@ -2694,25 +2885,29 @@ func handleDiscordInbound(
 
 		output := flowResult.Execution.Output
 		responseAgentID := strings.TrimSpace(runtime.agentID)
-		if reqSync, reqApplied, reqErr := maybeAutoApplyRequirementSyncFromModel(ctx, runtime, decision, output, "discord", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID); reqErr != nil {
-			log.Printf("discord requirement sync failed: channel=discord instance=%s scope=%s err=%v", instanceID, scopeKey, reqErr)
-		} else if reqApplied {
-			output = stripRequirementSyncPlanPayload(output)
-			output = output + "\n\n" + formatRequirementSyncResult(reqSync)
-			if strings.TrimSpace(reqSync.AgentID) != "" {
-				responseAgentID = strings.TrimSpace(reqSync.AgentID)
+		blockedByGate := false
+		if gatedOutput, blocked, gateErr := enforceAutonomyStructuredPlanGateOnOutput(output); gateErr != nil {
+			log.Printf("discord autonomy plan gate blocked: channel=discord instance=%s scope=%s err=%v", instanceID, scopeKey, gateErr)
+			output = gatedOutput
+			blockedByGate = blocked
+			classification := autonomy.FailureClassification{Class: autonomy.FailureClassUnknown, Recoverable: false, Reason: "schema_allowlist_gate_reject"}
+			emitAutonomyFlow("discord", instanceID, runtime, decision, "attempt", "blocked_by_gate", classification, "structured_plan_rejected", gateErr)
+			emitAutonomyFlow("discord", instanceID, runtime, decision, "result", "blocked", classification, "no_auto_action_executed", nil)
+		} else {
+			output = gatedOutput
+		}
+		if !blockedByGate {
+			if execApplied, ok, execErr := maybeAutoApplyActionPlan(ctx, runtime, decision, output, "discord", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID, executeCWD); execErr != nil {
+				log.Printf("discord unified action plan apply failed: channel=discord instance=%s scope=%s err=%v", instanceID, scopeKey, execErr)
+			} else if ok {
+				output = stripActionPlanPayload(output)
+				output = strings.TrimSpace(output + "\n\n" + formatActionPlanApplyResult(execApplied))
+				if strings.TrimSpace(execApplied.ResponseAgentID) != "" {
+					responseAgentID = strings.TrimSpace(execApplied.ResponseAgentID)
+				}
 			}
 		}
-		if applied, ok, autoErr := maybeAutoApplyAgentSwitch(decision.Message.Text, output, decision.ConversationID, decision.Message.UserID, scopeKey, overrides, runtimes, defaultRuntimeID, resolveControlAudit(runtime)); autoErr != nil {
-			log.Printf("discord auto apply agent switch failed: channel=discord instance=%s scope=%s err=%v", instanceID, scopeKey, autoErr)
-		} else if ok {
-			output = stripControlPlanPayload(output)
-			output = output + "\n\n" + formatControlApplyResult(applied)
-			if strings.TrimSpace(applied.Target) != "" {
-				responseAgentID = strings.TrimSpace(applied.Target)
-			}
-		}
-		output = finalizeExecutionOutput(decision, output)
+		output = finalizeExecutionOutput(decision, runtime, output)
 		output = applyRuntimeAgentLabel(output, responseAgentID)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, discordchat.MaxMessageLength, 1)
 		deliverDiscordOutputFiles(ctx, adapter, envelope.Target, output, decision.Message.Text)
@@ -2723,13 +2918,6 @@ func sendDiscordDirect(ctx context.Context, adapter *discordchat.Adapter, target
 	if err := adapter.SendDirect(ctx, target, message); err != nil {
 		log.Printf("send discord message: %v", err)
 	}
-}
-
-func resolveControlAudit(runtime agentRuntime) *skillorchestrator.AuditService {
-	if runtime.skillControl == nil {
-		return nil
-	}
-	return runtime.skillControl.Audit
 }
 
 func initTraceLogger() {
@@ -2772,33 +2960,6 @@ func emitTrace(event string, fields map[string]any) {
 		payload[key] = value
 	}
 	traceLogger.Info("trace", payload)
-}
-
-func configureControlAuditSinks(runtimes map[string]agentRuntime) {
-	for agentID, runtime := range runtimes {
-		if runtime.skillControl == nil || runtime.skillControl.Audit == nil {
-			continue
-		}
-		agentID := strings.TrimSpace(agentID)
-		runtime.skillControl.Audit.SetSink(func(record skillorchestrator.AuditRecord) {
-			if strings.TrimSpace(record.Source) != "control_plan" {
-				return
-			}
-			emitTrace("control_apply_trace", map[string]any{
-				"agent_id":        agentID,
-				"trace_id":        strings.TrimSpace(record.TraceID),
-				"phase":           strings.TrimSpace(record.Phase),
-				"conversation_id": strings.TrimSpace(record.ConversationID),
-				"actor":           strings.TrimSpace(record.Actor),
-				"intent":          strings.TrimSpace(record.Intent),
-				"plan_type":       strings.TrimSpace(record.PlanType),
-				"plan_mode":       strings.TrimSpace(record.PlanMode),
-				"target":          record.Target,
-				"result":          strings.TrimSpace(record.Result),
-				"error":           strings.TrimSpace(record.Error),
-			})
-		})
-	}
 }
 
 func parsePositiveIntEnv(key string, fallback int) int {
@@ -2927,14 +3088,185 @@ func applyExecutionSourceLabel(decision service.Decision, output string) string 
 	return text
 }
 
-func finalizeExecutionOutput(decision service.Decision, raw string) string {
+func finalizeExecutionOutput(decision service.Decision, runtime agentRuntime, raw string) string {
 	output := strings.TrimSpace(raw)
 	if output == "" {
-		output = "执行完成，无可见输出"
+		output = formatTaskReceipt(taskReceiptComplete, "处理完成，无可见输出。")
 	}
 	output = suppressVerboseCodeBlocks(decision.Message.Text, output)
+	output = applyAutonomySelfHealGate(decision, output)
 	output = applyExecutionCompletionGate(decision, output)
+	output = applyExecutionOwnershipFactGate(decision, runtime, output)
 	return applyExecutionSourceLabel(decision, output)
+}
+
+func applyExecutionOwnershipFactGate(decision service.Decision, runtime agentRuntime, output string) string {
+	request := strings.ToLower(strings.TrimSpace(decision.Message.Text))
+	if !isExecutionOwnershipQuestion(request) {
+		return output
+	}
+	backend := strings.TrimSpace(runtime.backendName)
+	if backend == "" {
+		backend = "unknown"
+	}
+	agentID := strings.TrimSpace(runtime.agentID)
+	if agentID == "" {
+		agentID = "main"
+	}
+	return fmt.Sprintf("自然语言规划由 %s 后端完成；实际命令执行由 ClawX 本机 runtime.exec 执行（agent=%s）。", backend, agentID)
+}
+
+func isExecutionOwnershipQuestion(request string) bool {
+	request = strings.TrimSpace(strings.ToLower(request))
+	if request == "" {
+		return false
+	}
+	if containsAnyPhrase(request, "你现在是在codex环境里执行任务", "你现在在codex环境执行任务", "是不是在codex环境执行", "是否在codex环境执行") {
+		return true
+	}
+	if containsAnyPhrase(request, "谁执行", "谁来执行", "执行任务是谁") &&
+		containsAnyPhrase(request, "clawx", "codex", "runtime.exec", "执行命令", "本机") {
+		return true
+	}
+	return false
+}
+
+var executionBlockerPattern = regexp.MustCompile("(?is)```(?:json)?\\s*(\\{.*?\"type\"\\s*:\\s*\"execution_blocker\".*?\\})\\s*```")
+
+type executionBlockerPlan struct {
+	Type            string   `json:"type"`
+	NeedUserInput   bool     `json:"need_user_input"`
+	BlockerClass    string   `json:"blocker_class"`
+	Attempted       []string `json:"attempted"`
+	Evidence        []string `json:"evidence"`
+	EvidenceExecIDs []string `json:"evidence_exec_ids"`
+	Recommendation  string   `json:"recommendation"`
+	Question        string   `json:"question"`
+}
+
+func applyAutonomySelfHealGate(decision service.Decision, output string) string {
+	if decision.Kind != service.DecisionExecute {
+		return output
+	}
+	plan, ok := parseExecutionBlockerPlan(output)
+	if !ok {
+		return output
+	}
+	if !plan.NeedUserInput {
+		return output
+	}
+	if len(normalizeNonEmptyList(plan.Attempted)) > 0 && len(normalizeNonEmptyList(plan.Evidence)) > 0 {
+		execIDs := normalizeNonEmptyList(plan.EvidenceExecIDs)
+		if len(execIDs) == 0 {
+			return formatTaskReceipt(taskReceiptFailed,
+				"我还不能向你提问：这次回复里没有附上本轮执行证据。下一步我会先在当前会话完成执行并带上证据后再给你结论。")
+		}
+		if !hasRuntimeExecAttestation(decision.ConversationID, execIDs) {
+			return formatTaskReceipt(taskReceiptFailed,
+				"我还不能向你提问：引用的执行证据不是当前会话生成的。请在当前会话重试同一任务，我会重新执行并给出可验证结果。")
+		}
+		return output
+	}
+	return formatTaskReceipt(taskReceiptFailed,
+		"检测到升级提问，但缺少结构化执行证据（attempted/evidence）。请先完成自治重试并补齐证据，再请求用户决策。")
+}
+
+func parseExecutionBlockerPlan(text string) (executionBlockerPlan, bool) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return executionBlockerPlan{}, false
+	}
+	candidates := make([]string, 0, 2)
+	if matches := executionBlockerPattern.FindAllStringSubmatch(trimmed, -1); len(matches) > 0 {
+		for _, match := range matches {
+			if len(match) < 2 {
+				continue
+			}
+			candidates = append(candidates, strings.TrimSpace(match[1]))
+		}
+	}
+	if strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}") {
+		candidates = append(candidates, trimmed)
+	}
+	for _, candidate := range candidates {
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(candidate), &payload); err != nil {
+			continue
+		}
+		if strings.TrimSpace(strings.ToLower(toString(payload["type"]))) != "execution_blocker" {
+			continue
+		}
+		plan := executionBlockerPlan{
+			Type:            "execution_blocker",
+			NeedUserInput:   toBool(payload["need_user_input"]),
+			BlockerClass:    strings.TrimSpace(toString(payload["blocker_class"])),
+			Attempted:       toStringSlice(payload["attempted"]),
+			Evidence:        toStringSlice(payload["evidence"]),
+			EvidenceExecIDs: toStringSlice(payload["evidence_exec_ids"]),
+			Recommendation:  strings.TrimSpace(toString(payload["recommendation"])),
+			Question:        strings.TrimSpace(toString(payload["question"])),
+		}
+		if evidenceMap, ok := payload["evidence"].(map[string]any); ok {
+			if len(plan.Evidence) == 0 {
+				plan.Evidence = toStringSlice(evidenceMap["items"])
+			}
+			if len(plan.Evidence) == 0 {
+				plan.Evidence = toStringSlice(evidenceMap["details"])
+			}
+			if len(plan.EvidenceExecIDs) == 0 {
+				plan.EvidenceExecIDs = toStringSlice(evidenceMap["exec_ids"])
+			}
+		}
+		return plan, true
+	}
+	return executionBlockerPlan{}, false
+}
+
+func toBool(value any) bool {
+	typed, ok := value.(bool)
+	if !ok {
+		return false
+	}
+	return typed
+}
+
+func toStringSlice(value any) []string {
+	items, ok := value.([]any)
+	if !ok || len(items) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		str := strings.TrimSpace(toString(item))
+		if str == "" {
+			continue
+		}
+		out = append(out, str)
+	}
+	return out
+}
+
+func toString(value any) string {
+	typed, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return typed
+}
+
+func normalizeNonEmptyList(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func applyRuntimeAgentLabel(output string, agentID string) string {
@@ -2955,6 +3287,13 @@ func applyExecutionCompletionGate(decision service.Decision, output string) stri
 		return output
 	}
 	requestText := strings.ToLower(strings.TrimSpace(decision.Message.Text))
+	if looksLikeSpecKitWorkflowRequest(requestText) {
+		setSpecKitFlowActive(decision.ConversationID, true)
+		return output
+	}
+	if isSpecKitFlowActive(decision.ConversationID) && looksLikeSpecKitContinuationRequest(requestText) {
+		return output
+	}
 	if !looksLikeImplementationRequest(requestText) {
 		return output
 	}
@@ -2970,6 +3309,25 @@ func applyExecutionCompletionGate(decision service.Decision, output string) stri
 		"1. 实际执行过的命令（如 go test/go run 等）\n" +
 		"2. 命令结果摘要（通过/失败、关键输出）\n" +
 		"3. 代码变更清单（文件路径）"
+}
+
+func looksLikeSpecKitContinuationRequest(text string) bool {
+	return containsAnyPhrase(text, "继续补齐", "补齐", "继续", "继续完善", "继续生成", "继续出文档")
+}
+
+func looksLikeSpecKitWorkflowRequest(text string) bool {
+	if text == "" {
+		return false
+	}
+	if containsAnyPhrase(text,
+		"spec kit", "speckit", "/speckit.", "speckit.",
+		"生成规范", "先出规范", "只出规范", "不要直接写代码",
+		"specify", "plan.md", "tasks.md", "analyze.md",
+	) {
+		return true
+	}
+	// "规范 + 文档" should be treated as spec workflow, not completion claim.
+	return containsAnyPhrase(text, "规范") && containsAnyPhrase(text, "文档", "spec")
 }
 
 func looksLikeImplementationRequest(text string) bool {
@@ -2988,7 +3346,7 @@ func looksLikeCompletionClaim(text string) bool {
 
 func hasExecutionEvidence(output, lower string) bool {
 	hasCommand := executionEvidenceCommandPattern.MatchString(output) || strings.Contains(lower, "```bash")
-	hasResult := containsAnyPhrase(lower, "测试结果", "结果：", "result:", "通过", "失败", "ok ", "exit code")
+	hasResult := containsAnyPhrase(lower, "测试结果", "结果：", "结果:", "result:", "通过", "失败", "ok ", "exit code")
 	hasChanges := strings.Contains(output, "](/") || containsAnyPhrase(lower, "新增", "更新", "修改", "变更文件")
 	return hasCommand && (hasResult || hasChanges)
 }
@@ -3069,39 +3427,56 @@ func buildNaturalLanguageExecutionInput(decision service.Decision, runtime agent
 
 	builder.WriteString("[Policy]\n")
 	builder.WriteString("- 非 / 开头消息必须按自然语言处理，不走硬编码命令规则。\n")
+	builder.WriteString("- 若用户在问“为什么/怎么回事/原因是什么”等问句，优先解释原因并给证据；不要无条件转成执行动作。\n")
 	builder.WriteString("- 涉及“数量/状态/配置”提问时，优先使用下方快照，不要基于当前会话猜测。\n")
-	builder.WriteString("- 涉及控制面变更（如切换/创建/删除智能体）时，先输出结构化 ControlPlan JSON，再由执行器落地。\n")
-	builder.WriteString("- 若用户在补充/修订项目需求，优先输出结构化 requirement_sync JSON 计划，由平台落盘到需求文档。\n")
+	builder.WriteString("- 涉及控制面变更、需求更新、命令执行等动作时，统一输出 action_plan 由平台执行。\n")
+	builder.WriteString("- 当用户输入单条明确命令时，action_plan 默认只放该命令；不要自动追加“第二条验证命令”，除非用户明确要求验证/检查。\n")
+	builder.WriteString("- 调试本地 HTTP 接口（如 127.0.0.1/localhost）前，先确认服务已启动且健康，再发业务请求。\n")
+	builder.WriteString("- 遇到执行失败时，先自治恢复再升级提问：必须先做诊断与重试，禁止第一轮直接向用户索要环境参数/镜像/离线包。\n")
+	builder.WriteString("- 只有当自动恢复已穷尽时才可提问，并附上已尝试命令、关键报错、推荐下一步。\n")
 	builder.WriteString("- 信息不足时明确说明缺口，禁止编造。\n\n")
 
-	builder.WriteString("[ControlPlan Response Contract]\n")
-	builder.WriteString("- 仅当需要执行控制面动作时输出 ControlPlan。\n")
-	builder.WriteString("- 优先输出纯 JSON；如必须附带解释，将 JSON 放在 ```json 代码块中。\n")
-	builder.WriteString("- ControlPlan schema:\n")
+	builder.WriteString("[Autonomous Recovery Playbook]\n")
+	builder.WriteString("- 先诊断：检查网络/DNS/权限/路径，给出可复现命令与结果摘要。\n")
+	builder.WriteString("- 再重试：对可恢复错误做有限重试，并记录每次尝试。\n")
+	builder.WriteString("- 依赖安装失败时默认执行：官方源重试 -> 常见镜像回退 -> 本地离线源探测（若存在）。\n")
+	builder.WriteString("- pip 典型回退顺序：pypi.org/simple、清华/阿里/腾讯镜像（按可达性选择），并保留失败证据。\n")
+	builder.WriteString("- 若仍失败，再升级提问；提问必须包含“已尝试步骤 + 失败原因 + 推荐动作”。\n\n")
+
+	builder.WriteString("[Execution Blocker Contract]\n")
+	builder.WriteString("- 仅在确实需要用户决策时输出 execution_blocker。\n")
+	builder.WriteString("- execution_blocker 必须包含 attempted、evidence、evidence_exec_ids；否则平台不会放行升级提问。\n")
+	builder.WriteString("- schema:\n")
 	builder.WriteString("  {\n")
-	builder.WriteString("    \"type\": \"control_plan\",\n")
-	builder.WriteString("    \"intent\": \"agent.use|agent.clear|config.apply|...\",\n")
-	builder.WriteString("    \"target\": {\"agent_id\": \"...\"},\n")
-	builder.WriteString("    \"mode\": \"execute|suggest\",\n")
-	builder.WriteString("    \"risk\": \"low|medium|high\",\n")
-	builder.WriteString("    \"reason\": \"...\"\n")
+	builder.WriteString("    \"type\": \"execution_blocker\",\n")
+	builder.WriteString("    \"need_user_input\": true,\n")
+	builder.WriteString("    \"blocker_class\": \"network|permission|auth|resource|tool|unknown\",\n")
+	builder.WriteString("    \"attempted\": [\"已尝试步骤1\", \"已尝试步骤2\"],\n")
+	builder.WriteString("    \"evidence\": [\"命令与关键输出\", \"错误摘要\"],\n")
+	builder.WriteString("    \"evidence_exec_ids\": [\"rexec-...\", \"rexec-...\"],\n")
+	builder.WriteString("    \"recommendation\": \"推荐下一步\",\n")
+	builder.WriteString("    \"question\": \"需要用户确认的问题\"\n")
 	builder.WriteString("  }\n\n")
 
-	builder.WriteString("[Requirement Sync Response Contract]\n")
-	builder.WriteString("- 当且仅当用户在明确补充或修订项目需求时输出 requirement_sync。\n")
+	builder.WriteString("[Unified Action Plan Contract]\n")
+	builder.WriteString("- 当你判断需要执行动作时，优先输出 action_plan（统一协议），由 ClawX 原生执行器落地。\n")
+	builder.WriteString("- 用户表达“启动/初始化/开工”且目标是拉起运行时时，优先使用 runtime.bootstrap，不要直接给大段 shell。\n")
+	builder.WriteString("- 当前支持 action.kind: runtime.exec（shell 命令）、runtime.bootstrap（运行时初始化）、agent.use（切换智能体）、requirement.sync（需求落盘）、config.exec（配置面指令）。\n")
 	builder.WriteString("- 优先输出纯 JSON；如必须附带解释，将 JSON 放在 ```json 代码块中。\n")
-	builder.WriteString("- 若用户明确点名某个智能体（如 bid-all），必须在 plan 中填 agent_id，平台会切换当前会话到该智能体再落盘需求。\n")
-	builder.WriteString("- 若目标智能体不明确、或你认为应切换到其他智能体再落盘，输出 mode=suggest，并给出 reason；若可从 agent_inventory 推断最可能目标，必须填 agent_id 作为推荐目标。\n")
-	builder.WriteString("- 在 mode=suggest 中，除非确实无法判断，否则不要省略 agent_id。\n")
-	builder.WriteString("- requirement_sync schema:\n")
+	builder.WriteString("- action_plan schema:\n")
 	builder.WriteString("  {\n")
-	builder.WriteString("    \"type\": \"requirement_sync\",\n")
-	builder.WriteString("    \"intent\": \"requirement.update\",\n")
+	builder.WriteString("    \"type\": \"action_plan\",\n")
 	builder.WriteString("    \"mode\": \"execute|suggest\",\n")
-	builder.WriteString("    \"agent_id\": \"可选；目标智能体 ID（从 agent_inventory 选择）\",\n")
-	builder.WriteString("    \"requirement\": \"提炼后的需求文本\",\n")
-	builder.WriteString("    \"reason\": \"为什么这是需求更新\"\n")
+	builder.WriteString("    \"reason\": \"可选；计划说明\",\n")
+	builder.WriteString("    \"actions\": [\n")
+	builder.WriteString("      {\"kind\":\"runtime.exec\", \"cmd\": \"python3 -m pip install -r requirements.txt\", \"cwd\": \"可选\", \"reason\": \"可选\"}\n")
+	builder.WriteString("      {\"kind\":\"runtime.bootstrap\", \"cwd\": \"workspace路径\", \"worker_roles\": [\"planner\",\"executor\",\"reviewer\"]}\n")
+	builder.WriteString("      {\"kind\":\"agent.use\", \"agent_id\": \"bid-all\", \"reason\": \"可选\"}\n")
+	builder.WriteString("      {\"kind\":\"requirement.sync\", \"mode\":\"execute\", \"agent_id\":\"bid-all\", \"requirement\":\"需求内容\"}\n")
+	builder.WriteString("      {\"kind\":\"config.exec\", \"command\":\"/config plan 创建 agent bid-all 使用 codex\"}\n")
+	builder.WriteString("    ]\n")
 	builder.WriteString("  }\n\n")
+	builder.WriteString("- 旧版 control_plan / requirement_sync / runtime_exec_plan 已废弃，不要输出。\n\n")
 
 	builder.WriteString("[Tool Snapshot: agent_inventory]\n")
 	builder.WriteString("source=")
@@ -3156,9 +3531,84 @@ func buildNaturalLanguageExecutionInput(decision service.Decision, runtime agent
 		builder.WriteByte('\n')
 	}
 
+	if continuation := buildExecutionContinuationSnapshot(decision.ConversationID, request); continuation != "" {
+		builder.WriteString("\n[Execution Continuation Snapshot]\n")
+		builder.WriteString(continuation)
+		builder.WriteString("\n")
+	}
+
 	builder.WriteString("\n[User Request]\n")
 	builder.WriteString(request)
 	return strings.TrimSpace(builder.String())
+}
+
+func buildExecutionContinuationSnapshot(conversationID string, request string) string {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return ""
+	}
+	records := listRecentRuntimeExecAttestations(conversationID, 4)
+	if len(records) == 0 {
+		if goal, ok := getExecutionGoalState(conversationID); ok {
+			return strings.TrimSpace("goal=" + fallbackValue(goal.Goal, "-") + "\n" +
+				"goal_status=" + fallbackValue(goal.Status, "-") + "\n" +
+				"goal_last_result=" + fallbackValue(oneLine(goal.LastResult), "-"))
+		}
+		return ""
+	}
+	var builder strings.Builder
+	if goal, ok := getExecutionGoalState(conversationID); ok {
+		builder.WriteString("goal=")
+		builder.WriteString(fallbackValue(goal.Goal, "-"))
+		builder.WriteByte('\n')
+		builder.WriteString("goal_status=")
+		builder.WriteString(fallbackValue(goal.Status, "-"))
+		builder.WriteByte('\n')
+		if strings.TrimSpace(goal.LastResult) != "" {
+			builder.WriteString("goal_last_result=")
+			builder.WriteString(oneLine(goal.LastResult))
+			builder.WriteByte('\n')
+		}
+	}
+	builder.WriteString("recent_exec_count=")
+	builder.WriteString(strconv.Itoa(len(records)))
+	builder.WriteByte('\n')
+	last := records[len(records)-1]
+	builder.WriteString("last_exec_id=")
+	builder.WriteString(strings.TrimSpace(last.ExecID))
+	builder.WriteByte('\n')
+	builder.WriteString("last_exec_success=")
+	builder.WriteString(strconv.FormatBool(last.Success))
+	builder.WriteByte('\n')
+	if !last.Success {
+		builder.WriteString("last_error=")
+		builder.WriteString(fallbackValue(oneLine(last.ErrorSummary), oneLine(last.OutputPreview)))
+		builder.WriteByte('\n')
+	}
+	for _, rec := range records {
+		builder.WriteString("- exec_id=")
+		builder.WriteString(strings.TrimSpace(rec.ExecID))
+		builder.WriteString(" success=")
+		builder.WriteString(strconv.FormatBool(rec.Success))
+		builder.WriteString(" cmd=")
+		builder.WriteString(oneLine(summarizeText(rec.Command, 120)))
+		builder.WriteString(" preview=")
+		builder.WriteString(oneLine(summarizeText(rec.OutputPreview, 120)))
+		builder.WriteByte('\n')
+	}
+	if isContinuationLikeRequest(request) {
+		builder.WriteString("continuation_hint=advance_from_recent_runtime_exec\n")
+		builder.WriteString("continuation_rule=如果用户只说“继续”，请基于最近失败点推进，不要重复最近已成功命令\n")
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func isContinuationLikeRequest(text string) bool {
+	text = strings.TrimSpace(strings.ToLower(text))
+	if text == "" {
+		return false
+	}
+	return containsAnyPhrase(text, "继续", "接着", "下一步", "继续执行", "继续跑", "go on")
 }
 
 func buildStagedRoutingSnapshot(decision service.Decision, runtime agentRuntime, skills []skilldomain.Definition) string {

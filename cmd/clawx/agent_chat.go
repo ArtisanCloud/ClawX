@@ -2,13 +2,10 @@ package main
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
 
-	"clawx/internal/application/skillorchestrator"
-	skilldomain "clawx/internal/domain/skill"
 	chatiface "clawx/internal/interfaces/chat"
 )
 
@@ -24,8 +21,6 @@ type controlApplyResult struct {
 	Status  string
 	Message string
 }
-
-var controlPlanBlockPattern = regexp.MustCompile("(?is)```(?:json)?\\s*(\\{.*?\\})\\s*```")
 
 func newConversationAgentOverrides() *conversationAgentOverrides {
 	return &conversationAgentOverrides{
@@ -155,77 +150,6 @@ Agent 指令：
 - clear 后恢复配置路由规则`)
 }
 
-func maybeAutoApplyAgentSwitch(
-	userText string,
-	modelOutput string,
-	conversationID string,
-	actor string,
-	scopeKey string,
-	overrides *conversationAgentOverrides,
-	runtimes map[string]agentRuntime,
-	defaultAgentID string,
-	audit *skillorchestrator.AuditService,
-) (controlApplyResult, bool, error) {
-	const action = "agent_use"
-	_ = userText
-	plan, ok, err := skillorchestrator.ParseControlPlanFromText(modelOutput)
-	if err != nil {
-		return controlApplyResult{}, false, err
-	}
-	if !ok {
-		return controlApplyResult{}, false, nil
-	}
-	if !isAllowedControlAutoApplyPlan(plan) {
-		return controlApplyResult{}, false, nil
-	}
-	agentID := cleanAgentIDToken(plan.AgentID())
-	if agentID == "" {
-		return controlApplyResult{}, false, nil
-	}
-	controlExecutor := skillorchestrator.NewControlExecutor(audit)
-	execResult, execErr := controlExecutor.Execute(skillorchestrator.ControlExecuteRequest{
-		ConversationID: conversationID,
-		Actor:          actor,
-		Plan:           plan,
-		Apply: func(_ skilldomain.ControlPlan) (status, message string, err error) {
-			command := "/agent use " + agentID
-			handled, response, runErr := handleAgentChatCommand(chatiface.Message{Text: command}, scopeKey, overrides, runtimes, defaultAgentID)
-			if runErr != nil {
-				return "", "", runErr
-			}
-			if !handled {
-				return "", "", fmt.Errorf("agent command was not handled")
-			}
-			status = "applied"
-			if strings.Contains(response, "无需切换") {
-				status = "noop"
-			}
-			return status, response, nil
-		},
-		Verify: func(_ skilldomain.ControlPlan) (ok bool, detail string, err error) {
-			if current, exists := overrides.Get(scopeKey); exists {
-				if strings.TrimSpace(current) == agentID {
-					return true, "override_applied", nil
-				}
-				return false, "override_mismatch", nil
-			}
-			if strings.TrimSpace(defaultAgentID) == agentID {
-				return true, "default_agent_effective", nil
-			}
-			return false, "override_missing", nil
-		},
-	})
-	if execErr != nil {
-		return controlApplyResult{}, false, execErr
-	}
-	return controlApplyResult{
-		Action:  action,
-		Target:  agentID,
-		Status:  strings.TrimSpace(execResult.Status),
-		Message: strings.TrimSpace(execResult.Message),
-	}, true, nil
-}
-
 func looksLikeAgentSwitchRequest(text string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(text))
 	if normalized == "" {
@@ -246,20 +170,6 @@ func cleanAgentIDToken(raw string) string {
 	return strings.Trim(strings.TrimSpace(raw), "`'\"，,。.!！?？:：;；)）]】")
 }
 
-func isAllowedControlAutoApplyPlan(plan skilldomain.ControlPlan) bool {
-	normalized := plan.Normalize()
-	if normalized.Type != "control_plan" {
-		return false
-	}
-	if normalized.Intent != "agent.use" {
-		return false
-	}
-	if normalized.Mode != "execute" {
-		return false
-	}
-	return strings.TrimSpace(normalized.AgentID()) != ""
-}
-
 func formatControlApplyResult(result controlApplyResult) string {
 	if strings.TrimSpace(result.Action) == "" {
 		return ""
@@ -276,19 +186,4 @@ func formatControlApplyResult(result controlApplyResult) string {
 		return "当前会话已是目标智能体，无需切换。"
 	}
 	return "当前会话已切换到 Agent: " + target
-}
-
-func stripControlPlanPayload(output string) string {
-	text := strings.TrimSpace(output)
-	if text == "" {
-		return text
-	}
-	if _, ok, err := skillorchestrator.ParseControlPlanFromText(text); err == nil && ok {
-		if strings.HasPrefix(text, "{") && strings.HasSuffix(text, "}") {
-			return ""
-		}
-		cleaned := controlPlanBlockPattern.ReplaceAllString(text, "")
-		return strings.TrimSpace(cleaned)
-	}
-	return output
 }

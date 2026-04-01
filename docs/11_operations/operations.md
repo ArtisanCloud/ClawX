@@ -94,6 +94,34 @@ clawx trace cache-report --file ~/.clawx/logs/trace.jsonl
 clawx trace cache-report --file ~/.clawx/logs/trace.jsonl --json
 ```
 
+## 自治执行恢复（Autonomy）
+- 事件日志文件：`~/.clawx/logs/autonomy.jsonl`
+- 事件阶段：`classify -> attempt -> escalate -> result`
+- 典型字段：`channel`、`instance`、`agent_id`、`conversation_id`、`failure_class`、`status`、`reason`、`error`
+- 日志轮转环境变量：
+  - `CLAWX_AUTONOMY_LOG_FILE`（默认 `~/.clawx/logs/autonomy.jsonl`）
+  - `CLAWX_AUTONOMY_LOG_MAX_MB`（默认 `20`）
+  - `CLAWX_AUTONOMY_LOG_MAX_BACKUPS`（默认 `5`）
+
+快速观察：
+```bash
+tail -f ~/.clawx/logs/autonomy.jsonl
+```
+
+自治报表：
+```bash
+# 文本报表
+clawx trace autonomy-report --file ~/.clawx/logs/autonomy.jsonl
+
+# JSON 报表（便于接入外部系统）
+clawx trace autonomy-report --file ~/.clawx/logs/autonomy.jsonl --json
+```
+
+常见排障：
+- `autonomy-report` 报 `open autonomy file`: 文件不存在或路径错误，先确认服务是否已产生自治事件。
+- `escalations` 比例异常升高：优先查看 `by_failure_class` 和 `reason`，确认是否出现权限/凭据系统性问题。
+- `unknown` 分类偏高：检查执行错误是否被包装丢失关键信息，必要时补充错误上下文。
+
 ## Token 用量与成本观测
 - 写入文件：`~/.clawx/logs/token_usage.jsonl`（每次 LLM 响应一条记录）。
 - 关键字段：`prompt_tokens`、`completion_tokens`、`total_tokens`、`prompt_cached_tokens`、`estimated_cost_usd`。

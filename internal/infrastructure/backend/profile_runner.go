@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"clawx/internal/domain/execution"
 )
@@ -192,30 +193,53 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 
 func buildCodexExecArgs(baseArgs []string, model, cwd string, allowedRoots []string, promptCacheKey string, promptCacheRetention string, outputPath, threadID, prompt string) []string {
 	cmdArgs := []string{"exec"}
-	cmdArgs = append(cmdArgs, baseArgs...)
+	cmdArgs = append(cmdArgs, sanitizeCodexCLIArgs(baseArgs)...)
 	if strings.TrimSpace(model) != "" {
-		cmdArgs = append(cmdArgs, "--model", strings.TrimSpace(model))
+		cmdArgs = append(cmdArgs, "--model", sanitizeCodexCLIArg(strings.TrimSpace(model)))
 	}
 	if value := strings.TrimSpace(promptCacheKey); value != "" {
-		cmdArgs = append(cmdArgs, "-c", fmt.Sprintf("prompt_cache_key=%q", value))
+		cmdArgs = append(cmdArgs, "-c", sanitizeCodexCLIArg(fmt.Sprintf("prompt_cache_key=%q", value)))
 	}
 	if value := strings.TrimSpace(promptCacheRetention); value != "" {
-		cmdArgs = append(cmdArgs, "-c", fmt.Sprintf("prompt_cache_retention=%q", value))
+		cmdArgs = append(cmdArgs, "-c", sanitizeCodexCLIArg(fmt.Sprintf("prompt_cache_retention=%q", value)))
 	}
 	// Enforce writable workspace and explicit working directory per request.
 	cmdArgs = append(cmdArgs, "--sandbox", "workspace-write")
 	if strings.TrimSpace(cwd) != "" {
-		cmdArgs = append(cmdArgs, "--cd", strings.TrimSpace(cwd))
+		cmdArgs = append(cmdArgs, "--cd", sanitizeCodexCLIArg(strings.TrimSpace(cwd)))
 	}
 	for _, root := range normalizeWritableRootsForCodex(cwd, allowedRoots) {
-		cmdArgs = append(cmdArgs, "--add-dir", root)
+		cmdArgs = append(cmdArgs, "--add-dir", sanitizeCodexCLIArg(root))
 	}
-	cmdArgs = append(cmdArgs, "--skip-git-repo-check", "--json", "--output-last-message", outputPath)
+	cmdArgs = append(cmdArgs, "--skip-git-repo-check", "--json", "--output-last-message", sanitizeCodexCLIArg(outputPath))
 	if strings.TrimSpace(threadID) != "" {
-		cmdArgs = append(cmdArgs, "resume", strings.TrimSpace(threadID))
+		cmdArgs = append(cmdArgs, "resume", sanitizeCodexCLIArg(strings.TrimSpace(threadID)))
 	}
-	cmdArgs = append(cmdArgs, prompt)
+	cmdArgs = append(cmdArgs, sanitizeCodexCLIArg(prompt))
 	return cmdArgs
+}
+
+func sanitizeCodexCLIArg(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return value
+	}
+	if utf8.ValidString(value) {
+		return value
+	}
+	// Replace invalid sequences so codex exec never fails on malformed bytes.
+	return strings.ToValidUTF8(value, " ")
+}
+
+func sanitizeCodexCLIArgs(args []string) []string {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		out = append(out, sanitizeCodexCLIArg(arg))
+	}
+	return out
 }
 
 func normalizeWritableRootsForCodex(cwd string, roots []string) []string {
