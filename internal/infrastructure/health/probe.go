@@ -20,6 +20,7 @@ type Report struct {
 	CheckedAt    time.Time
 	BackendProbe string
 	Failure      string
+	Details      map[string]interface{} `json:"details,omitempty"`
 }
 
 type Probe struct {
@@ -53,4 +54,3 @@ func (p *Probe) Check(ctx context.Context) Report {
 	report.BackendProbe = "ok"
 	return report
 }
-

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,16 +19,20 @@ import (
 )
 
 type runtimeExecCommand struct {
-	Cmd    string `json:"cmd"`
-	CWD    string `json:"cwd,omitempty"`
-	Reason string `json:"reason,omitempty"`
+	Cmd            string `json:"cmd"`
+	CWD            string `json:"cwd,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+	FallbackSource string `json:"fallback_source,omitempty"`
 }
 
 type runtimeExecPlan struct {
-	Type     string               `json:"type"`
-	Mode     string               `json:"mode"`
-	Commands []runtimeExecCommand `json:"commands"`
-	Reason   string               `json:"reason,omitempty"`
+	Type                           string               `json:"type"`
+	Mode                           string               `json:"mode"`
+	Commands                       []runtimeExecCommand `json:"commands"`
+	Reason                         string               `json:"reason,omitempty"`
+	RuntimeExecDecisionMode        string               `json:"runtime_exec_decision_mode,omitempty"`
+	RuntimeExecDecisionApplySource string               `json:"runtime_exec_decision_apply_source,omitempty"`
+	RuntimeExecDecisionLockSource  string               `json:"runtime_exec_decision_lock_source,omitempty"`
 }
 
 type runtimeExecApplyResult struct {
@@ -106,6 +111,13 @@ func applyRuntimeExecPlan(
 	firstReason := ""
 	firstFailedCmd := ""
 	successInfo := make([]string, 0, 2)
+	decisionMode := normalizeRuntimeExecDecisionMode(plan.RuntimeExecDecisionMode)
+	decisionApplySource := strings.TrimSpace(plan.RuntimeExecDecisionApplySource)
+	decisionLockSource := strings.TrimSpace(plan.RuntimeExecDecisionLockSource)
+	if decisionMode != "" && decisionLockSource == "" {
+		_, lockSource := resolveRuntimeExecDecisionLockState(conversationID)
+		decisionLockSource = strings.TrimSpace(lockSource)
+	}
 	for idx, step := range plan.Commands {
 		cmdline := strings.TrimSpace(step.Cmd)
 		if cmdline == "" {
@@ -137,8 +149,30 @@ func applyRuntimeExecPlan(
 			}
 			continue
 		}
+		if suppressed, suppressedCmd := shouldSuppressDuplicateRuntimeExec(conversationID, execCWD, cmdline); suppressed {
+			failed++
+			if firstReason == "" {
+				firstReason = "重复失败命令已抑制：" + suppressedCmd
+			}
+			if firstFailedCmd == "" {
+				firstFailedCmd = suppressedCmd
+			}
+			continue
+		}
 
-		out, runErr, execID := performRuntimeExecStep(ctx, runtime, conversationID, execCWD, cmdline)
+		out, runErr, execID := performRuntimeExecStep(
+			ctx,
+			runtime,
+			conversationID,
+			execCWD,
+			cmdline,
+			strings.TrimSpace(plan.Reason),
+			strings.TrimSpace(step.Reason),
+			decisionMode,
+			decisionApplySource,
+			decisionLockSource,
+			strings.TrimSpace(step.FallbackSource),
+		)
 		execIDs = append(execIDs, execID)
 		if runErr != nil {
 			failed++
@@ -178,8 +212,10 @@ func applyRuntimeExecPlan(
 	if len(execIDs) == 0 {
 		execIDLine = "exec_ids: (none)"
 	}
+	failureEvidence := collectUniqueFailureEvidence(execIDs, 3)
 	totalSteps := executed + failed
-	message := renderRuntimeExecUserMessage(status, totalSteps, executed, failed, firstReason, firstFailedCmd, successInfo, logPath, execIDLine, autoRepairRounds, decisionNeeded, decisionReason)
+	decisionContextLine := buildRuntimeExecDecisionContextLine(plan)
+	message := renderRuntimeExecUserMessage(status, totalSteps, executed, failed, firstReason, firstFailedCmd, successInfo, failureEvidence, logPath, execIDLine, autoRepairRounds, decisionNeeded, decisionReason, decisionContextLine)
 	result := runtimeExecApplyResult{
 		Applied:     executed > 0,
 		Status:      status,
@@ -263,11 +299,15 @@ func scheduleRuntimeExecViaLead(
 		}
 		resourceKey := strings.ToLower(strings.TrimSpace(taskCWD))
 		payload := map[string]interface{}{
-			"cmd":          cmdline,
-			"cwd":          taskCWD,
-			"reason":       strings.TrimSpace(step.Reason),
-			"resource_key": resourceKey,
-			"conversation": strings.TrimSpace(conversationID),
+			"cmd":                                cmdline,
+			"cwd":                                taskCWD,
+			"reason":                             strings.TrimSpace(step.Reason),
+			"fallback_source":                    strings.TrimSpace(step.FallbackSource),
+			"runtime_exec_decision_mode":         strings.TrimSpace(plan.RuntimeExecDecisionMode),
+			"runtime_exec_decision_apply_source": strings.TrimSpace(plan.RuntimeExecDecisionApplySource),
+			"runtime_exec_decision_lock_source":  strings.TrimSpace(plan.RuntimeExecDecisionLockSource),
+			"resource_key":                       resourceKey,
+			"conversation":                       strings.TrimSpace(conversationID),
 		}
 		if _, err := queue.Enqueue(runtimeorchestrator.RuntimeTask{
 			Source:  "runtime.exec",
@@ -301,9 +341,11 @@ func scheduleRuntimeExecViaLead(
 	lines := []string{
 		"已进入 Lead 调度模式，本轮未直接执行 shell 命令。",
 		fmt.Sprintf("结果：已入队 %d 条，已派发 %d 条。", enqueued, len(decisions)),
+		buildRuntimeExecDecisionContextLine(plan),
 		"证据：" + queueFile,
-		fmt.Sprintf("下一步：Worker 执行后我会继续汇总；如需查看详情，可查 `%s`。", dispatchFile),
+		nextStepLine(fmt.Sprintf("Worker 执行后我会继续汇总；如需查看详情，可查 `%s`。", dispatchFile)),
 	}
+	lines = trimRuntimeExecMessageLines(lines)
 	if strings.TrimSpace(metaPath) != "" {
 		lines = append(lines, "调度模式来源："+metaPath)
 	}
@@ -323,6 +365,12 @@ func performRuntimeExecStep(
 	conversationID string,
 	execCWD string,
 	cmdline string,
+	planReason string,
+	stepReason string,
+	decisionMode string,
+	decisionApplySource string,
+	decisionLockSource string,
+	fallbackSource string,
 ) (string, error, string) {
 	cmdline = rewriteCommandForPreferredVenv(execCWD, cmdline)
 	started := time.Now()
@@ -338,17 +386,31 @@ func performRuntimeExecStep(
 	if runErr != nil {
 		exitCode = 1
 	}
+	decisionMode = strings.TrimSpace(decisionMode)
+	decisionApplySource = strings.TrimSpace(decisionApplySource)
+	decisionLockSource = strings.TrimSpace(decisionLockSource)
+	if decisionMode != "" && decisionLockSource == "" {
+		_, lockSource := resolveRuntimeExecDecisionLockState(conversationID)
+		decisionLockSource = strings.TrimSpace(lockSource)
+	}
 	record := runtimeExecAttestationRecord{
-		ExecID:         execID,
-		ConversationID: strings.TrimSpace(conversationID),
-		AgentID:        strings.TrimSpace(runtime.agentID),
-		CWD:            execCWD,
-		Command:        cmdline,
-		ExitCode:       exitCode,
-		DurationMS:     duration,
-		Success:        runErr == nil,
-		OutputDigest:   digestOutput(out),
-		OutputPreview:  summarizeText(out, 180),
+		ExecID:                            execID,
+		ConversationID:                    strings.TrimSpace(conversationID),
+		AgentID:                           strings.TrimSpace(runtime.agentID),
+		CWD:                               execCWD,
+		Command:                           cmdline,
+		PlanReason:                        strings.TrimSpace(planReason),
+		StepReason:                        strings.TrimSpace(stepReason),
+		RuntimeExecDecisionMode:           decisionMode,
+		RuntimeExecDecisionSource:         decisionLockSource,
+		RuntimeExecDecisionApplySource:    decisionApplySource,
+		RuntimeExecDecisionLockSource:     decisionLockSource,
+		RuntimeExecDecisionFallbackSource: strings.TrimSpace(fallbackSource),
+		ExitCode:                          exitCode,
+		DurationMS:                        duration,
+		Success:                           runErr == nil,
+		OutputDigest:                      digestOutput(out),
+		OutputPreview:                     summarizeText(out, 180),
 	}
 	if runErr != nil {
 		record.ErrorSummary = summarizeText(runErr.Error(), 180)
@@ -420,7 +482,7 @@ func tryAutoRepairLoop(
 	}
 	repairClass := classifyAutoRepairClass(reason)
 	if repairClass == "blocked" {
-		return executed, failed, execIDs, firstReason, 0, false, ""
+		return executed, failed, execIDs, firstReason, 0, true, "检测到高风险命令，我先暂停自动执行。你可以回复“替代命令: <命令>”继续，或回复“暂停”保持停止。"
 	}
 	if repairClass == "permission" {
 		return executed, failed, execIDs, firstReason, 0, true, "需要你确认权限范围或 allowed roots"
@@ -440,8 +502,14 @@ func tryAutoRepairLoop(
 	}
 	if repairClass == "build" {
 		probeCmd := "source .venv/bin/activate && pip install -e . -vvv 2>&1 | grep -Ei 'requires a different python|requires-python' | tail -n 5 || true"
-		out, _, execID := performRuntimeExecStep(ctx, runtime, conversationID, execCWD, probeCmd)
-		execIDs = append(execIDs, execID)
+		out := ""
+		if suppressed, suppressedCmd := shouldSuppressDuplicateRuntimeExec(conversationID, execCWD, probeCmd); suppressed {
+			firstReason = "重复失败命令已抑制：" + suppressedCmd
+		} else {
+			probeOut, _, execID := performRuntimeExecStep(ctx, runtime, conversationID, execCWD, probeCmd, "runtime_auto_repair", "runtime_auto_repair_build_probe", "", "", "", "")
+			out = probeOut
+			execIDs = append(execIDs, execID)
+		}
 		if isPythonVersionMismatch(out) && !hasPython311InPath() {
 			executed, failed, execIDs, firstReason, resolved := tryResolvePythonVersionMismatch(ctx, runtime, conversationID, execCWD, executed, failed, execIDs)
 			if resolved {
@@ -456,7 +524,12 @@ func tryAutoRepairLoop(
 			"source .venv/bin/activate && pip install -e . --no-build-isolation",
 		}
 		for _, cmdline := range compatSteps {
-			out, runErr, execID := performRuntimeExecStep(ctx, runtime, conversationID, execCWD, cmdline)
+			if suppressed, suppressedCmd := shouldSuppressDuplicateRuntimeExec(conversationID, execCWD, cmdline); suppressed {
+				failed++
+				firstReason = "重复失败命令已抑制：" + suppressedCmd
+				continue
+			}
+			out, runErr, execID := performRuntimeExecStep(ctx, runtime, conversationID, execCWD, cmdline, "runtime_auto_repair", "runtime_auto_repair_python_compat", "", "", "", "")
 			execIDs = append(execIDs, execID)
 			if runErr != nil {
 				failed++
@@ -475,7 +548,13 @@ func tryAutoRepairLoop(
 			break
 		}
 		for _, cmdline := range steps {
-			out, runErr, execID := performRuntimeExecStep(ctx, runtime, conversationID, execCWD, cmdline)
+			if suppressed, suppressedCmd := shouldSuppressDuplicateRuntimeExec(conversationID, execCWD, cmdline); suppressed {
+				failed++
+				firstReason = "重复失败命令已抑制：" + suppressedCmd
+				continue
+			}
+			stepReason := fmt.Sprintf("runtime_auto_repair_%s_round_%d", strings.TrimSpace(repairClass), round)
+			out, runErr, execID := performRuntimeExecStep(ctx, runtime, conversationID, execCWD, cmdline, "runtime_auto_repair", stepReason, "", "", "", "")
 			execIDs = append(execIDs, execID)
 			if runErr != nil {
 				failed++
@@ -526,7 +605,16 @@ func runPostLimitDiagnostics(
 		)
 	}
 	for _, cmdline := range commands {
-		out, runErr, execID := performRuntimeExecStep(ctx, runtime, conversationID, execCWD, cmdline)
+		if suppressed, suppressedCmd := shouldSuppressDuplicateRuntimeExec(conversationID, execCWD, cmdline); suppressed {
+			failed++
+			firstReason = "深度诊断命令重复失败，已抑制：" + suppressedCmd
+			continue
+		}
+		stepReason := "runtime_auto_repair_post_limit"
+		if strings.TrimSpace(repairClass) != "" {
+			stepReason = "runtime_auto_repair_post_limit_" + strings.TrimSpace(repairClass)
+		}
+		out, runErr, execID := performRuntimeExecStep(ctx, runtime, conversationID, execCWD, cmdline, "runtime_auto_repair", stepReason, "", "", "", "")
 		execIDs = append(execIDs, execID)
 		if runErr != nil {
 			failed++
@@ -545,32 +633,44 @@ func runPostLimitDiagnostics(
 	return executed, failed, execIDs, firstReason
 }
 
-func renderRuntimeExecUserMessage(status string, total, executed, failed int, firstReason, failedCmd string, successInfo []string, logPath, execIDLine string, autoRepairRounds int, decisionNeeded bool, decisionReason string) string {
+func renderRuntimeExecUserMessage(status string, total, executed, failed int, firstReason, failedCmd string, successInfo []string, failureEvidence []string, logPath, execIDLine string, autoRepairRounds int, decisionNeeded bool, decisionReason string, decisionContextLine string) string {
 	firstReason = strings.TrimSpace(firstReason)
 	if firstReason == "" {
 		firstReason = "无"
 	}
+	decisionReason = strings.TrimSpace(decisionReason)
+	decisionContextLine = strings.TrimSpace(decisionContextLine)
 	execProof := renderExecIDsForUser(execIDLine)
 	problem := describeRuntimeExecProblem(firstReason)
-	keyEvidence := extractReasonEvidenceLine(firstReason)
+	recoveryStrategy := runtimeExecRecoveryStrategy(firstReason, autoRepairRounds, decisionNeeded)
+	decisionOptions := runtimeExecDecisionOptions(firstReason, decisionNeeded)
+	decisionBackground := summarizeRuntimeExecDecisionReason(decisionReason)
+	keyEvidence := buildFailureEvidenceLine(firstReason, failureEvidence)
 	nextStep := suggestRuntimeExecNextStep(firstReason, autoRepairRounds, decisionNeeded, decisionReason)
 	switch strings.TrimSpace(strings.ToLower(status)) {
 	case "applied":
 		if total == 1 && len(successInfo) <= 1 {
-			result := "结论：已执行完成。"
-			if len(successInfo) == 1 && strings.TrimSpace(successInfo[0]) != "" {
-				result = "结论：已执行完成。\n产物：" + strings.TrimSpace(successInfo[0])
-			}
 			lines := []string{
-				result,
-				"证据：" + execProof,
+				"结论：已执行完成。",
+				"完成状态：已完成。",
 			}
+			if len(successInfo) == 1 && strings.TrimSpace(successInfo[0]) != "" {
+				lines = append(lines, "产物："+strings.TrimSpace(successInfo[0]))
+			}
+			lines = append(lines,
+				decisionContextLine,
+				"证据：" + execProof,
+			)
+			lines = trimRuntimeExecMessageLines(lines)
 			if next := suggestSuccessNextStep(successInfo); next != "" {
-				lines = append(lines, "下一步："+next)
+				lines = append(lines, nextStepLine(next))
 			}
 			return strings.Join(lines, "\n")
 		}
-		lines := []string{fmt.Sprintf("结论：已完成，执行 %d 步，全部成功。", total)}
+		lines := []string{
+			fmt.Sprintf("结论：已完成，执行 %d 步，全部成功。", total),
+			"完成状态：已完成。",
+		}
 		if len(successInfo) > 0 {
 			lines = append(lines, "", "产物：")
 			for _, item := range successInfo {
@@ -582,7 +682,10 @@ func renderRuntimeExecUserMessage(status string, total, executed, failed int, fi
 			}
 		}
 		if next := suggestSuccessNextStep(successInfo); next != "" {
-			lines = append(lines, "", "下一步："+next)
+			lines = append(lines, "", nextStepLine(next))
+		}
+		if decisionContextLine != "" {
+			lines = append(lines, "", decisionContextLine)
 		}
 		lines = append(lines, "", "证据："+execProof)
 		return strings.Join(lines, "\n")
@@ -593,8 +696,20 @@ func renderRuntimeExecUserMessage(status string, total, executed, failed int, fi
 		}
 		lines := []string{
 			fmt.Sprintf("结论：已执行 %d 步，成功 %d 步、失败 %d 步。", total, executed, failed),
+			"完成状态：部分失败。",
 			"",
 			"问题：" + problem,
+			decisionContextLine,
+		}
+		lines = trimRuntimeExecMessageLines(lines)
+		if recoveryStrategy != "" {
+			lines = append(lines, "恢复策略："+recoveryStrategy)
+		}
+		if decisionBackground != "" {
+			lines = append(lines, "决策背景："+decisionBackground)
+		}
+		if decisionOptions != "" {
+			lines = append(lines, decisionOptions)
 		}
 		if cmdLine != "" {
 			lines = append(lines, cmdLine)
@@ -602,7 +717,7 @@ func renderRuntimeExecUserMessage(status string, total, executed, failed int, fi
 		lines = append(lines,
 			"关键证据："+keyEvidence,
 			"",
-			"下一步："+nextStep,
+			nextStepLine(nextStep),
 			"",
 			"证据："+"证明文件="+logPath+"；"+execProof,
 		)
@@ -614,8 +729,20 @@ func renderRuntimeExecUserMessage(status string, total, executed, failed int, fi
 		}
 		lines := []string{
 			fmt.Sprintf("结论：尝试了 %d 步命令，但都失败了。", total),
+			"完成状态：失败。",
 			"",
 			"问题：" + problem,
+			decisionContextLine,
+		}
+		lines = trimRuntimeExecMessageLines(lines)
+		if recoveryStrategy != "" {
+			lines = append(lines, "恢复策略："+recoveryStrategy)
+		}
+		if decisionBackground != "" {
+			lines = append(lines, "决策背景："+decisionBackground)
+		}
+		if decisionOptions != "" {
+			lines = append(lines, decisionOptions)
 		}
 		if cmdLine != "" {
 			lines = append(lines, cmdLine)
@@ -623,12 +750,159 @@ func renderRuntimeExecUserMessage(status string, total, executed, failed int, fi
 		lines = append(lines,
 			"关键证据："+keyEvidence,
 			"",
-			"下一步："+nextStep,
+			nextStepLine(nextStep),
 			"",
 			"证据："+"证明文件="+logPath+"；"+execProof,
 		)
 		return strings.Join(lines, "\n")
 	}
+}
+
+func buildRuntimeExecDecisionContextLine(plan runtimeExecPlan) string {
+	mode := normalizeRuntimeExecDecisionMode(plan.RuntimeExecDecisionMode)
+	applySource := strings.TrimSpace(plan.RuntimeExecDecisionApplySource)
+	lockSource := strings.TrimSpace(plan.RuntimeExecDecisionLockSource)
+	fallbackSources := collectRuntimeExecFallbackSources(plan.Commands)
+
+	if mode == "" && applySource == "" && lockSource == "" && len(fallbackSources) == 0 {
+		return ""
+	}
+	if mode == "" {
+		mode = "none"
+	}
+	if applySource == "" {
+		applySource = "none"
+	}
+	if lockSource == "" {
+		lockSource = "none"
+	}
+	line := fmt.Sprintf("执行来源：mode=%s apply_source=%s lock_source=%s", mode, applySource, lockSource)
+	if len(fallbackSources) > 0 {
+		line += " fallback_source=" + strings.Join(fallbackSources, ",")
+	}
+	return line
+}
+
+func collectRuntimeExecFallbackSources(commands []runtimeExecCommand) []string {
+	if len(commands) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(commands))
+	out := make([]string, 0, len(commands))
+	for _, cmd := range commands {
+		source := strings.TrimSpace(strings.ToLower(cmd.FallbackSource))
+		if source == "" {
+			continue
+		}
+		if _, ok := seen[source]; ok {
+			continue
+		}
+		seen[source] = struct{}{}
+		out = append(out, source)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func trimRuntimeExecMessageLines(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			if len(out) > 0 && out[len(out)-1] == "" {
+				continue
+			}
+			out = append(out, "")
+			continue
+		}
+		out = append(out, line)
+	}
+	for len(out) > 0 && out[0] == "" {
+		out = out[1:]
+	}
+	for len(out) > 0 && out[len(out)-1] == "" {
+		out = out[:len(out)-1]
+	}
+	return out
+}
+
+func runtimeExecRecoveryStrategy(firstReason string, autoRepairRounds int, decisionNeeded bool) string {
+	reason := strings.ToLower(strings.TrimSpace(firstReason))
+	cls := classifyAutoRepairClass(reason)
+	if decisionNeeded {
+		switch cls {
+		case "blocked":
+			return "检测到高风险命令，已停止自治执行，等待你提供替代命令。"
+		case "permission":
+			return "当前被权限或 allowed roots 限制，我先暂停重试，等你调整后继续。"
+		case "auth":
+			return "当前缺少有效凭据，我先暂停重试，等你补齐后继续。"
+		case "service":
+			return "服务类故障已进入人工决策。你可以回复“继续深修”或“仅重试”。"
+		case "build":
+			return "构建类故障已进入人工决策。你可以回复“继续构建修复”或“切换依赖源”。"
+		default:
+			return "需要你确认下一步策略后我再继续执行。"
+		}
+	}
+	if autoRepairRounds > 0 {
+		switch cls {
+		case "service", "build", "network":
+			return fmt.Sprintf("已执行 %d 轮自治修复，将继续按同类问题策略重试。", autoRepairRounds)
+		default:
+			return fmt.Sprintf("已执行 %d 轮自治修复，下一步将先补齐诊断证据再重试。", autoRepairRounds)
+		}
+	}
+	switch cls {
+	case "service":
+		return "服务类故障，先补日志证据再定向修复。"
+	case "build":
+		return "构建类故障，先修复依赖/构建参数后重试。"
+	case "network":
+		return "网络类故障，先切换源并重试连通性。"
+	default:
+		return "先补齐诊断证据后再执行下一轮。"
+	}
+}
+
+func runtimeExecDecisionOptions(firstReason string, decisionNeeded bool) string {
+	if !decisionNeeded {
+		return ""
+	}
+	cls := classifyAutoRepairClass(strings.ToLower(strings.TrimSpace(firstReason)))
+	switch cls {
+	case "service":
+		return "你可以直接回复：继续深修 / 仅重试 / 暂停。"
+	case "build":
+		return "你可以直接回复：继续构建修复 / 切换依赖源 / 暂停。"
+	case "permission", "network", "auth":
+		return "你可以直接回复：继续 / 暂停。"
+	case "blocked":
+		return "你可以直接回复：替代命令: <命令> / 暂停。"
+	default:
+		return "你可以直接回复：继续 / 暂停。"
+	}
+}
+
+func summarizeRuntimeExecDecisionReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return ""
+	}
+	cutMarkers := []string{
+		"你可以直接回复：",
+		"你可以回复",
+		"也可以直接回复",
+		"决策选项：",
+		"最小决策：",
+	}
+	for _, marker := range cutMarkers {
+		if idx := strings.Index(reason, marker); idx > 0 {
+			reason = strings.TrimSpace(reason[:idx])
+			break
+		}
+	}
+	return summarizeText(reason, 220)
 }
 
 func summarizeSuccessEvidence(step runtimeExecCommand, execCWD string, out string) string {
@@ -739,7 +1013,7 @@ func suggestSuccessNextStep(successInfo []string) string {
 			return "我可以继续把文档拆成可执行任务并同步到 TASK_PLAN.md/TASK_EXECUTION.md。"
 		}
 	}
-	return "如需继续，直接回复“继续按计划执行”。"
+	return "如果要我继续，回复“继续按计划执行”即可。"
 }
 
 func looksLikeProbeCommand(cmdline string) bool {
@@ -793,7 +1067,14 @@ func suggestRuntimeExecNextStep(firstReason string, autoRepairRounds int, decisi
 	cls := classifyAutoRepairClass(reason)
 	if decisionNeeded {
 		if strings.TrimSpace(decisionReason) != "" {
-			return decisionReason
+			decisionLower := strings.ToLower(strings.TrimSpace(decisionReason))
+			if strings.Contains(decisionLower, "高风险命令") || strings.Contains(decisionLower, "替代命令") {
+				return decisionReason
+			}
+			return "请从上面的选项里回复一个指令，我会立即继续执行。"
+		}
+		if strings.Contains(reason, "dangerous command") || strings.Contains(reason, "高风险命令") {
+			return "检测到高风险命令，请先回复“替代命令: <命令>”或“暂停”。"
 		}
 		return "当前需要你做决策后我才能继续。"
 	}
@@ -859,6 +1140,160 @@ func extractReasonEvidenceLine(firstReason string) string {
 		line = strings.TrimSpace(line[idx+1:])
 	}
 	return summarizeText(line, 140)
+}
+
+func buildFailureEvidenceLine(firstReason string, failureEvidence []string) string {
+	items := make([]string, 0, len(failureEvidence)+1)
+	seen := make(map[string]struct{}, len(failureEvidence)+1)
+	addItem := func(raw string) {
+		item := strings.TrimSpace(raw)
+		if item == "" || strings.EqualFold(item, "无") {
+			return
+		}
+		key := failureEvidenceKey(item)
+		if key == "" {
+			return
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		items = append(items, item)
+	}
+
+	addItem(extractReasonEvidenceLine(firstReason))
+	for _, evidence := range failureEvidence {
+		addItem(summarizeText(evidence, 140))
+	}
+	if len(items) == 0 {
+		return "无"
+	}
+	return strings.Join(items, "；")
+}
+
+func collectUniqueFailureEvidence(execIDs []string, limit int) []string {
+	if limit <= 0 {
+		limit = 3
+	}
+	records := listRuntimeExecAttestationsByIDs(execIDs)
+	if len(records) == 0 {
+		return nil
+	}
+	out := make([]string, 0, limit)
+	seen := make(map[string]struct{}, limit*2)
+	for _, record := range records {
+		if record.Success {
+			continue
+		}
+		evidence := strings.TrimSpace(record.ErrorSummary)
+		if evidence == "" {
+			evidence = strings.TrimSpace(record.OutputPreview)
+		}
+		if evidence == "" {
+			evidence = strings.TrimSpace(record.OutputDigest)
+		}
+		evidence = summarizeText(evidence, 140)
+		key := failureEvidenceKey(evidence + "|" + strings.TrimSpace(record.OutputDigest))
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, evidence)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func shouldSuppressDuplicateRuntimeExec(conversationID, execCWD, cmdline string) (bool, string) {
+	if isEnvTrue("CLAWX_RUNTIME_EXEC_DEDUPE_DISABLE") {
+		return false, ""
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	signature := runtimeExecCommandSignature(execCWD, cmdline)
+	if conversationID == "" || signature == "" {
+		return false, ""
+	}
+	recent := listRecentRuntimeExecAttestations(conversationID, 12)
+	if len(recent) < 2 {
+		return false, ""
+	}
+	latest := recent[len(recent)-1]
+	if runtimeExecCommandSignature(latest.CWD, latest.Command) != signature {
+		return false, ""
+	}
+	if latest.Success {
+		return false, ""
+	}
+
+	matchedFailures := make([]runtimeExecAttestationRecord, 0, 4)
+	for i := len(recent) - 1; i >= 0; i-- {
+		record := recent[i]
+		if runtimeExecCommandSignature(record.CWD, record.Command) != signature {
+			continue
+		}
+		if record.Success {
+			return false, ""
+		}
+		matchedFailures = append(matchedFailures, record)
+		if len(matchedFailures) >= 4 {
+			break
+		}
+	}
+	if len(matchedFailures) < 2 {
+		return false, ""
+	}
+
+	evidenceMarkers := make(map[string]struct{}, len(matchedFailures))
+	for _, record := range matchedFailures {
+		marker := strings.TrimSpace(record.OutputDigest)
+		if marker == "" {
+			marker = failureEvidenceKey(strings.TrimSpace(record.ErrorSummary) + "|" + strings.TrimSpace(record.OutputPreview))
+		}
+		if marker == "" {
+			marker = failureSignature(strings.TrimSpace(record.ErrorSummary) + " " + strings.TrimSpace(record.OutputPreview))
+		}
+		if marker == "" {
+			continue
+		}
+		evidenceMarkers[marker] = struct{}{}
+	}
+	if len(evidenceMarkers) <= 1 || len(matchedFailures) >= 3 {
+		return true, summarizeCommand(cmdline)
+	}
+	return false, ""
+}
+
+func runtimeExecCommandSignature(execCWD, cmdline string) string {
+	cwd := strings.TrimSpace(execCWD)
+	if cwd != "" {
+		cwd = filepath.Clean(cwd)
+	}
+	command := normalizeCommandWhitespace(strings.ToLower(strings.TrimSpace(cmdline)))
+	if command == "" {
+		return ""
+	}
+	return cwd + "|" + command
+}
+
+func normalizeCommandWhitespace(text string) string {
+	parts := strings.Fields(strings.TrimSpace(text))
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
+}
+
+func failureEvidenceKey(text string) string {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return ""
+	}
+	return normalizeCommandWhitespace(normalized)
 }
 
 func extractFailureEvidence(out string, errText string) string {
@@ -946,19 +1381,42 @@ func augmentDecisionFromFailureHistory(conversationID, firstReason string, decis
 		return decisionNeeded, decisionReason
 	}
 	count := globalRuntimeExecFailureTracker.record(conversationID, signature)
-	if count < 3 {
+	cls := classifyAutoRepairClass(strings.ToLower(strings.TrimSpace(firstReason)))
+	threshold := runtimeExecEscalationThreshold(cls)
+	if count < threshold {
 		return decisionNeeded, decisionReason
 	}
-	cls := classifyAutoRepairClass(strings.ToLower(strings.TrimSpace(firstReason)))
-	switch cls {
-	case "permission":
-		return true, "同一权限错误连续出现。请先放开对应目录权限或 allowed roots，我再继续执行。"
-	case "network":
-		return true, "同一网络错误连续出现。请先确认当前机器到包源可达，我再继续执行。"
-	case "auth":
-		return true, "同一鉴权错误连续出现。请先更新凭据或登录态，我再继续执行。"
+	if reason := runtimeExecEscalationReason(cls, count); strings.TrimSpace(reason) != "" {
+		return true, reason
+	}
+	return decisionNeeded, decisionReason
+}
+
+func runtimeExecEscalationThreshold(class string) int {
+	switch strings.TrimSpace(strings.ToLower(class)) {
+	case "permission", "network", "auth":
+		return 3
+	case "service", "build":
+		return 4
 	default:
-		return decisionNeeded, decisionReason
+		return 5
+	}
+}
+
+func runtimeExecEscalationReason(class string, count int) string {
+	switch strings.TrimSpace(strings.ToLower(class)) {
+	case "permission":
+		return fmt.Sprintf("同一权限问题连续出现（%d 次）。请先调整目录权限或 allowed roots。处理后回复“继续”，我会从当前进度接着执行。", count)
+	case "network":
+		return fmt.Sprintf("同一网络问题连续出现（%d 次）。请先确认当前机器到依赖源可达。处理后回复“继续”，我会从当前进度接着执行。", count)
+	case "auth":
+		return fmt.Sprintf("同一鉴权问题连续出现（%d 次）。请先更新凭据或登录态。处理后回复“继续”，我会从当前进度接着执行。", count)
+	case "service":
+		return fmt.Sprintf("同一服务类问题连续出现（%d 次）。我已完成日志诊断与重启修复。你可以回复“继续深修”（允许迁移/数据修复）、“仅重试”（只做重启+健康检查）或“暂停”。", count)
+	case "build":
+		return fmt.Sprintf("同一构建类问题连续出现（%d 次）。我已完成多轮构建链修复。你可以回复“继续构建修复”（继续自动修复）、“切换依赖源”（镜像/离线包路径）或“暂停”。", count)
+	default:
+		return fmt.Sprintf("同类问题连续出现（%d 次）。请确认下一步策略；也可以直接回复“继续”，我会从当前进度接着执行。", count)
 	}
 }
 
@@ -1025,7 +1483,13 @@ func tryResolvePythonVersionMismatch(
 	}
 	lastReason := "项目要求 Python >=3.11，但当前环境只有 Python 3.10"
 	for idx, cmdline := range steps {
-		out, runErr, execID := performRuntimeExecStep(ctx, runtime, conversationID, execCWD, cmdline)
+		if suppressed, suppressedCmd := shouldSuppressDuplicateRuntimeExec(conversationID, execCWD, cmdline); suppressed {
+			failed++
+			lastReason = fmt.Sprintf("Python 版本修复步骤 %d 被抑制：重复失败命令 %s", idx+1, suppressedCmd)
+			continue
+		}
+		stepReason := fmt.Sprintf("runtime_auto_repair_python_mismatch_step_%d", idx+1)
+		out, runErr, execID := performRuntimeExecStep(ctx, runtime, conversationID, execCWD, cmdline, "runtime_auto_repair", stepReason, "", "", "", "")
 		execIDs = append(execIDs, execID)
 		if runErr != nil {
 			failed++

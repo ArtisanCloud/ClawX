@@ -1,0 +1,14 @@
+[Unit]
+Description=ClawX Managed Runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/clawx serve
+Restart=always
+RestartSec=2
+Environment=CLAWX_CONFIG=%h/.clawx/config.json
+
+[Install]
+WantedBy=default.target

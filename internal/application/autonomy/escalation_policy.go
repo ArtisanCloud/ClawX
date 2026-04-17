@@ -16,7 +16,10 @@ func (EscalationPolicy) Decide(classification FailureClassification, recoveryExh
 	case FailureClassPermission, FailureClassAuth:
 		return EscalationDecision{ShouldEscalate: true, Reason: "credential_or_permission_required"}
 	case FailureClassUnknown:
-		return EscalationDecision{ShouldEscalate: true, Reason: "unknown_failure_requires_decision"}
+		if recoveryExhausted {
+			return EscalationDecision{ShouldEscalate: true, Reason: "unknown_failure_recovery_exhausted"}
+		}
+		return EscalationDecision{ShouldEscalate: false, Reason: "unknown_failure_should_probe_once"}
 	case FailureClassNetwork, FailureClassTool, FailureClassResource:
 		if recoveryExhausted {
 			return EscalationDecision{ShouldEscalate: true, Reason: "recovery_exhausted"}

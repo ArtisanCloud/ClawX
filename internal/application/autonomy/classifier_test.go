@@ -18,10 +18,11 @@ func TestClassifyFailure(t *testing.T) {
 		{name: "permission", err: errors.New("execute request: cwd is outside allowed roots"), class: FailureClassPermission, recover: false, reasonPart: "permission"},
 		{name: "auth", err: errors.New("401 unauthorized"), class: FailureClassAuth, recover: false, reasonPart: "auth"},
 		{name: "network", err: errors.New("dial tcp: no such host"), class: FailureClassNetwork, recover: true, reasonPart: "network"},
+		{name: "network-api-404", err: errors.New("unexpected status 404 Not Found: url: https://ai.artisan-cloud.com/v1/responses"), class: FailureClassNetwork, recover: true, reasonPart: "network"},
 		{name: "resource", err: context.DeadlineExceeded, class: FailureClassResource, recover: true, reasonPart: "deadline"},
 		{name: "resource-killed", err: errors.New("execute request: run codex cli: signal: killed"), class: FailureClassResource, recover: true, reasonPart: "resource"},
 		{name: "tool", err: errors.New("exit status 1"), class: FailureClassTool, recover: true, reasonPart: "tool"},
-		{name: "unknown", err: errors.New("something odd happened"), class: FailureClassUnknown, recover: false, reasonPart: "unclassified"},
+		{name: "unknown", err: errors.New("something odd happened"), class: FailureClassUnknown, recover: true, reasonPart: "unclassified"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -177,6 +177,44 @@ func (q *Queue) UpdateStatus(taskID string, status TaskStatus) (RuntimeTask, boo
 	return RuntimeTask{}, false, nil
 }
 
+func (q *Queue) MergePayload(taskID string, fields map[string]interface{}) (RuntimeTask, bool, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if err := q.ensureFile(); err != nil {
+		return RuntimeTask{}, false, err
+	}
+	items, err := q.readAll()
+	if err != nil {
+		return RuntimeTask{}, false, err
+	}
+	taskID = strings.TrimSpace(taskID)
+	for idx := range items {
+		if items[idx].TaskID != taskID {
+			continue
+		}
+		if items[idx].Payload == nil {
+			items[idx].Payload = map[string]interface{}{}
+		}
+		for key, value := range fields {
+			normalizedKey := strings.TrimSpace(key)
+			if normalizedKey == "" {
+				continue
+			}
+			if value == nil {
+				delete(items[idx].Payload, normalizedKey)
+				continue
+			}
+			items[idx].Payload[normalizedKey] = value
+		}
+		items[idx].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		if err := q.writeAll(items); err != nil {
+			return RuntimeTask{}, false, err
+		}
+		return items[idx], true, nil
+	}
+	return RuntimeTask{}, false, nil
+}
+
 func (q *Queue) RequeueTask(taskID string) (RuntimeTask, bool, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -203,6 +241,72 @@ func (q *Queue) RequeueTask(taskID string) (RuntimeTask, bool, error) {
 			return RuntimeTask{}, false, err
 		}
 		return items[idx], true, nil
+	}
+	return RuntimeTask{}, false, nil
+}
+
+func (q *Queue) RetryTask(taskID string) (RuntimeTask, bool, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if err := q.ensureFile(); err != nil {
+		return RuntimeTask{}, false, err
+	}
+	items, err := q.readAll()
+	if err != nil {
+		return RuntimeTask{}, false, err
+	}
+	taskID = strings.TrimSpace(taskID)
+	for idx := range items {
+		if items[idx].TaskID != taskID {
+			continue
+		}
+		switch items[idx].Status {
+		case TaskFailed, TaskCanceled:
+			if items[idx].MaxRetry > 0 && items[idx].Retry >= items[idx].MaxRetry {
+				return RuntimeTask{}, false, fmt.Errorf("task retry exceeded max_retry=%d", items[idx].MaxRetry)
+			}
+			items[idx].Status = TaskQueued
+			items[idx].AssignedWorkerID = ""
+			items[idx].Retry++
+			items[idx].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			if err := q.writeAll(items); err != nil {
+				return RuntimeTask{}, false, err
+			}
+			return items[idx], true, nil
+		default:
+			return RuntimeTask{}, false, nil
+		}
+	}
+	return RuntimeTask{}, false, nil
+}
+
+func (q *Queue) CancelTask(taskID string) (RuntimeTask, bool, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if err := q.ensureFile(); err != nil {
+		return RuntimeTask{}, false, err
+	}
+	items, err := q.readAll()
+	if err != nil {
+		return RuntimeTask{}, false, err
+	}
+	taskID = strings.TrimSpace(taskID)
+	for idx := range items {
+		if items[idx].TaskID != taskID {
+			continue
+		}
+		switch items[idx].Status {
+		case TaskQueued, TaskRunning:
+			items[idx].Status = TaskCanceled
+			items[idx].AssignedWorkerID = ""
+			items[idx].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			if err := q.writeAll(items); err != nil {
+				return RuntimeTask{}, false, err
+			}
+			return items[idx], true, nil
+		default:
+			return RuntimeTask{}, false, nil
+		}
 	}
 	return RuntimeTask{}, false, nil
 }

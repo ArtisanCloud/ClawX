@@ -40,11 +40,11 @@
 
 ## 5. 技术验证清单
 
-- [ ] 启动 bootstrap 后状态文件可重复初始化且幂等
-- [ ] Worker 心跳超时判定不会误杀 busy worker
-- [ ] 任务回收重派不出现重复执行
-- [ ] Spec Kit 缺项时给出明确缺失文件和下一步动作
-- [ ] “继续补齐”在会话内稳定续流，不误触发实现门禁
+- [x] 启动 bootstrap 后状态文件可重复初始化且幂等（`TestBootstrapReinitializeIsIdempotent`）
+- [x] Worker 心跳超时判定不会误杀 busy worker（`TestRegistryBusyWorkerWithFreshHeartbeatNotStale`）
+- [x] 任务回收重派不出现重复执行（`TestRecoveryEngineRequeueAndReassignFromStaleWorker`）
+- [x] Spec Kit 缺项时给出明确缺失文件和下一步动作（`TestMaybeAutoApplyActionPlanSpecKitGateIncludesMissingAndNextStep`）
+- [x] “继续补齐”在会话内稳定续流，不误触发实现门禁（`TestApplyExecutionCompletionGateSkipsForSpecKitContinuation`）
 
 ## 6. 交付门禁
 
@@ -52,3 +52,4 @@
 - Gate 2：P1 任务完成后才能开放默认自动调度。
 - Gate 3：`go test ./... -count=1` 全绿。
 - Gate 4：至少 1 条真实对话链路验证“启动 -> 调度 -> 恢复 -> 回执”闭环。
+  - 验证用例：`TestMaybeAutoApplyActionPlanRuntimeReleaseTaskControlClosedLoop`（`cmd/clawx`）+ `TestRuntimeReleaseControlFlowIntegration`（`tests/integration`）。

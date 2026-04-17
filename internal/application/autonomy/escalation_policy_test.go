@@ -17,4 +17,7 @@ func TestEscalationPolicyDecide(t *testing.T) {
 	if got := policy.Decide(FailureClassification{Class: FailureClassTool, Recoverable: true}, true); !got.ShouldEscalate {
 		t.Fatalf("tool with exhausted recovery should escalate")
 	}
+	if got := policy.Decide(FailureClassification{Class: FailureClassUnknown, Recoverable: true}, false); got.ShouldEscalate {
+		t.Fatalf("unknown should not escalate before recovery probe exhausted")
+	}
 }

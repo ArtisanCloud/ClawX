@@ -103,3 +103,21 @@ func TestBuildCodexExecArgsSanitizesInvalidUTF8(t *testing.T) {
 		}
 	}
 }
+
+func TestParseCodexFailureMessageUsesTurnFailedMessage(t *testing.T) {
+	raw := strings.Join([]string{
+		`{"type":"error","message":"Reconnecting... 5/5 (unexpected status 404 Not Found)"}`,
+		`{"type":"turn.failed","error":{"message":"unexpected status 404 Not Found: <!DOCTYPE html> ... url: https://ai.artisan-cloud.com/v1/responses"}}`,
+	}, "\n")
+
+	got := parseCodexFailureMessage(raw)
+	if !strings.Contains(got, "unexpected status 404 Not Found") {
+		t.Fatalf("expected parsed failure message, got %q", got)
+	}
+	if !strings.Contains(got, "/v1/responses") {
+		t.Fatalf("expected endpoint detail to be preserved, got %q", got)
+	}
+	if strings.Contains(got, "\n") {
+		t.Fatalf("expected compact single-line message, got %q", got)
+	}
+}

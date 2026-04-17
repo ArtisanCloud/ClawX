@@ -72,3 +72,26 @@ func TestRegistryIdleWorkers(t *testing.T) {
 		t.Fatalf("unexpected idle worker order: %+v", idle)
 	}
 }
+
+func TestRegistryBusyWorkerWithFreshHeartbeatNotStale(t *testing.T) {
+	tmp := t.TempDir()
+	reg := NewRegistry(
+		filepath.Join(tmp, "worker_states.json"),
+		filepath.Join(tmp, "heartbeats.json"),
+	)
+	base := time.Date(2026, 3, 31, 9, 0, 0, 0, time.UTC)
+	if err := reg.ReportHeartbeat("w-executor-1", base); err != nil {
+		t.Fatalf("report heartbeat: %v", err)
+	}
+	if err := reg.UpdateWorkerState("w-executor-1", "busy", "t-1", "executor", base); err != nil {
+		t.Fatalf("seed busy worker: %v", err)
+	}
+
+	stale, err := reg.StaleWorkers(base.Add(10*time.Minute), 30*time.Minute)
+	if err != nil {
+		t.Fatalf("stale workers: %v", err)
+	}
+	if len(stale) != 0 {
+		t.Fatalf("expected no stale workers with fresh heartbeat, got=%v", stale)
+	}
+}

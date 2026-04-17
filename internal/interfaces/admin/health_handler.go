@@ -9,11 +9,19 @@ import (
 )
 
 type HealthHandler struct {
-	probe *health.Probe
+	probe           *health.Probe
+	detailsProvider func(ctx context.Context) map[string]interface{}
 }
 
 func NewHealthHandler(probe *health.Probe) *HealthHandler {
 	return &HealthHandler{probe: probe}
+}
+
+func (h *HealthHandler) SetDetailsProvider(provider func(ctx context.Context) map[string]interface{}) {
+	if h == nil {
+		return
+	}
+	h.detailsProvider = provider
 }
 
 func (h *HealthHandler) Register(mux *http.ServeMux, path string) {
@@ -28,6 +36,11 @@ func (h *HealthHandler) Register(mux *http.ServeMux, path string) {
 
 func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	report := h.probe.Check(r.Context())
+	if h.detailsProvider != nil {
+		if details := h.detailsProvider(r.Context()); len(details) > 0 {
+			report.Details = details
+		}
+	}
 	statusCode := mapStatus(report.Status)
 
 	payload, err := json.Marshal(report)

@@ -90,10 +90,16 @@ func TestHandleExecutionFailureEscalationPrompt(t *testing.T) {
 	if !strings.Contains(response, "处理失败") {
 		t.Fatalf("expected failed receipt, got: %s", response)
 	}
-	if !strings.Contains(response, "已尝试:") {
+	if !strings.Contains(response, "已尝试动作：") {
 		t.Fatalf("expected escalation evidence section, got: %s", response)
 	}
-	if !strings.Contains(response, "推荐操作:") {
+	if !strings.Contains(response, "完成状态：失败（待确认）。") {
+		t.Fatalf("expected escalation status line, got: %s", response)
+	}
+	if !strings.Contains(response, "恢复动作：") {
 		t.Fatalf("expected recommendation section, got: %s", response)
+	}
+	if !strings.Contains(response, "下一步：请确认是否按恢复动作继续，我会基于你的选择续跑。") {
+		t.Fatalf("expected escalation next-step guidance, got: %s", response)
 	}
 }

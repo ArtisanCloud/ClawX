@@ -45,6 +45,10 @@ func TestDefaultRecoveryRegistry_Strategies(t *testing.T) {
 	if !ok || permission.Retryable || permission.MaxRetries != 0 {
 		t.Fatalf("unexpected permission strategy: %#v", permission)
 	}
+	unknown, ok := registry.Resolve(FailureClassUnknown)
+	if !ok || !unknown.Retryable || unknown.MaxRetries != 1 {
+		t.Fatalf("unexpected unknown strategy: %#v", unknown)
+	}
 }
 
 func TestRecoveryPolicyBackoffForAttempt(t *testing.T) {

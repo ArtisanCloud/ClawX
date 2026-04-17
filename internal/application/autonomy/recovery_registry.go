@@ -108,5 +108,13 @@ func NewDefaultRecoveryRegistry() *RecoveryRegistry {
 		BaseBackoff: 0,
 		MaxDuration: 5 * time.Second,
 	})
+	_ = registry.Register(RecoveryPolicy{
+		Name:        "unknown_probe_retry",
+		Class:       FailureClassUnknown,
+		Retryable:   true,
+		MaxRetries:  1,
+		BaseBackoff: 200 * time.Millisecond,
+		MaxDuration: 10 * time.Second,
+	})
 	return registry
 }

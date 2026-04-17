@@ -71,3 +71,23 @@ func TestRecoveryExecutor_ExhaustsRetries(t *testing.T) {
 		t.Fatalf("expected 2 attempts for tool policy, got: %d", result.Attempts)
 	}
 }
+
+func TestRecoveryExecutor_UnknownClassGetsSingleProbeRetry(t *testing.T) {
+	executor := NewRecoveryExecutor(NewDefaultRecoveryRegistry())
+	executor.sleepFn = func(context.Context, time.Duration) error { return nil }
+	called := 0
+	result := executor.Execute(context.Background(), FailureClassification{
+		Class:       FailureClassUnknown,
+		Recoverable: true,
+		Reason:      "unclassified_retryable",
+	}, func(_ context.Context, _ int) error {
+		called++
+		return errors.New("still failed")
+	})
+	if result.Recovered {
+		t.Fatalf("expected unrecovered result")
+	}
+	if result.Attempts != 1 || called != 1 {
+		t.Fatalf("expected single unknown retry attempt, got attempts=%d called=%d", result.Attempts, called)
+	}
+}

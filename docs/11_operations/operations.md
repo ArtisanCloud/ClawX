@@ -122,6 +122,12 @@ clawx trace autonomy-report --file ~/.clawx/logs/autonomy.jsonl --json
 - `escalations` 比例异常升高：优先查看 `by_failure_class` 和 `reason`，确认是否出现权限/凭据系统性问题。
 - `unknown` 分类偏高：检查执行错误是否被包装丢失关键信息，必要时补充错误上下文。
 
+## Runtime Exec 审计（执行凭证）
+- 审计日志：`~/.clawx/logs/runtime_exec.jsonl`
+- 用途：核对每条 `exec_id` 对应的命令、执行结果、决策来源（`mode/apply_source/lock_source/fallback_source`）。
+- 详细字段含义与排障命令见：
+  - `docs/11_operations/runtime_exec_attestation.md`
+
 ## Token 用量与成本观测
 - 写入文件：`~/.clawx/logs/token_usage.jsonl`（每次 LLM 响应一条记录）。
 - 关键字段：`prompt_tokens`、`completion_tokens`、`total_tokens`、`prompt_cached_tokens`、`estimated_cost_usd`。

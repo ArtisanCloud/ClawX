@@ -100,6 +100,9 @@ var channelRouteMetrics = service.NewChannelRouteMetrics(2048)
 var traceLogger *stdlogging.Logger
 
 var executionEvidenceCommandPattern = regexp.MustCompile(`(?m)(^|\n)\s*(go\s+test|go\s+run|npm\s+run|pnpm\s+run|yarn\s+|pytest|cargo\s+test|make\s+test|bash\s+|sh\s+|uv\s+run|curl\s+|systemctl\s+|pip\s+install|pip3\s+install|python(?:3)?\s+-m\s+pip\s+install)`)
+var executionBlockerBlockPattern = regexp.MustCompile("(?is)```(?:json)?\\s*(\\{.*?\"type\"\\s*:\\s*\"execution_blocker\".*?\\})\\s*```")
+var progressReportBlockPattern = regexp.MustCompile("(?is)```(?:json)?\\s*(\\{.*?\"type\"\\s*:\\s*\"progress_report\".*?\\})\\s*```")
+var runtimeExecAlternateCommandPattern = regexp.MustCompile(`(?is)^\s*(?:替代命令|alternate command|alternative command|replacement command)\s*[:：]?\s*(.+?)\s*$`)
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -223,10 +226,26 @@ func runServe() error {
 	delivery := service.NewOutputDelivery(formatter, streamer)
 	probe := health.NewProbe(defaultRuntime.runner.HealthCheck)
 	healthHandler := adminiface.NewHealthHandler(probe)
+	healthHandler.SetDetailsProvider(func(context.Context) map[string]interface{} {
+		return map[string]interface{}{
+			"task_control": taskControlMetricsHealthDetails(),
+		}
+	})
+	taskControlMetricsPath := resolveTaskControlMetricsRoutePath(os.Getenv("CLAWX_TASK_CONTROL_METRICS_PATH"))
+	taskControlMetricsEnabled := resolveTaskControlMetricsRouteEnabled(os.Getenv("CLAWX_TASK_CONTROL_METRICS_ENABLED"))
+	taskControlMetricsHandler := adminiface.NewTaskControlMetricsHandler(func(context.Context) map[string]interface{} {
+		return taskControlMetricsHealthDetails()
+	})
+	taskControlPrometheusPath := resolveTaskControlPrometheusRoutePath(os.Getenv("CLAWX_TASK_CONTROL_PROMETHEUS_PATH"))
+	taskControlPrometheusEnabled := resolveTaskControlPrometheusRouteEnabled(os.Getenv("CLAWX_TASK_CONTROL_PROMETHEUS_ENABLED"))
+	taskControlPrometheusHandler := adminiface.NewTaskControlPrometheusHandler(func(context.Context) string {
+		return taskControlMetricsPrometheusPayload()
+	})
 	httpMux := http.NewServeMux()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	startLeadWorkerExecutionLoops(ctx, runtimes)
 
 	fatalErrCh := make(chan error, 1)
 	started := false
@@ -242,13 +261,39 @@ func runServe() error {
 		}()
 	}
 
+	webhookPaths := make(map[string]struct{})
 	if cfg.HealthProbeEnabled {
-		healthHandler.Register(httpMux, cfg.HealthProbePath)
+		healthPath := strings.TrimSpace(cfg.HealthProbePath)
+		if healthPath == "" {
+			healthPath = "/healthz"
+		}
+		healthHandler.Register(httpMux, healthPath)
+		webhookPaths[healthPath] = struct{}{}
 		started = true
 		httpRuntimeNeeded = true
 	}
-
-	webhookPaths := make(map[string]struct{})
+	if taskControlMetricsEnabled {
+		if _, exists := webhookPaths[taskControlMetricsPath]; exists {
+			log.Printf("task control metrics route skipped due duplicate path: %s", taskControlMetricsPath)
+		} else {
+			taskControlMetricsHandler.Register(httpMux, taskControlMetricsPath)
+			webhookPaths[taskControlMetricsPath] = struct{}{}
+			log.Printf("task control metrics route registered: path=%s", taskControlMetricsPath)
+			started = true
+			httpRuntimeNeeded = true
+		}
+	}
+	if taskControlPrometheusEnabled {
+		if _, exists := webhookPaths[taskControlPrometheusPath]; exists {
+			log.Printf("task control prometheus route skipped due duplicate path: %s", taskControlPrometheusPath)
+		} else {
+			taskControlPrometheusHandler.Register(httpMux, taskControlPrometheusPath)
+			webhookPaths[taskControlPrometheusPath] = struct{}{}
+			log.Printf("task control prometheus route registered: path=%s", taskControlPrometheusPath)
+			started = true
+			httpRuntimeNeeded = true
+		}
+	}
 	for _, instance := range cfg.TelegramInstances {
 		if !instance.Enabled {
 			continue
@@ -266,6 +311,13 @@ func runServe() error {
 		if err != nil {
 			return fmt.Errorf("init telegram adapter[%s]: %w", instance.ID, err)
 		}
+		registerConversationProgressDispatcher("telegram", instance.ID, func(dispatchCtx context.Context, targetRaw json.RawMessage, body string) error {
+			var target telegramchat.Target
+			if err := json.Unmarshal(targetRaw, &target); err != nil {
+				return err
+			}
+			return telegramAdapter.SendDirect(dispatchCtx, target, body)
+		})
 
 		instanceCopy := instance
 		telegramInboundHandler := func(messageCtx context.Context, envelope telegramchat.InboundEnvelope) error {
@@ -378,6 +430,13 @@ func runServe() error {
 		if err != nil {
 			return fmt.Errorf("init feishu adapter[%s]: %w", instance.ID, err)
 		}
+		registerConversationProgressDispatcher("feishu", instance.ID, func(dispatchCtx context.Context, targetRaw json.RawMessage, body string) error {
+			var target feishuchat.Target
+			if err := json.Unmarshal(targetRaw, &target); err != nil {
+				return err
+			}
+			return feishuAdapter.SendDirect(dispatchCtx, target, body)
+		})
 
 		instanceCopy := instance
 		feishuAdapterCopy := feishuAdapter
@@ -460,6 +519,13 @@ func runServe() error {
 		if err != nil {
 			return fmt.Errorf("init wecom adapter[%s]: %w", instance.ID, err)
 		}
+		registerConversationProgressDispatcher("wecom", instance.ID, func(dispatchCtx context.Context, targetRaw json.RawMessage, body string) error {
+			var target wecomchat.Target
+			if err := json.Unmarshal(targetRaw, &target); err != nil {
+				return err
+			}
+			return wecomAdapter.SendDirect(dispatchCtx, target, body)
+		})
 
 		instanceCopy := instance
 		wecomAdapterCopy := wecomAdapter
@@ -551,6 +617,13 @@ func runServe() error {
 		if err != nil {
 			return fmt.Errorf("init discord adapter[%s]: %w", instance.ID, err)
 		}
+		registerConversationProgressDispatcher("discord", instance.ID, func(dispatchCtx context.Context, targetRaw json.RawMessage, body string) error {
+			var target discordchat.Target
+			if err := json.Unmarshal(targetRaw, &target); err != nil {
+				return err
+			}
+			return discordAdapter.SendDirect(dispatchCtx, target, body)
+		})
 
 		instanceCopy := instance
 		go func() {
@@ -759,6 +832,69 @@ func normalizeFeishuRoutePath(instanceID string) string {
 func normalizeWeComRoutePath(instanceID string) string {
 	segment := sanitizeConversationSegment(instanceID, "default")
 	return "/webhooks/wecom/" + segment
+}
+
+const defaultTaskControlMetricsRoutePath = "/metrics/task-control"
+const defaultTaskControlPrometheusRoutePath = "/metrics/task-control/prometheus"
+
+func resolveTaskControlMetricsRouteEnabled(raw string) bool {
+	value := strings.TrimSpace(strings.ToLower(raw))
+	if value == "" {
+		return true
+	}
+	switch value {
+	case "0", "false", "off", "no", "disabled":
+		return false
+	default:
+		return true
+	}
+}
+
+func resolveTaskControlMetricsRoutePath(raw string) string {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		path = defaultTaskControlMetricsRoutePath
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if path != "/" {
+		path = strings.TrimRight(path, "/")
+	}
+	if strings.TrimSpace(path) == "" {
+		return defaultTaskControlMetricsRoutePath
+	}
+	return path
+}
+
+func resolveTaskControlPrometheusRouteEnabled(raw string) bool {
+	value := strings.TrimSpace(strings.ToLower(raw))
+	if value == "" {
+		return true
+	}
+	switch value {
+	case "0", "false", "off", "no", "disabled":
+		return false
+	default:
+		return true
+	}
+}
+
+func resolveTaskControlPrometheusRoutePath(raw string) string {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		path = defaultTaskControlPrometheusRoutePath
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if path != "/" {
+		path = strings.TrimRight(path, "/")
+	}
+	if strings.TrimSpace(path) == "" {
+		return defaultTaskControlPrometheusRoutePath
+	}
+	return path
 }
 
 type sessionStore interface {
@@ -2120,19 +2256,25 @@ func formatTaskReceipt(phase taskReceiptPhase, detail string) string {
 	switch phase {
 	case taskReceiptReceived:
 		if detail == "" {
-			return "已接收，开始处理。"
+			return "已接收，开始处理。\n完成状态：已接收。"
 		}
-		return "已接收，开始处理：" + detail
+		return "已接收，开始处理：" + detail + "\n完成状态：已接收。"
 	case taskReceiptProgress:
 		if detail == "" {
-			return "处理中，请稍候。"
+			return "处理中，请稍候。\n完成状态：进行中。"
 		}
-		return "处理中：" + detail
+		return "处理中：" + detail + "\n完成状态：进行中。"
 	case taskReceiptComplete:
 		if detail == "" {
-			return "处理完成。"
+			return "处理完成。\n完成状态：已完成。"
 		}
-		return detail
+		if strings.Contains(detail, "完成状态：") {
+			return detail
+		}
+		if strings.Contains(detail, "\n") {
+			return detail + "\n完成状态：已完成。"
+		}
+		return detail + "\n完成状态：已完成。"
 	case taskReceiptFailed:
 		if detail == "" {
 			return "处理失败。"
@@ -2154,9 +2296,11 @@ func emitExecutionFailureClassification(channel string, instanceID string, runti
 func buildAutonomyEscalationPrompt(classification autonomy.FailureClassification, attempted []string, recommendation string) string {
 	lines := []string{
 		"执行失败，需你确认后继续。",
-		"失败类型: " + string(classification.Class),
-		"失败原因: " + classification.Reason,
-		"已尝试:",
+		"结论：自动恢复未完成，需你确认下一步策略。",
+		"完成状态：失败（待确认）。",
+		"失败类型：" + string(classification.Class),
+		"失败原因：" + classification.Reason,
+		"已尝试动作：",
 	}
 	if len(attempted) == 0 {
 		lines = append(lines, "- 尚无可自动重试步骤")
@@ -2172,7 +2316,18 @@ func buildAutonomyEscalationPrompt(classification autonomy.FailureClassification
 	if strings.TrimSpace(recommendation) == "" {
 		recommendation = "请确认是否授权继续执行恢复动作。"
 	}
-	lines = append(lines, "推荐操作: "+recommendation)
+	lines = append(lines, "恢复动作："+recommendation)
+	lines = append(lines, "下一步：请确认是否按恢复动作继续，我会基于你的选择续跑。")
+	return strings.Join(lines, "\n")
+}
+
+func renderNonEscalatedExecutionFailure(execErr error) string {
+	lines := []string{
+		formatTaskReceipt(taskReceiptFailed, chatiface.FormatError(execErr)),
+		"结论：本轮执行失败，未进入升级提问流程。",
+		"完成状态：失败。",
+		"下一步：可直接发送“继续”或“重试”按当前进度重跑，也可发送新的执行指令。",
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -2195,7 +2350,7 @@ func formatExecutionFailureResponse(execErr error, attempted []string, recoveryE
 	classification := autonomy.ClassifyFailure(execErr)
 	decision := defaultEscalationPolicy.Decide(classification, recoveryExhausted)
 	if !decision.ShouldEscalate {
-		return formatTaskReceipt(taskReceiptFailed, chatiface.FormatError(execErr))
+		return renderNonEscalatedExecutionFailure(execErr)
 	}
 	escalationBody := buildAutonomyEscalationPrompt(classification, attempted, defaultEscalationRecommendation(classification))
 	return formatTaskReceipt(taskReceiptFailed, "自动恢复失败，需要你确认后继续。") + "\n" + escalationBody
@@ -2214,7 +2369,7 @@ func handleExecutionFailure(channel string, instanceID string, runtime agentRunt
 	}
 	emitAutonomyFlow(channel, instanceID, runtime, decision, "escalate", "skipped", classification, escalation.Reason, nil)
 	emitAutonomyFlow(channel, instanceID, runtime, decision, "result", "failed_no_escalation", classification, "returned_direct_error", execErr)
-	return formatTaskReceipt(taskReceiptFailed, chatiface.FormatError(execErr))
+	return renderNonEscalatedExecutionFailure(execErr)
 }
 
 func buildSessionCommandFromDecision(decision service.Decision, runtime agentRuntime, executeInput string, executeCWD string) command.SessionCommand {
@@ -2274,6 +2429,793 @@ func enforceAutonomyStructuredPlanGateOnOutput(output string) (string, bool, err
 	return output, false, nil
 }
 
+func resolveAutonomyLoopMaxRounds() int {
+	const (
+		defaultAutonomyLoopMaxRounds = 6
+		hardCapAutonomyLoopMaxRounds = 12
+	)
+	rounds := defaultAutonomyLoopMaxRounds
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_AUTONOMY_LOOP_MAX_ROUNDS")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil {
+			rounds = parsed
+		}
+	}
+	if rounds < 1 {
+		return 1
+	}
+	if rounds > hardCapAutonomyLoopMaxRounds {
+		return hardCapAutonomyLoopMaxRounds
+	}
+	return rounds
+}
+
+func resolveAutonomyLoopMaxSegments() int {
+	const (
+		defaultAutonomyLoopMaxSegments = 0
+		hardCapAutonomyLoopMaxSegments = 256
+	)
+	segments := defaultAutonomyLoopMaxSegments
+	if raw := strings.TrimSpace(os.Getenv("CLAWX_AUTONOMY_LOOP_MAX_SEGMENTS")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil {
+			segments = parsed
+		}
+	}
+	if segments <= 0 {
+		return 0
+	}
+	if segments > hardCapAutonomyLoopMaxSegments {
+		return hardCapAutonomyLoopMaxSegments
+	}
+	return segments
+}
+
+type autonomyLoopPhase string
+
+const (
+	autonomyLoopPhaseInit     autonomyLoopPhase = "init"
+	autonomyLoopPhaseEvaluate autonomyLoopPhase = "evaluate"
+	autonomyLoopPhaseContinue autonomyLoopPhase = "continue"
+	autonomyLoopPhaseDone     autonomyLoopPhase = "done"
+	autonomyLoopPhaseStopped  autonomyLoopPhase = "stopped"
+)
+
+type autonomyLoopState struct {
+	Goal                string
+	MaxRounds           int
+	Round               int
+	Phase               autonomyLoopPhase
+	Completed           bool
+	StopReason          string
+	LastActionStatus    string
+	ConsecutiveNoAction int
+}
+
+type autonomyProgressReport struct {
+	Type           string
+	Goal           string
+	Done           bool
+	DoneCriteria   []string
+	RemainingSteps []string
+	Evidence       []string
+	Summary        string
+	NextAction     string
+}
+
+func newAutonomyLoopState(decision service.Decision, maxRounds int) autonomyLoopState {
+	goal := strings.TrimSpace(decision.Message.Text)
+	if goal == "" {
+		goal = "继续完成当前用户任务"
+	}
+	return autonomyLoopState{
+		Goal:      goal,
+		MaxRounds: maxRounds,
+		Phase:     autonomyLoopPhaseInit,
+	}
+}
+
+func evaluateAutonomyLoopState(
+	decision service.Decision,
+	state autonomyLoopState,
+	hadActionPlan bool,
+	result actionPlanApplyResult,
+	narrative string,
+	progressReport autonomyProgressReport,
+	hasProgressReport bool,
+) (autonomyLoopState, bool) {
+	narrative = strings.TrimSpace(narrative)
+	state.Phase = autonomyLoopPhaseEvaluate
+	if decision.Kind != service.DecisionExecute {
+		state.Phase = autonomyLoopPhaseDone
+		state.StopReason = "non_execute_decision"
+		return state, false
+	}
+	if hasProgressReport {
+		state.LastActionStatus = "progress_report"
+		if goal := strings.TrimSpace(progressReport.Goal); goal != "" {
+			state.Goal = goal
+		}
+		if progressReport.Done {
+			state.Completed = true
+			state.Phase = autonomyLoopPhaseDone
+			state.StopReason = "progress_report_done"
+			return state, false
+		}
+		if len(normalizeNonEmptyList(progressReport.RemainingSteps)) > 0 {
+			if state.Round >= state.MaxRounds {
+				state.Phase = autonomyLoopPhaseStopped
+				state.StopReason = "round_limit_reached_with_remaining_steps"
+				return state, false
+			}
+			state.Phase = autonomyLoopPhaseContinue
+			state.StopReason = "progress_report_remaining_steps"
+			return state, true
+		}
+		if state.Round >= state.MaxRounds {
+			state.Phase = autonomyLoopPhaseStopped
+			state.StopReason = "round_limit_reached_missing_remaining_steps"
+			return state, false
+		}
+		state.Phase = autonomyLoopPhaseContinue
+		state.StopReason = "progress_report_missing_remaining_steps"
+		return state, true
+	}
+
+	if !hadActionPlan {
+		state.ConsecutiveNoAction++
+		state.LastActionStatus = "no_action_plan"
+		if isLikelyTaskCompletedNarrative(narrative) {
+			state.Completed = true
+			state.Phase = autonomyLoopPhaseDone
+			state.StopReason = "narrative_completed_without_plan"
+			return state, false
+		}
+		if narrative != "" {
+			state.Phase = autonomyLoopPhaseDone
+			state.StopReason = "narrative_answer_without_plan"
+			return state, false
+		}
+		if state.Round >= state.MaxRounds || state.ConsecutiveNoAction >= 2 {
+			state.Phase = autonomyLoopPhaseStopped
+			state.StopReason = "no_action_plan"
+			return state, false
+		}
+		state.Phase = autonomyLoopPhaseContinue
+		state.StopReason = "empty_output_retry"
+		return state, true
+	}
+
+	state.ConsecutiveNoAction = 0
+	status := strings.TrimSpace(strings.ToLower(result.Status))
+	state.LastActionStatus = status
+	if status == "applied" && result.ReadOnlyQuery {
+		state.Completed = true
+		state.Phase = autonomyLoopPhaseDone
+		state.StopReason = "readonly_query_completed"
+		return state, false
+	}
+	switch status {
+	case "partial", "failed":
+		if state.Round >= state.MaxRounds {
+			state.Phase = autonomyLoopPhaseStopped
+			state.StopReason = "round_limit_reached_on_" + status
+			return state, false
+		}
+		state.Phase = autonomyLoopPhaseContinue
+		state.StopReason = "status_" + status
+		return state, true
+	case "applied":
+		if isLikelyTaskCompletedNarrative(narrative) {
+			state.Completed = true
+			state.Phase = autonomyLoopPhaseDone
+			state.StopReason = "completion_detected"
+			return state, false
+		}
+		if narrative == "" {
+			if state.Round >= state.MaxRounds {
+				state.Phase = autonomyLoopPhaseStopped
+				state.StopReason = "round_limit_reached_on_applied_empty_narrative"
+				return state, false
+			}
+			state.Phase = autonomyLoopPhaseContinue
+			state.StopReason = "applied_without_narrative"
+			return state, true
+		}
+		if looksLikeContinuationSignal(narrative) {
+			if state.Round >= state.MaxRounds {
+				state.Phase = autonomyLoopPhaseStopped
+				state.StopReason = "round_limit_reached_on_continuation_signal"
+				return state, false
+			}
+			state.Phase = autonomyLoopPhaseContinue
+			state.StopReason = "narrative_requests_followup"
+			return state, true
+		}
+		state.Phase = autonomyLoopPhaseDone
+		state.StopReason = "applied_with_final_narrative"
+		return state, false
+	default:
+		state.Phase = autonomyLoopPhaseDone
+		state.StopReason = "status_" + status
+		return state, false
+	}
+}
+
+func looksLikeContinuationSignal(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	if lower == "" {
+		return false
+	}
+	return containsAnyPhrase(lower,
+		"下一步", "继续", "未完成", "还需要", "随后", "然后", "将继续", "待完成", "待处理", "后续",
+	)
+}
+
+func isLikelyTaskCompletedNarrative(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	lower := strings.ToLower(text)
+	if containsAnyPhrase(lower, "未完成", "尚未完成", "还没完成", "失败", "error", "报错", "需你确认", "需要你确认") {
+		return false
+	}
+	completed := looksLikeCompletionClaim(lower) || containsAnyPhrase(lower, "处理完成", "执行完成", "已执行完成")
+	if !completed {
+		return false
+	}
+	if hasExecutionEvidence(text, lower) {
+		return true
+	}
+	if containsAnyPhrase(lower, "测试结果", "验证通过", "全部通过", "已通过") {
+		return true
+	}
+	return containsAnyPhrase(lower, "无可见输出", "任务完成")
+}
+
+func buildAutonomyLoopFollowUpInput(state autonomyLoopState, feedback string) string {
+	goal := strings.TrimSpace(state.Goal)
+	feedback = strings.TrimSpace(feedback)
+	if goal == "" {
+		goal = "继续完成当前用户任务"
+	}
+	if feedback == "" {
+		feedback = "上一轮执行无输出，请直接继续推进。"
+	}
+	return strings.TrimSpace(strings.Join([]string{
+		"[ClawX Autonomous Loop]",
+		fmt.Sprintf("loop_round=%d/%d", state.Round, state.MaxRounds),
+		"loop_phase=" + string(state.Phase),
+		"loop_last_action_status=" + fallbackValue(state.LastActionStatus, "-"),
+		"loop_stop_reason=" + fallbackValue(state.StopReason, "-"),
+		"你的上一轮 action_plan 已由系统执行。",
+		"目标：" + goal,
+		"",
+		"[Execution Feedback]",
+		feedback,
+		"",
+		"请继续推进目标：",
+		"- 先输出一个 progress_report(JSON，可放在 ```json 代码块)。",
+		"- 若目标已完成：progress_report.done=true，并在 evidence 中给出关键证据。",
+		"- 若尚未完成：progress_report.done=false，remaining_steps 必须至少 1 项，并输出下一步 action_plan（只包含必要动作）。",
+	}, "\n"))
+}
+
+func buildAutonomyLoopSegmentFollowUpInput(state autonomyLoopState, feedback string, nextSegment int, maxSegments int) string {
+	lines := []string{
+		"[ClawX Autonomous Segment Rollover]",
+		"loop_segment=" + formatAutonomyLoopSegmentLabel(nextSegment, maxSegments),
+		"上一段已达到单段轮次上限，系统已自动进入下一段续跑。",
+		"请保持同一目标继续推进，不要重置上下文。",
+		"",
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n") + "\n" + buildAutonomyLoopFollowUpInput(state, feedback))
+}
+
+func canAutonomyLoopRolloverToNextSegment(segment int, maxSegments int) bool {
+	if maxSegments <= 0 {
+		return true
+	}
+	return segment < maxSegments
+}
+
+func formatAutonomyLoopSegmentLabel(segment int, maxSegments int) string {
+	if maxSegments <= 0 {
+		return fmt.Sprintf("%d/unlimited", segment)
+	}
+	return fmt.Sprintf("%d/%d", segment, maxSegments)
+}
+
+func isAutonomyLoopRoundLimitReached(state autonomyLoopState) bool {
+	return strings.HasPrefix(strings.TrimSpace(state.StopReason), "round_limit_reached") && !state.Completed
+}
+
+func renderAutonomyProgressNarrative(report autonomyProgressReport) string {
+	remaining := normalizeNonEmptyList(report.RemainingSteps)
+	doneCriteria := normalizeNonEmptyList(report.DoneCriteria)
+	evidence := normalizeNonEmptyList(report.Evidence)
+	lines := []string{"进展更新："}
+	statusLabel := "进行中"
+	if report.Done {
+		statusLabel = "已完成"
+	}
+	lines = append(lines, "完成状态："+statusLabel)
+
+	summary := strings.TrimSpace(report.Summary)
+	if summary == "" {
+		if report.Done {
+			summary = "当前目标已完成。"
+		} else {
+			summary = "当前目标尚未完成，我会继续推进。"
+		}
+	}
+	lines = append(lines, "摘要："+summary)
+	if goal := strings.TrimSpace(report.Goal); goal != "" {
+		lines = append(lines, "当前目标："+summarizeText(goal, 180))
+	}
+	if len(doneCriteria) > 0 {
+		lines = append(lines, "完成条件："+strings.Join(doneCriteria, "；"))
+	}
+
+	if len(evidence) > 0 {
+		lines = append(lines, "关键证据：")
+		for _, item := range evidence {
+			lines = append(lines, "- "+summarizeText(item, 180))
+		}
+	}
+	if !report.Done && len(remaining) > 0 {
+		lines = append(lines, "剩余步骤："+strings.Join(remaining, "；"))
+	}
+	next := strings.TrimSpace(report.NextAction)
+	if next == "" && !report.Done && len(remaining) > 0 {
+		next = nextStepAutonomyProgressDefault
+	}
+	if next != "" {
+		lines = append(lines, nextStepLine(summarizeText(next, 180)))
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+type autonomyGoalSnapshot struct {
+	Goal      string
+	Status    string
+	Remaining []string
+	Next      string
+}
+
+func resolveAutonomyGoalSnapshot(conversationID string, state autonomyLoopState) autonomyGoalSnapshot {
+	snapshot := autonomyGoalSnapshot{}
+	if goal, ok := getExecutionGoalState(conversationID); ok {
+		if text := strings.TrimSpace(goal.Goal); text != "" {
+			snapshot.Goal = summarizeText(text, 180)
+		} else if text := strings.TrimSpace(state.Goal); text != "" {
+			snapshot.Goal = summarizeText(text, 180)
+		}
+		snapshot.Status = strings.TrimSpace(goal.Status)
+		snapshot.Remaining = limitExecutionList(goal.RemainingSteps, 3)
+		if next := strings.TrimSpace(goal.NextAction); next != "" {
+			snapshot.Next = summarizeText(next, 180)
+		}
+		return snapshot
+	}
+	if text := strings.TrimSpace(state.Goal); text != "" {
+		snapshot.Goal = summarizeText(text, 180)
+	}
+	return snapshot
+}
+
+func appendAutonomyGoalSnapshot(lines []string, snapshot autonomyGoalSnapshot) []string {
+	if snapshot.Goal != "" {
+		lines = append(lines, "当前目标："+snapshot.Goal)
+	}
+	if snapshot.Status != "" {
+		lines = append(lines, "当前状态："+snapshot.Status+"。")
+	}
+	if len(snapshot.Remaining) > 0 {
+		lines = append(lines, "剩余步骤："+strings.Join(snapshot.Remaining, "；"))
+	}
+	if snapshot.Next != "" {
+		lines = append(lines, "下一步动作："+snapshot.Next)
+	}
+	return lines
+}
+
+func formatAutonomyRoundLimitNotice(conversationID string, state autonomyLoopState) string {
+	lines := make([]string, 0, 6)
+	lines = append(lines, fmt.Sprintf("自治暂停：已达到连续执行轮次上限（第 %d/%d 轮）。", state.Round, state.MaxRounds))
+	lines = append(lines, "结论：已触发轮次上限保护，等待你确认后继续。")
+	lines = append(lines, "完成状态：已暂停（等待确认）。")
+	lines = append(lines, "当前阶段：触发轮次上限保护，已暂停等待确认。")
+	lines = appendAutonomyGoalSnapshot(lines, resolveAutonomyGoalSnapshot(conversationID, state))
+	if sourceLine := buildRuntimeExecDecisionContextLineFromAttestations(listRecentRuntimeExecAttestations(conversationID, 6)); sourceLine != "" {
+		lines = append(lines, sourceLine)
+	}
+	lines = append(lines, "处理建议：优先按剩余步骤继续；如要切换目标可直接改指令。")
+	lines = append(lines, "下一步：直接发送下一条消息（如“继续”）即可从当前进度续跑；如果要换方向，直接说新的目标。")
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func formatAutonomyFollowUpFailureNotice(conversationID string, state autonomyLoopState, execErr error) string {
+	lines := []string{formatTaskReceipt(taskReceiptFailed, "续跑时遇到错误，已暂停等待你确认。")}
+	lines = append(lines, "结论：续跑执行失败，需先处理错误再继续。")
+	lines = append(lines, "完成状态：失败（已暂停）。")
+	lines = append(lines, "当前阶段：续跑执行失败，已暂停等待确认。")
+	if state.Round > 0 && state.MaxRounds > 0 {
+		lines = append(lines, fmt.Sprintf("失败位置：第 %d/%d 轮续跑。", state.Round, state.MaxRounds))
+	}
+	if execErr != nil {
+		lines = append(lines, "失败摘要："+summarizeText(execErr.Error(), 220))
+	}
+	lines = appendAutonomyGoalSnapshot(lines, resolveAutonomyGoalSnapshot(conversationID, state))
+	if sourceLine := buildRuntimeExecDecisionContextLineFromAttestations(listRecentRuntimeExecAttestations(conversationID, 6)); sourceLine != "" {
+		lines = append(lines, sourceLine)
+	}
+	lines = append(lines, "处理建议：先按失败摘要处理根因，再从当前进度重试。")
+	lines = append(lines, "下一步：直接发送下一条消息（如“继续”）即可按当前进度重试；如果要改方案，直接说新的执行指令。")
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func deriveExecutionGoalTaskStatusFromLoop(
+	loopState autonomyLoopState,
+	hadActionPlan bool,
+	result actionPlanApplyResult,
+	progressReport autonomyProgressReport,
+	hasProgressReport bool,
+) string {
+	resultStatus := strings.TrimSpace(strings.ToLower(result.Status))
+	stopReason := strings.TrimSpace(loopState.StopReason)
+	if resultStatus == "applied" && result.ReadOnlyQuery {
+		return ""
+	}
+	if hasProgressReport {
+		if progressReport.Done || loopState.Completed {
+			return "completed"
+		}
+		if loopState.Phase == autonomyLoopPhaseStopped || strings.HasPrefix(stopReason, "round_limit_reached") {
+			return "blocked"
+		}
+		return "running"
+	}
+	if !hadActionPlan {
+		return ""
+	}
+	if loopState.Completed {
+		return "completed"
+	}
+	switch resultStatus {
+	case "failed", "partial":
+		return "blocked"
+	case "skipped":
+		return "pending"
+	case "applied":
+		if loopState.Phase == autonomyLoopPhaseStopped || strings.HasPrefix(stopReason, "round_limit_reached") {
+			return "blocked"
+		}
+		return "running"
+	default:
+		if loopState.Phase == autonomyLoopPhaseStopped || strings.HasPrefix(stopReason, "round_limit_reached") {
+			return "blocked"
+		}
+		return "running"
+	}
+}
+
+func syncExecutionGoalStateFromAutonomyLoop(
+	conversationID string,
+	agentID string,
+	loopState autonomyLoopState,
+	hadActionPlan bool,
+	result actionPlanApplyResult,
+	progressReport autonomyProgressReport,
+	hasProgressReport bool,
+	narrative string,
+) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return
+	}
+	status := deriveExecutionGoalTaskStatusFromLoop(loopState, hadActionPlan, result, progressReport, hasProgressReport)
+	if status == "" {
+		return
+	}
+
+	goal := strings.TrimSpace(loopState.Goal)
+	if hasProgressReport {
+		if reportGoal := strings.TrimSpace(progressReport.Goal); reportGoal != "" {
+			goal = reportGoal
+		}
+	}
+	if goal == "" {
+		goal = "继续完成当前用户任务"
+	}
+
+	lastResult := strings.TrimSpace(narrative)
+	if lastResult == "" {
+		lastResult = strings.TrimSpace(result.Message)
+	}
+	if lastResult == "" {
+		lastResult = strings.TrimSpace(loopState.StopReason)
+	}
+
+	var remainingSteps []string
+	var doneCriteria []string
+	var evidence []string
+	nextAction := ""
+	if hasProgressReport {
+		remainingSteps = normalizeExecutionStringList(progressReport.RemainingSteps)
+		doneCriteria = normalizeExecutionStringList(progressReport.DoneCriteria)
+		evidence = normalizeExecutionStringList(progressReport.Evidence)
+		nextAction = strings.TrimSpace(progressReport.NextAction)
+	}
+	if status == "completed" {
+		remainingSteps = nil
+		nextAction = ""
+	}
+
+	setExecutionGoalState(conversationID, executionGoalState{
+		AgentID:        strings.TrimSpace(agentID),
+		Goal:           goal,
+		Status:         status,
+		LastResult:     summarizeText(lastResult, 220),
+		RemainingSteps: remainingSteps,
+		DoneCriteria:   doneCriteria,
+		Evidence:       evidence,
+		NextAction:     nextAction,
+		LoopRound:      loopState.Round,
+		LoopMaxRounds:  loopState.MaxRounds,
+		StopReason:     strings.TrimSpace(loopState.StopReason),
+	})
+}
+
+func applyAutonomousActionPlanLoop(
+	ctx context.Context,
+	runtime agentRuntime,
+	decision service.Decision,
+	output string,
+	channel string,
+	instanceID string,
+	scopeKey string,
+	overrides *conversationAgentOverrides,
+	runtimes map[string]agentRuntime,
+	defaultRuntimeID string,
+	executeCWD string,
+	sessionCmd command.SessionCommand,
+) (string, string) {
+	responseAgentID := strings.TrimSpace(runtime.agentID)
+	maxRounds := resolveAutonomyLoopMaxRounds()
+	maxSegments := resolveAutonomyLoopMaxSegments()
+	loopState := newAutonomyLoopState(decision, maxRounds)
+	for segment := 1; ; segment++ {
+		if maxSegments > 0 && segment > maxSegments {
+			break
+		}
+		advancedToNextSegment := false
+		for round := 0; round < maxRounds; round++ {
+			loopState.Round = round + 1
+			blockedByGate := false
+			if gatedOutput, blocked, gateErr := enforceAutonomyStructuredPlanGateOnOutput(output); gateErr != nil {
+				log.Printf("%s autonomy plan gate blocked: channel=%s instance=%s scope=%s err=%v", channel, channel, instanceID, scopeKey, gateErr)
+				output = gatedOutput
+				blockedByGate = blocked
+				classification := autonomy.FailureClassification{Class: autonomy.FailureClassUnknown, Recoverable: false, Reason: "schema_allowlist_gate_reject"}
+				emitAutonomyFlow(channel, instanceID, runtime, decision, "attempt", "blocked_by_gate", classification, "structured_plan_rejected", gateErr)
+				emitAutonomyFlow(channel, instanceID, runtime, decision, "result", "blocked", classification, "no_auto_action_executed", nil)
+			} else {
+				output = gatedOutput
+			}
+			if blockedByGate {
+				setExecutionGoalState(decision.ConversationID, executionGoalState{
+					AgentID:       strings.TrimSpace(responseAgentID),
+					Goal:          strings.TrimSpace(loopState.Goal),
+					Status:        "blocked",
+					LastResult:    "structured_plan_rejected",
+					LoopRound:     loopState.Round,
+					LoopMaxRounds: loopState.MaxRounds,
+					StopReason:    "structured_plan_rejected",
+				})
+				break
+			}
+
+			rawBeforeApply := output
+			progressReport, hasProgressReport := parseAutonomyProgressReport(rawBeforeApply)
+			execApplied, hadActionPlan, execErr := maybeAutoApplyActionPlan(ctx, runtime, decision, output, channel, instanceID, scopeKey, overrides, runtimes, defaultRuntimeID, executeCWD)
+			if execErr != nil {
+				log.Printf("%s unified action plan apply failed: channel=%s instance=%s scope=%s round=%d segment=%d err=%v", channel, channel, instanceID, scopeKey, round+1, segment, execErr)
+				setExecutionGoalState(decision.ConversationID, executionGoalState{
+					AgentID:       strings.TrimSpace(responseAgentID),
+					Goal:          strings.TrimSpace(loopState.Goal),
+					Status:        "blocked",
+					LastResult:    summarizeText(execErr.Error(), 220),
+					LoopRound:     loopState.Round,
+					LoopMaxRounds: loopState.MaxRounds,
+					StopReason:    "action_plan_apply_failed",
+				})
+				break
+			}
+			narrative := strings.TrimSpace(stripProgressReportPayload(rawBeforeApply))
+			progressNarrative := ""
+			if hasProgressReport {
+				progressNarrative = strings.TrimSpace(renderAutonomyProgressNarrative(progressReport))
+				if narrative == "" {
+					narrative = progressNarrative
+				}
+			}
+			if hadActionPlan {
+				narrative = strings.TrimSpace(stripActionPlanPayload(narrative))
+				applyMessage := strings.TrimSpace(formatActionPlanApplyResult(execApplied))
+				switch {
+				case narrative == "" && applyMessage == "":
+					output = ""
+				case narrative == "":
+					output = applyMessage
+				case applyMessage == "":
+					output = narrative
+				default:
+					output = strings.TrimSpace(narrative + "\n\n" + applyMessage)
+				}
+			} else {
+				output = narrative
+			}
+			if strings.TrimSpace(execApplied.ResponseAgentID) != "" {
+				responseAgentID = strings.TrimSpace(execApplied.ResponseAgentID)
+			}
+
+			var shouldContinue bool
+			loopState, shouldContinue = evaluateAutonomyLoopState(decision, loopState, hadActionPlan, execApplied, narrative, progressReport, hasProgressReport)
+			segmentRollover := false
+			if !shouldContinue && runtime.router != nil && canAutonomyLoopRolloverToNextSegment(segment, maxSegments) && isAutonomyLoopRoundLimitReached(loopState) {
+				shouldContinue = true
+				segmentRollover = true
+				loopState.Phase = autonomyLoopPhaseContinue
+				loopState.StopReason = "segment_rollover_auto_continue"
+				loopState.LastActionStatus = "segment_rollover"
+			}
+			emitTrace("autonomy_loop_state", map[string]any{
+				"channel":                strings.TrimSpace(channel),
+				"instance":               strings.TrimSpace(instanceID),
+				"agent_id":               strings.TrimSpace(runtime.agentID),
+				"conversation_id":        strings.TrimSpace(decision.ConversationID),
+				"project_id":             strings.TrimSpace(decision.ProjectID),
+				"loop_round":             loopState.Round,
+				"loop_max_rounds":        loopState.MaxRounds,
+				"loop_segment":           segment,
+				"loop_segment_label":     formatAutonomyLoopSegmentLabel(segment, maxSegments),
+				"loop_max_segments":      maxSegments,
+				"loop_phase":             string(loopState.Phase),
+				"loop_continue":          shouldContinue,
+				"loop_segment_rollover":  segmentRollover,
+				"loop_completed":         loopState.Completed,
+				"loop_stop_reason":       strings.TrimSpace(loopState.StopReason),
+				"loop_last_action_state": strings.TrimSpace(loopState.LastActionStatus),
+				"loop_no_action_streak":  loopState.ConsecutiveNoAction,
+				"has_progress_report":    hasProgressReport,
+				"progress_done":          progressReport.Done,
+				"progress_remaining":     normalizeNonEmptyList(progressReport.RemainingSteps),
+				"progress_goal":          strings.TrimSpace(progressReport.Goal),
+			})
+			syncExecutionGoalStateFromAutonomyLoop(
+				decision.ConversationID,
+				responseAgentID,
+				loopState,
+				hadActionPlan,
+				execApplied,
+				progressReport,
+				hasProgressReport,
+				output,
+			)
+
+			if !shouldContinue {
+				break
+			}
+			if runtime.router == nil {
+				setExecutionGoalState(decision.ConversationID, executionGoalState{
+					AgentID:       strings.TrimSpace(responseAgentID),
+					Goal:          strings.TrimSpace(loopState.Goal),
+					Status:        "blocked",
+					LastResult:    summarizeText(output, 220),
+					LoopRound:     loopState.Round,
+					LoopMaxRounds: loopState.MaxRounds,
+					StopReason:    "router_unavailable_for_followup",
+				})
+				break
+			}
+
+			followInput := buildAutonomyLoopFollowUpInput(loopState, output)
+			if segmentRollover {
+				followInput = buildAutonomyLoopSegmentFollowUpInput(loopState, output, segment+1, maxSegments)
+			}
+			followCmd := sessionCmd
+			followCmd.Mode = command.ModeContinue
+			followCmd.Input = followInput
+			emitTrace("llm_io", map[string]any{
+				"phase":                  "request",
+				"source":                 "autonomy_loop",
+				"loop_round":             round + 1,
+				"loop_max_rounds":        maxRounds,
+				"loop_segment":           segment,
+				"loop_segment_label":     formatAutonomyLoopSegmentLabel(segment, maxSegments),
+				"loop_max_segments":      maxSegments,
+				"loop_segment_rollover":  segmentRollover,
+				"channel":                strings.TrimSpace(channel),
+				"instance":               strings.TrimSpace(instanceID),
+				"agent_id":               strings.TrimSpace(runtime.agentID),
+				"conversation_id":        strings.TrimSpace(decision.ConversationID),
+				"project_id":             strings.TrimSpace(decision.ProjectID),
+				"intent_kind":            string(decision.Kind),
+				"input_chars":            len(followInput),
+				"input_preview":          tracePreview(followInput, 400),
+				"prompt_cache_key":       buildTracePromptCacheKey(decision, runtime),
+				"prompt_cache_retention": resolveTracePromptCacheRetention(),
+			})
+			loopResult, err := runtime.router.HandleSessionFlow(ctx, followCmd)
+			if err != nil {
+				classification := autonomy.ClassifyFailure(err)
+				if recoveredResult, _, recovered := tryRecoverSessionFlow(ctx, channel, instanceID, runtime, decision, classification, func(retryCtx context.Context, _ int) (service.SessionFlowResult, error) {
+					return runtime.router.HandleSessionFlow(retryCtx, followCmd)
+				}); recovered {
+					loopResult = recoveredResult
+				} else {
+					output = strings.TrimSpace(output + "\n\n" + formatAutonomyFollowUpFailureNotice(decision.ConversationID, loopState, err))
+					stopReason := "autonomy_followup_failed"
+					if segmentRollover {
+						stopReason = "autonomy_segment_rollover_failed"
+					}
+					setExecutionGoalState(decision.ConversationID, executionGoalState{
+						AgentID:       strings.TrimSpace(responseAgentID),
+						Goal:          strings.TrimSpace(loopState.Goal),
+						Status:        "blocked",
+						LastResult:    summarizeText(err.Error(), 220),
+						LoopRound:     loopState.Round,
+						LoopMaxRounds: loopState.MaxRounds,
+						StopReason:    stopReason,
+					})
+					break
+				}
+			}
+			emitTrace("llm_io", map[string]any{
+				"phase":                 "response",
+				"source":                "autonomy_loop",
+				"loop_round":            round + 1,
+				"loop_max_rounds":       maxRounds,
+				"loop_segment":          segment,
+				"loop_segment_label":    formatAutonomyLoopSegmentLabel(segment, maxSegments),
+				"loop_max_segments":     maxSegments,
+				"loop_segment_rollover": segmentRollover,
+				"channel":               strings.TrimSpace(channel),
+				"instance":              strings.TrimSpace(instanceID),
+				"agent_id":              strings.TrimSpace(runtime.agentID),
+				"conversation_id":       strings.TrimSpace(decision.ConversationID),
+				"project_id":            strings.TrimSpace(decision.ProjectID),
+				"intent_kind":           string(decision.Kind),
+				"output_chars":          len(loopResult.Execution.Output),
+				"output_preview":        tracePreview(loopResult.Execution.Output, 400),
+				"state":                 string(loopResult.Execution.State),
+				"prompt_cached_tokens":  loopResult.Execution.PromptCachedTokens,
+				"prompt_tokens":         loopResult.Execution.PromptTokens,
+				"completion_tokens":     loopResult.Execution.CompletionTokens,
+				"total_tokens":          loopResult.Execution.TotalTokens,
+			})
+			recordTokenUsage(channel, instanceID, runtime, decision, loopResult)
+			output = loopResult.Execution.Output
+			if segmentRollover {
+				loopState.Phase = autonomyLoopPhaseInit
+				loopState.Round = 0
+				loopState.StopReason = "segment_rollover_started"
+				loopState.LastActionStatus = "segment_rollover"
+				loopState.ConsecutiveNoAction = 0
+				advancedToNextSegment = true
+				break
+			}
+		}
+		if !advancedToNextSegment {
+			break
+		}
+	}
+	if isAutonomyLoopRoundLimitReached(loopState) {
+		output = strings.TrimSpace(output + "\n\n" + formatAutonomyRoundLimitNotice(decision.ConversationID, loopState))
+	}
+	return output, responseAgentID
+}
+
 func handleTelegramInbound(
 	ctx context.Context,
 	runtime agentRuntime,
@@ -2289,6 +3231,10 @@ func handleTelegramInbound(
 ) {
 	message := envelope.Message
 	message.ConversationID = scopedConversationID
+	bindConversationProgressRoute(message.ConversationID, "telegram", instanceID, envelope.Target)
+	registerConversationProgressNotifier(message.ConversationID, func(notifyCtx context.Context, body string) error {
+		return adapter.SendDirect(notifyCtx, envelope.Target, body)
+	})
 	if handled, response, err := handleConfigChatCommand(message); handled {
 		logConfigControlHandled("telegram", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
 		if err != nil {
@@ -2399,29 +3345,7 @@ func handleTelegramInbound(
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
 		output := flowResult.Execution.Output
-		responseAgentID := strings.TrimSpace(runtime.agentID)
-		blockedByGate := false
-		if gatedOutput, blocked, gateErr := enforceAutonomyStructuredPlanGateOnOutput(output); gateErr != nil {
-			log.Printf("telegram autonomy plan gate blocked: channel=telegram instance=%s scope=%s err=%v", instanceID, scopeKey, gateErr)
-			output = gatedOutput
-			blockedByGate = blocked
-			classification := autonomy.FailureClassification{Class: autonomy.FailureClassUnknown, Recoverable: false, Reason: "schema_allowlist_gate_reject"}
-			emitAutonomyFlow("telegram", instanceID, runtime, decision, "attempt", "blocked_by_gate", classification, "structured_plan_rejected", gateErr)
-			emitAutonomyFlow("telegram", instanceID, runtime, decision, "result", "blocked", classification, "no_auto_action_executed", nil)
-		} else {
-			output = gatedOutput
-		}
-		if !blockedByGate {
-			if execApplied, ok, execErr := maybeAutoApplyActionPlan(ctx, runtime, decision, output, "telegram", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID, executeCWD); execErr != nil {
-				log.Printf("telegram unified action plan apply failed: channel=telegram instance=%s scope=%s err=%v", instanceID, scopeKey, execErr)
-			} else if ok {
-				output = stripActionPlanPayload(output)
-				output = strings.TrimSpace(output + "\n\n" + formatActionPlanApplyResult(execApplied))
-				if strings.TrimSpace(execApplied.ResponseAgentID) != "" {
-					responseAgentID = strings.TrimSpace(execApplied.ResponseAgentID)
-				}
-			}
-		}
+		output, responseAgentID := applyAutonomousActionPlanLoop(ctx, runtime, decision, output, "telegram", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID, executeCWD, sessionCmd)
 		output = finalizeExecutionOutput(decision, runtime, output)
 		output = applyRuntimeAgentLabel(output, responseAgentID)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, telegramchat.MaxMessageLength, 1)
@@ -2450,6 +3374,10 @@ func handleFeishuInbound(
 ) {
 	message := envelope.Message
 	message.ConversationID = scopedConversationID
+	bindConversationProgressRoute(message.ConversationID, "feishu", instanceID, envelope.Target)
+	registerConversationProgressNotifier(message.ConversationID, func(notifyCtx context.Context, body string) error {
+		return adapter.SendDirect(notifyCtx, envelope.Target, body)
+	})
 	if handled, response, err := handleConfigChatCommand(message); handled {
 		logConfigControlHandled("feishu", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
 		if err != nil {
@@ -2560,29 +3488,7 @@ func handleFeishuInbound(
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
 		output := flowResult.Execution.Output
-		responseAgentID := strings.TrimSpace(runtime.agentID)
-		blockedByGate := false
-		if gatedOutput, blocked, gateErr := enforceAutonomyStructuredPlanGateOnOutput(output); gateErr != nil {
-			log.Printf("feishu autonomy plan gate blocked: channel=feishu instance=%s scope=%s err=%v", instanceID, scopeKey, gateErr)
-			output = gatedOutput
-			blockedByGate = blocked
-			classification := autonomy.FailureClassification{Class: autonomy.FailureClassUnknown, Recoverable: false, Reason: "schema_allowlist_gate_reject"}
-			emitAutonomyFlow("feishu", instanceID, runtime, decision, "attempt", "blocked_by_gate", classification, "structured_plan_rejected", gateErr)
-			emitAutonomyFlow("feishu", instanceID, runtime, decision, "result", "blocked", classification, "no_auto_action_executed", nil)
-		} else {
-			output = gatedOutput
-		}
-		if !blockedByGate {
-			if execApplied, ok, execErr := maybeAutoApplyActionPlan(ctx, runtime, decision, output, "feishu", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID, executeCWD); execErr != nil {
-				log.Printf("feishu unified action plan apply failed: channel=feishu instance=%s scope=%s err=%v", instanceID, scopeKey, execErr)
-			} else if ok {
-				output = stripActionPlanPayload(output)
-				output = strings.TrimSpace(output + "\n\n" + formatActionPlanApplyResult(execApplied))
-				if strings.TrimSpace(execApplied.ResponseAgentID) != "" {
-					responseAgentID = strings.TrimSpace(execApplied.ResponseAgentID)
-				}
-			}
-		}
+		output, responseAgentID := applyAutonomousActionPlanLoop(ctx, runtime, decision, output, "feishu", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID, executeCWD, sessionCmd)
 		output = finalizeExecutionOutput(decision, runtime, output)
 		output = applyRuntimeAgentLabel(output, responseAgentID)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, feishuchat.MaxMessageLength, 1)
@@ -2610,6 +3516,10 @@ func handleWeComInbound(
 ) {
 	message := envelope.Message
 	message.ConversationID = scopedConversationID
+	bindConversationProgressRoute(message.ConversationID, "wecom", instanceID, envelope.Target)
+	registerConversationProgressNotifier(message.ConversationID, func(notifyCtx context.Context, body string) error {
+		return adapter.SendDirect(notifyCtx, envelope.Target, body)
+	})
 	if handled, response, err := handleConfigChatCommand(message); handled {
 		logConfigControlHandled("wecom", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
 		if err != nil {
@@ -2720,29 +3630,7 @@ func handleWeComInbound(
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
 		output := flowResult.Execution.Output
-		responseAgentID := strings.TrimSpace(runtime.agentID)
-		blockedByGate := false
-		if gatedOutput, blocked, gateErr := enforceAutonomyStructuredPlanGateOnOutput(output); gateErr != nil {
-			log.Printf("wecom autonomy plan gate blocked: channel=wecom instance=%s scope=%s err=%v", instanceID, scopeKey, gateErr)
-			output = gatedOutput
-			blockedByGate = blocked
-			classification := autonomy.FailureClassification{Class: autonomy.FailureClassUnknown, Recoverable: false, Reason: "schema_allowlist_gate_reject"}
-			emitAutonomyFlow("wecom", instanceID, runtime, decision, "attempt", "blocked_by_gate", classification, "structured_plan_rejected", gateErr)
-			emitAutonomyFlow("wecom", instanceID, runtime, decision, "result", "blocked", classification, "no_auto_action_executed", nil)
-		} else {
-			output = gatedOutput
-		}
-		if !blockedByGate {
-			if execApplied, ok, execErr := maybeAutoApplyActionPlan(ctx, runtime, decision, output, "wecom", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID, executeCWD); execErr != nil {
-				log.Printf("wecom unified action plan apply failed: channel=wecom instance=%s scope=%s err=%v", instanceID, scopeKey, execErr)
-			} else if ok {
-				output = stripActionPlanPayload(output)
-				output = strings.TrimSpace(output + "\n\n" + formatActionPlanApplyResult(execApplied))
-				if strings.TrimSpace(execApplied.ResponseAgentID) != "" {
-					responseAgentID = strings.TrimSpace(execApplied.ResponseAgentID)
-				}
-			}
-		}
+		output, responseAgentID := applyAutonomousActionPlanLoop(ctx, runtime, decision, output, "wecom", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID, executeCWD, sessionCmd)
 		output = finalizeExecutionOutput(decision, runtime, output)
 		output = applyRuntimeAgentLabel(output, responseAgentID)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, wecomchat.MaxMessageLength, 1)
@@ -2771,6 +3659,10 @@ func handleDiscordInbound(
 ) {
 	message := envelope.Message
 	message.ConversationID = scopedConversationID
+	bindConversationProgressRoute(message.ConversationID, "discord", instanceID, envelope.Target)
+	registerConversationProgressNotifier(message.ConversationID, func(notifyCtx context.Context, body string) error {
+		return adapter.SendDirect(notifyCtx, envelope.Target, body)
+	})
 	if handled, response, err := handleConfigChatCommand(message); handled {
 		logConfigControlHandled("discord", instanceID, message.ConversationID, message.UserID, message.Text, response, err)
 		if err != nil {
@@ -2884,29 +3776,7 @@ func handleDiscordInbound(
 		adapter.BindSession(flowResult.Session.ID, envelope.Target)
 
 		output := flowResult.Execution.Output
-		responseAgentID := strings.TrimSpace(runtime.agentID)
-		blockedByGate := false
-		if gatedOutput, blocked, gateErr := enforceAutonomyStructuredPlanGateOnOutput(output); gateErr != nil {
-			log.Printf("discord autonomy plan gate blocked: channel=discord instance=%s scope=%s err=%v", instanceID, scopeKey, gateErr)
-			output = gatedOutput
-			blockedByGate = blocked
-			classification := autonomy.FailureClassification{Class: autonomy.FailureClassUnknown, Recoverable: false, Reason: "schema_allowlist_gate_reject"}
-			emitAutonomyFlow("discord", instanceID, runtime, decision, "attempt", "blocked_by_gate", classification, "structured_plan_rejected", gateErr)
-			emitAutonomyFlow("discord", instanceID, runtime, decision, "result", "blocked", classification, "no_auto_action_executed", nil)
-		} else {
-			output = gatedOutput
-		}
-		if !blockedByGate {
-			if execApplied, ok, execErr := maybeAutoApplyActionPlan(ctx, runtime, decision, output, "discord", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID, executeCWD); execErr != nil {
-				log.Printf("discord unified action plan apply failed: channel=discord instance=%s scope=%s err=%v", instanceID, scopeKey, execErr)
-			} else if ok {
-				output = stripActionPlanPayload(output)
-				output = strings.TrimSpace(output + "\n\n" + formatActionPlanApplyResult(execApplied))
-				if strings.TrimSpace(execApplied.ResponseAgentID) != "" {
-					responseAgentID = strings.TrimSpace(execApplied.ResponseAgentID)
-				}
-			}
-		}
+		output, responseAgentID := applyAutonomousActionPlanLoop(ctx, runtime, decision, output, "discord", instanceID, scopeKey, overrides, runtimes, defaultRuntimeID, executeCWD, sessionCmd)
 		output = finalizeExecutionOutput(decision, runtime, output)
 		output = applyRuntimeAgentLabel(output, responseAgentID)
 		delivery.Deliver(ctx, adapter, flowResult.Session.ID, output, discordchat.MaxMessageLength, 1)
@@ -3131,8 +4001,6 @@ func isExecutionOwnershipQuestion(request string) bool {
 	return false
 }
 
-var executionBlockerPattern = regexp.MustCompile("(?is)```(?:json)?\\s*(\\{.*?\"type\"\\s*:\\s*\"execution_blocker\".*?\\})\\s*```")
-
 type executionBlockerPlan struct {
 	Type            string   `json:"type"`
 	NeedUserInput   bool     `json:"need_user_input"`
@@ -3165,10 +4033,156 @@ func applyAutonomySelfHealGate(decision service.Decision, output string) string 
 			return formatTaskReceipt(taskReceiptFailed,
 				"我还不能向你提问：引用的执行证据不是当前会话生成的。请在当前会话重试同一任务，我会重新执行并给出可验证结果。")
 		}
-		return output
+		narrative := strings.TrimSpace(stripExecutionBlockerPayload(output))
+		blocker := renderExecutionBlockerPrompt(plan, execIDs)
+		switch {
+		case narrative == "":
+			return blocker
+		case blocker == "":
+			return narrative
+		default:
+			return strings.TrimSpace(narrative + "\n\n" + blocker)
+		}
 	}
 	return formatTaskReceipt(taskReceiptFailed,
 		"检测到升级提问，但缺少结构化执行证据（attempted/evidence）。请先完成自治重试并补齐证据，再请求用户决策。")
+}
+
+func renderExecutionBlockerPrompt(plan executionBlockerPlan, evidenceExecIDs []string) string {
+	attempted := normalizeNonEmptyList(plan.Attempted)
+	evidence := normalizeNonEmptyList(plan.Evidence)
+	blockerClass := strings.TrimSpace(plan.BlockerClass)
+	recommendation := strings.TrimSpace(plan.Recommendation)
+	question := strings.TrimSpace(plan.Question)
+	if question == "" {
+		question = "请确认是否按恢复动作继续。"
+	}
+
+	lines := []string{
+		formatTaskReceipt(taskReceiptFailed, "自动恢复已穷尽，需要你确认后继续。"),
+		"结论：自动恢复已穷尽，需你确认后再继续执行。",
+		"完成状态：失败（待确认）。",
+	}
+	if blockerClass != "" {
+		lines = append(lines, "阻塞类型："+blockerClass)
+	}
+	if len(attempted) > 0 {
+		lines = append(lines, "已尝试动作："+strings.Join(attempted, "；"))
+	}
+	if len(evidence) > 0 {
+		lines = append(lines, "关键证据："+strings.Join(evidence, "；"))
+	}
+	if sourceLine := buildRuntimeExecDecisionContextLineFromExecIDs(evidenceExecIDs); sourceLine != "" {
+		lines = append(lines, sourceLine)
+	}
+	if recommendation != "" {
+		lines = append(lines, "恢复动作："+recommendation)
+	}
+	lines = append(lines, "确认问题："+question)
+	lines = append(lines, "下一步：请直接确认上面的决策问题，我会按你的选择继续执行。")
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func buildRuntimeExecDecisionContextLineFromExecIDs(execIDs []string) string {
+	records := listRuntimeExecAttestationsByIDs(execIDs)
+	return buildRuntimeExecDecisionContextLineFromAttestations(records)
+}
+
+func buildRuntimeExecDecisionContextLineFromAttestations(records []runtimeExecAttestationRecord) string {
+	if len(records) == 0 {
+		return ""
+	}
+	modes := make([]string, 0, len(records))
+	applySources := make([]string, 0, len(records))
+	lockSources := make([]string, 0, len(records))
+	fallbackSources := make([]string, 0, len(records))
+	for _, rec := range records {
+		if mode := strings.TrimSpace(strings.ToLower(normalizeRuntimeExecDecisionMode(rec.RuntimeExecDecisionMode))); mode != "" {
+			modes = append(modes, mode)
+		}
+		if applySource := strings.TrimSpace(strings.ToLower(rec.RuntimeExecDecisionApplySource)); applySource != "" {
+			applySources = append(applySources, applySource)
+		}
+		lockSource := strings.TrimSpace(strings.ToLower(rec.RuntimeExecDecisionLockSource))
+		if lockSource == "" {
+			lockSource = strings.TrimSpace(strings.ToLower(rec.RuntimeExecDecisionSource))
+		}
+		if lockSource != "" {
+			lockSources = append(lockSources, lockSource)
+		}
+		if fallbackSource := strings.TrimSpace(strings.ToLower(rec.RuntimeExecDecisionFallbackSource)); fallbackSource != "" {
+			fallbackSources = append(fallbackSources, fallbackSource)
+		}
+	}
+	modes = sortedUniqueStrings(modes)
+	applySources = sortedUniqueStrings(applySources)
+	lockSources = sortedUniqueStrings(lockSources)
+	fallbackSources = sortedUniqueStrings(fallbackSources)
+	if len(modes) == 0 && len(applySources) == 0 && len(lockSources) == 0 && len(fallbackSources) == 0 {
+		return ""
+	}
+
+	modeLabel := "none"
+	if len(modes) > 0 {
+		modeLabel = strings.Join(modes, ",")
+	}
+	applyLabel := "none"
+	if len(applySources) > 0 {
+		applyLabel = strings.Join(applySources, ",")
+	}
+	lockLabel := "none"
+	if len(lockSources) > 0 {
+		lockLabel = strings.Join(lockSources, ",")
+	}
+
+	line := fmt.Sprintf("执行来源：mode=%s apply_source=%s lock_source=%s", modeLabel, applyLabel, lockLabel)
+	if len(fallbackSources) > 0 {
+		line += " fallback_source=" + strings.Join(fallbackSources, ",")
+	}
+	return line
+}
+
+func sortedUniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, item := range values {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func stripExecutionBlockerPayload(output string) string {
+	text := strings.TrimSpace(output)
+	if text == "" {
+		return text
+	}
+	if _, ok := parseExecutionBlockerPlan(text); !ok {
+		return output
+	}
+	cleaned := executionBlockerBlockPattern.ReplaceAllString(text, "")
+	for _, snippet := range extractJSONObjectSnippets(cleaned) {
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(snippet), &payload); err != nil {
+			continue
+		}
+		if strings.TrimSpace(strings.ToLower(toString(payload["type"]))) != "execution_blocker" {
+			continue
+		}
+		cleaned = strings.Replace(cleaned, snippet, "", 1)
+	}
+	return strings.TrimSpace(cleaned)
 }
 
 func parseExecutionBlockerPlan(text string) (executionBlockerPlan, bool) {
@@ -3176,23 +4190,7 @@ func parseExecutionBlockerPlan(text string) (executionBlockerPlan, bool) {
 	if trimmed == "" {
 		return executionBlockerPlan{}, false
 	}
-	candidates := make([]string, 0, 2)
-	if matches := executionBlockerPattern.FindAllStringSubmatch(trimmed, -1); len(matches) > 0 {
-		for _, match := range matches {
-			if len(match) < 2 {
-				continue
-			}
-			candidates = append(candidates, strings.TrimSpace(match[1]))
-		}
-	}
-	if strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}") {
-		candidates = append(candidates, trimmed)
-	}
-	for _, candidate := range candidates {
-		var payload map[string]any
-		if err := json.Unmarshal([]byte(candidate), &payload); err != nil {
-			continue
-		}
+	for _, payload := range extractStructuredPayloadMaps(trimmed) {
 		if strings.TrimSpace(strings.ToLower(toString(payload["type"]))) != "execution_blocker" {
 			continue
 		}
@@ -3222,12 +4220,82 @@ func parseExecutionBlockerPlan(text string) (executionBlockerPlan, bool) {
 	return executionBlockerPlan{}, false
 }
 
+func parseAutonomyProgressReport(text string) (autonomyProgressReport, bool) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return autonomyProgressReport{}, false
+	}
+	for _, payload := range extractStructuredPayloadMaps(trimmed) {
+		if strings.TrimSpace(strings.ToLower(toString(payload["type"]))) != "progress_report" {
+			continue
+		}
+		report := autonomyProgressReport{
+			Type:           "progress_report",
+			Goal:           strings.TrimSpace(toString(payload["goal"])),
+			Done:           toBool(payload["done"]),
+			DoneCriteria:   toStringSlice(payload["done_criteria"]),
+			RemainingSteps: toStringSlice(payload["remaining_steps"]),
+			Evidence:       toStringSlice(payload["evidence"]),
+			Summary:        strings.TrimSpace(toString(payload["summary"])),
+			NextAction:     strings.TrimSpace(toString(payload["next_action"])),
+		}
+		if progressMap, ok := payload["progress"].(map[string]any); ok {
+			if report.Goal == "" {
+				report.Goal = strings.TrimSpace(toString(progressMap["goal"]))
+			}
+			if len(report.RemainingSteps) == 0 {
+				report.RemainingSteps = toStringSlice(progressMap["remaining_steps"])
+			}
+			if len(report.DoneCriteria) == 0 {
+				report.DoneCriteria = toStringSlice(progressMap["done_criteria"])
+			}
+			if report.Summary == "" {
+				report.Summary = strings.TrimSpace(toString(progressMap["summary"]))
+			}
+		}
+		return report, true
+	}
+	return autonomyProgressReport{}, false
+}
+
+func stripProgressReportPayload(output string) string {
+	text := strings.TrimSpace(output)
+	if text == "" {
+		return text
+	}
+	if _, ok := parseAutonomyProgressReport(text); !ok {
+		return output
+	}
+	cleaned := progressReportBlockPattern.ReplaceAllString(text, "")
+	for _, snippet := range extractJSONObjectSnippets(cleaned) {
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(snippet), &payload); err != nil {
+			continue
+		}
+		if strings.TrimSpace(strings.ToLower(toString(payload["type"]))) != "progress_report" {
+			continue
+		}
+		cleaned = strings.Replace(cleaned, snippet, "", 1)
+	}
+	return strings.TrimSpace(cleaned)
+}
+
 func toBool(value any) bool {
-	typed, ok := value.(bool)
-	if !ok {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "1", "yes", "y":
+			return true
+		default:
+			return false
+		}
+	case float64:
+		return typed != 0
+	default:
 		return false
 	}
-	return typed
 }
 
 func toStringSlice(value any) []string {
@@ -3399,7 +4467,15 @@ type agentInventorySnapshot struct {
 }
 
 func buildNaturalLanguageExecutionInput(decision service.Decision, runtime agentRuntime) string {
-	request := strings.TrimSpace(decision.Message.Text)
+	rawRequest := strings.TrimSpace(decision.Message.Text)
+	request := rawRequest
+	if resumeHint := buildExecutionResumeHint(decision.ConversationID, request); resumeHint != "" {
+		request = strings.TrimSpace(request + "\n\n" + resumeHint)
+	}
+	decisionHint := resolveRuntimeExecDecisionHint(decision.ConversationID, rawRequest)
+	if strings.EqualFold(strings.TrimSpace(decisionHint.Source), "user_phrase") {
+		persistRuntimeExecDecisionHint(decision.ConversationID, decisionHint)
+	}
 	inventory := loadAgentInventorySnapshot(runtime)
 	skills := listRuntimeSkills(runtime)
 
@@ -3433,7 +4509,7 @@ func buildNaturalLanguageExecutionInput(decision service.Decision, runtime agent
 	builder.WriteString("- 当用户输入单条明确命令时，action_plan 默认只放该命令；不要自动追加“第二条验证命令”，除非用户明确要求验证/检查。\n")
 	builder.WriteString("- 调试本地 HTTP 接口（如 127.0.0.1/localhost）前，先确认服务已启动且健康，再发业务请求。\n")
 	builder.WriteString("- 遇到执行失败时，先自治恢复再升级提问：必须先做诊断与重试，禁止第一轮直接向用户索要环境参数/镜像/离线包。\n")
-	builder.WriteString("- 只有当自动恢复已穷尽时才可提问，并附上已尝试命令、关键报错、推荐下一步。\n")
+	builder.WriteString("- 只有当自动恢复已穷尽时才可提问，并附上已尝试命令、关键报错、恢复动作。\n")
 	builder.WriteString("- 信息不足时明确说明缺口，禁止编造。\n\n")
 
 	builder.WriteString("[Autonomous Recovery Playbook]\n")
@@ -3441,7 +4517,7 @@ func buildNaturalLanguageExecutionInput(decision service.Decision, runtime agent
 	builder.WriteString("- 再重试：对可恢复错误做有限重试，并记录每次尝试。\n")
 	builder.WriteString("- 依赖安装失败时默认执行：官方源重试 -> 常见镜像回退 -> 本地离线源探测（若存在）。\n")
 	builder.WriteString("- pip 典型回退顺序：pypi.org/simple、清华/阿里/腾讯镜像（按可达性选择），并保留失败证据。\n")
-	builder.WriteString("- 若仍失败，再升级提问；提问必须包含“已尝试步骤 + 失败原因 + 推荐动作”。\n\n")
+	builder.WriteString("- 若仍失败，再升级提问；提问必须包含“已尝试步骤 + 失败原因 + 恢复动作”。\n\n")
 
 	builder.WriteString("[Execution Blocker Contract]\n")
 	builder.WriteString("- 仅在确实需要用户决策时输出 execution_blocker。\n")
@@ -3454,14 +4530,18 @@ func buildNaturalLanguageExecutionInput(decision service.Decision, runtime agent
 	builder.WriteString("    \"attempted\": [\"已尝试步骤1\", \"已尝试步骤2\"],\n")
 	builder.WriteString("    \"evidence\": [\"命令与关键输出\", \"错误摘要\"],\n")
 	builder.WriteString("    \"evidence_exec_ids\": [\"rexec-...\", \"rexec-...\"],\n")
-	builder.WriteString("    \"recommendation\": \"推荐下一步\",\n")
+	builder.WriteString("    \"recommendation\": \"恢复动作建议\",\n")
 	builder.WriteString("    \"question\": \"需要用户确认的问题\"\n")
 	builder.WriteString("  }\n\n")
 
 	builder.WriteString("[Unified Action Plan Contract]\n")
 	builder.WriteString("- 当你判断需要执行动作时，优先输出 action_plan（统一协议），由 ClawX 原生执行器落地。\n")
 	builder.WriteString("- 用户表达“启动/初始化/开工”且目标是拉起运行时时，优先使用 runtime.bootstrap，不要直接给大段 shell。\n")
-	builder.WriteString("- 当前支持 action.kind: runtime.exec（shell 命令）、runtime.bootstrap（运行时初始化）、agent.use（切换智能体）、requirement.sync（需求落盘）、config.exec（配置面指令）。\n")
+	builder.WriteString("- 用户表达“拉起/重启/停止 worker(服务进程)”时，优先使用 runtime.task.control，不要散落成多条无关命令。\n")
+	builder.WriteString("- 当前支持 action.kind: runtime.exec（shell 命令）、runtime.bootstrap（运行时初始化）、runtime.service（受控服务启停/重启/状态）、runtime.release（发布脚本+重启+健康检查+回滚）、runtime.release.status（查询 current/history 发布记录）、runtime.task.status（查询任务中心进度）、runtime.task.delegate（创建子任务委派）、runtime.task.delegates（聚合查询子任务状态）、runtime.task.retry（重试失败/取消任务）、runtime.task.cancel（取消排队/运行任务）、runtime.task.control（任务驱动的 worker 进程控制：ensure_running/restart/start/stop/status）、runtime.supervisor（unit 安装/启用/状态/停用）、agent.use（切换智能体）、requirement.sync（需求落盘）、config.exec（配置面指令）。\n")
+	builder.WriteString("- 当环境开启审批（CLAWX_RUNTIME_REQUIRE_APPROVAL=1 或 CLAWX_ENV=prod/production）时，runtime.service/runtime.release/runtime.supervisor(除 status) 必须提供 approval_token。\n")
+	builder.WriteString("- runtime.release 支持 release_version（版本号）；执行器会落盘发布元数据（history/current，含版本与校验）。\n")
+	builder.WriteString("- runtime.release 可选 artifact_path（传入预构建二进制）；当 CLAWX_RUNTIME_RELEASE_REQUIRE_ARTIFACT=1 时 artifact_path 必填。\n")
 	builder.WriteString("- 优先输出纯 JSON；如必须附带解释，将 JSON 放在 ```json 代码块中。\n")
 	builder.WriteString("- action_plan schema:\n")
 	builder.WriteString("  {\n")
@@ -3471,12 +4551,37 @@ func buildNaturalLanguageExecutionInput(decision service.Decision, runtime agent
 	builder.WriteString("    \"actions\": [\n")
 	builder.WriteString("      {\"kind\":\"runtime.exec\", \"cmd\": \"python3 -m pip install -r requirements.txt\", \"cwd\": \"可选\", \"reason\": \"可选\"}\n")
 	builder.WriteString("      {\"kind\":\"runtime.bootstrap\", \"cwd\": \"workspace路径\", \"worker_roles\": [\"planner\",\"executor\",\"reviewer\"]}\n")
+	builder.WriteString("      {\"kind\":\"runtime.service\", \"service\":\"clawx-bid-all\", \"operation\":\"restart\", \"scope\":\"user\", \"approval_token\":\"可选\", \"health_url\":\"http://127.0.0.1:19080/healthz\", \"timeout_seconds\":45}\n")
+	builder.WriteString("      {\"kind\":\"runtime.release\", \"service\":\"clawx-bid-all\", \"release_version\":\"v2026.04.05-01\", \"script\":\"./scripts/deploy_workers.sh\", \"rollback_script\":\"./scripts/rollback_workers.sh\", \"artifact_path\":\"./dist/clawx-linux-amd64\", \"approval_token\":\"可选\", \"scope\":\"user\", \"health_url\":\"http://127.0.0.1:19080/healthz\", \"timeout_seconds\":90}\n")
+	builder.WriteString("      {\"kind\":\"runtime.release.status\", \"service\":\"clawx-bid-all\", \"operation\":\"current|history\", \"limit\":5, \"scope\":\"user\"}\n")
+	builder.WriteString("      {\"kind\":\"runtime.task.status\", \"agent_id\":\"bid-all\", \"conversation_id\":\"可选\", \"scope\":\"user\"}\n")
+	builder.WriteString("      {\"kind\":\"runtime.task.delegate\", \"agent_id\":\"bid-all\", \"cmd\":\"go test ./...\", \"cwd\":\"可选\", \"parent_task_id\":\"可选\", \"task_title\":\"回归测试\", \"task_summary\":\"验证本轮改动\", \"resource_key\":\"可选\", \"conversation_id\":\"可选\", \"max_retry\":3, \"scope\":\"user\"}\n")
+	builder.WriteString("      {\"kind\":\"runtime.task.delegates\", \"agent_id\":\"bid-all\", \"parent_task_id\":\"可选\", \"conversation_id\":\"可选\", \"limit\":5, \"scope\":\"user\"}\n")
+	builder.WriteString("      {\"kind\":\"runtime.task.retry\", \"agent_id\":\"bid-all\", \"task_id\":\"可选\", \"parent_task_id\":\"可选\", \"conversation_id\":\"可选\", \"scope\":\"user\"}\n")
+	builder.WriteString("      {\"kind\":\"runtime.task.cancel\", \"agent_id\":\"bid-all\", \"task_id\":\"可选\", \"parent_task_id\":\"可选\", \"conversation_id\":\"可选\", \"scope\":\"user\"}\n")
+	builder.WriteString("      {\"kind\":\"runtime.task.control\", \"agent_id\":\"bid-all\", \"service\":\"clawx-bid-all\", \"operation\":\"ensure_running\", \"unit_file\":\"./deploy/systemd/clawx.service\", \"approval_token\":\"可选\", \"scope\":\"user\", \"health_url\":\"http://127.0.0.1:19080/healthz\", \"timeout_seconds\":60}\n")
+	builder.WriteString("      {\"kind\":\"runtime.supervisor\", \"service\":\"clawx-bid-all\", \"operation\":\"ensure\", \"unit_file\":\"./deploy/systemd/clawx.service\", \"approval_token\":\"可选\", \"scope\":\"user\", \"health_url\":\"http://127.0.0.1:19080/healthz\", \"timeout_seconds\":60}\n")
 	builder.WriteString("      {\"kind\":\"agent.use\", \"agent_id\": \"bid-all\", \"reason\": \"可选\"}\n")
 	builder.WriteString("      {\"kind\":\"requirement.sync\", \"mode\":\"execute\", \"agent_id\":\"bid-all\", \"requirement\":\"需求内容\"}\n")
 	builder.WriteString("      {\"kind\":\"config.exec\", \"command\":\"/config plan 创建 agent bid-all 使用 codex\"}\n")
 	builder.WriteString("    ]\n")
 	builder.WriteString("  }\n\n")
 	builder.WriteString("- 旧版 control_plan / requirement_sync / runtime_exec_plan 已废弃，不要输出。\n\n")
+
+	builder.WriteString("[Progress Report Contract]\n")
+	builder.WriteString("- 在自治续跑场景中，每轮先输出 progress_report，用于声明是否完成与剩余步骤。\n")
+	builder.WriteString("- progress_report schema:\n")
+	builder.WriteString("  {\n")
+	builder.WriteString("    \"type\": \"progress_report\",\n")
+	builder.WriteString("    \"goal\": \"目标描述\",\n")
+	builder.WriteString("    \"done\": true,\n")
+	builder.WriteString("    \"done_criteria\": [\"完成判定1\", \"完成判定2\"],\n")
+	builder.WriteString("    \"remaining_steps\": [\"未完成步骤1\", \"未完成步骤2\"],\n")
+	builder.WriteString("    \"evidence\": [\"关键证据1\", \"关键证据2\"],\n")
+	builder.WriteString("    \"summary\": \"本轮进展摘要\",\n")
+	builder.WriteString("    \"next_action\": \"下一步动作概述\"\n")
+	builder.WriteString("  }\n")
+	builder.WriteString("- done=true 时 remaining_steps 应为空；done=false 时 remaining_steps 至少一项。\n\n")
 
 	builder.WriteString("[Tool Snapshot: agent_inventory]\n")
 	builder.WriteString("source=")
@@ -3531,9 +4636,14 @@ func buildNaturalLanguageExecutionInput(decision service.Decision, runtime agent
 		builder.WriteByte('\n')
 	}
 
-	if continuation := buildExecutionContinuationSnapshot(decision.ConversationID, request); continuation != "" {
+	if continuation := buildExecutionContinuationSnapshot(decision.ConversationID, request, runtime); continuation != "" {
 		builder.WriteString("\n[Execution Continuation Snapshot]\n")
 		builder.WriteString(continuation)
+		builder.WriteString("\n")
+	}
+	if snapshot := renderRuntimeExecDecisionHintSnapshot(decisionHint); snapshot != "" {
+		builder.WriteString("\n[Runtime Exec Decision Snapshot]\n")
+		builder.WriteString(snapshot)
 		builder.WriteString("\n")
 	}
 
@@ -3542,33 +4652,265 @@ func buildNaturalLanguageExecutionInput(decision service.Decision, runtime agent
 	return strings.TrimSpace(builder.String())
 }
 
-func buildExecutionContinuationSnapshot(conversationID string, request string) string {
+type runtimeExecDecisionHint struct {
+	Mode             string
+	Source           string
+	AlternateCommand string
+	Rule             string
+}
+
+func normalizeRuntimeExecDecisionMode(raw string) string {
+	switch strings.TrimSpace(strings.ToLower(raw)) {
+	case "service.deep_repair":
+		return "service.deep_repair"
+	case "service.retry_only":
+		return "service.retry_only"
+	case "build.continue":
+		return "build.continue"
+	case "build.switch_source":
+		return "build.switch_source"
+	case "paused":
+		return "paused"
+	case "blocked.command_override":
+		return "blocked.command_override"
+	case "clear":
+		return "clear"
+	default:
+		return ""
+	}
+}
+
+func resolveRuntimeExecDecisionHint(conversationID string, request string) runtimeExecDecisionHint {
+	explicit := detectRuntimeExecDecisionHint(request)
+	if strings.TrimSpace(explicit.Mode) != "" {
+		return explicit
+	}
+	return resolvePersistedRuntimeExecDecisionHint(conversationID, request)
+}
+
+func resolvePersistedRuntimeExecDecisionHint(conversationID string, request string) runtimeExecDecisionHint {
+	if !isContinuationLikeRequest(request) {
+		return runtimeExecDecisionHint{}
+	}
+	goal, ok := getExecutionGoalState(conversationID)
+	if !ok {
+		return runtimeExecDecisionHint{}
+	}
+	mode := normalizeRuntimeExecDecisionMode(goal.RuntimeExecDecisionMode)
+	if mode == "" || mode == "paused" || mode == "blocked.command_override" || mode == "clear" {
+		return runtimeExecDecisionHint{}
+	}
+	hint := runtimeExecDecisionHint{
+		Mode:             mode,
+		Source:           "persisted_state",
+		AlternateCommand: strings.TrimSpace(goal.RuntimeExecDecisionAlternateCommand),
+		Rule:             "沿用上一轮已确认策略，避免“继续”时策略漂移。",
+	}
+	return hint
+}
+
+func persistRuntimeExecDecisionHint(conversationID string, hint runtimeExecDecisionHint) {
+	mode := normalizeRuntimeExecDecisionMode(hint.Mode)
+	if strings.TrimSpace(conversationID) == "" || mode == "" {
+		return
+	}
+	if mode == "clear" {
+		setExecutionGoalState(conversationID, executionGoalState{
+			RuntimeExecDecisionMode:             "",
+			RuntimeExecDecisionSource:           "__clear__",
+			RuntimeExecDecisionAlternateCommand: "",
+		})
+		return
+	}
+	setExecutionGoalState(conversationID, executionGoalState{
+		RuntimeExecDecisionMode:             mode,
+		RuntimeExecDecisionSource:           fallbackValue(strings.TrimSpace(hint.Source), "user_phrase"),
+		RuntimeExecDecisionAlternateCommand: strings.TrimSpace(hint.AlternateCommand),
+	})
+}
+
+func detectRuntimeExecDecisionHint(request string) runtimeExecDecisionHint {
+	normalized := normalizeRuntimeExecDecisionRequest(request)
+	if normalized == "" {
+		return runtimeExecDecisionHint{}
+	}
+	if altCmd, ok := extractRuntimeExecAlternateCommand(request); ok {
+		return runtimeExecDecisionHint{
+			Mode:             normalizeRuntimeExecDecisionMode("blocked.command_override"),
+			Source:           "user_phrase",
+			AlternateCommand: altCmd,
+			Rule:             "仅使用 runtime.exec 执行该替代命令，并保留执行证据。",
+		}
+	}
+	switch {
+	case containsAnyPhrase(normalized, "取消策略", "清除策略", "清空策略", "恢复默认", "恢复默认策略", "重置策略", "clear strategy", "reset strategy", "default strategy"):
+		return runtimeExecDecisionHint{
+			Mode:   normalizeRuntimeExecDecisionMode("clear"),
+			Source: "user_phrase",
+			Rule:   "清除已锁定策略，后续按默认自治流程执行。",
+		}
+	case containsAnyPhrase(normalized, "继续深修", "继续进行深修", "deep repair", "continue deep repair"):
+		return runtimeExecDecisionHint{
+			Mode:   normalizeRuntimeExecDecisionMode("service.deep_repair"),
+			Source: "user_phrase",
+			Rule:   "允许执行迁移/数据修复动作；不要退化为仅重启。",
+		}
+	case containsAnyPhrase(normalized, "仅重试", "只重试", "retry only", "only retry"):
+		return runtimeExecDecisionHint{
+			Mode:   normalizeRuntimeExecDecisionMode("service.retry_only"),
+			Source: "user_phrase",
+			Rule:   "仅执行重启 + 健康检查；禁止迁移或数据改写。",
+		}
+	case containsAnyPhrase(normalized, "继续构建修复", "构建修复继续", "continue build repair", "build repair continue"):
+		return runtimeExecDecisionHint{
+			Mode:   normalizeRuntimeExecDecisionMode("build.continue"),
+			Source: "user_phrase",
+			Rule:   "继续构建链自动修复，可执行依赖修复与重新构建。",
+		}
+	case containsAnyPhrase(normalized, "切换依赖源", "切换源", "换源", "switch source", "switch mirror", "use mirror"):
+		return runtimeExecDecisionHint{
+			Mode:   normalizeRuntimeExecDecisionMode("build.switch_source"),
+			Source: "user_phrase",
+			Rule:   "优先切换镜像/离线源后再重试构建。",
+		}
+	case isPauseRuntimeExecDecision(normalized):
+		return runtimeExecDecisionHint{
+			Mode:   normalizeRuntimeExecDecisionMode("paused"),
+			Source: "user_phrase",
+			Rule:   "停止自动执行，只输出暂停确认并等待新指令。",
+		}
+	default:
+		return runtimeExecDecisionHint{}
+	}
+}
+
+func normalizeRuntimeExecDecisionRequest(request string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(request)), " "))
+}
+
+func extractRuntimeExecAlternateCommand(request string) (string, bool) {
+	matches := runtimeExecAlternateCommandPattern.FindStringSubmatch(strings.TrimSpace(request))
+	if len(matches) < 2 {
+		return "", false
+	}
+	cmdline := strings.TrimSpace(matches[1])
+	cmdline = strings.Trim(cmdline, "`'\"")
+	if cmdline == "" {
+		return "", false
+	}
+	return cmdline, true
+}
+
+func isPauseRuntimeExecDecision(normalized string) bool {
+	normalized = strings.TrimSpace(strings.ToLower(normalized))
+	if normalized == "" {
+		return false
+	}
+	if containsAnyPhrase(normalized, "不要暂停", "不暂停", "别暂停", "don't pause", "do not pause") {
+		return false
+	}
+	trimmed := strings.Trim(normalized, "`'\"，,。.!！？?;；:：")
+	switch trimmed {
+	case "暂停", "先暂停", "暂停一下", "暂停下", "pause", "hold", "stop":
+		return true
+	default:
+		return false
+	}
+}
+
+func renderRuntimeExecDecisionHintSnapshot(hint runtimeExecDecisionHint) string {
+	mode := strings.TrimSpace(hint.Mode)
+	if mode == "" {
+		return ""
+	}
+	lines := []string{
+		"runtime_exec_decision.mode=" + mode,
+		"runtime_exec_decision.source=" + fallbackValue(strings.TrimSpace(hint.Source), "user_phrase"),
+	}
+	if altCmd := strings.TrimSpace(hint.AlternateCommand); altCmd != "" {
+		lines = append(lines, "runtime_exec_decision.alternate_command="+oneLine(altCmd))
+	}
+	if rule := strings.TrimSpace(hint.Rule); rule != "" {
+		lines = append(lines, "runtime_exec_decision.rule="+oneLine(rule))
+	}
+	return strings.Join(lines, "\n")
+}
+
+type taskControlContinuationHint struct {
+	Service   string
+	URL       string
+	Operation string
+	UpdatedAt string
+	Source    string
+}
+
+type taskControlSelfHealRoutingSnapshot struct {
+	Service         string
+	State           string
+	Reason          string
+	LastAt          string
+	AlertLevel      string
+	AlertState      string
+	AlertReason     string
+	AlertNotifiedAt string
+}
+
+func buildExecutionContinuationSnapshot(conversationID string, request string, runtime agentRuntime) string {
 	conversationID = strings.TrimSpace(conversationID)
 	if conversationID == "" {
 		return ""
 	}
+	routeScopeKey := inferRoutingScopeKeyFromScopedConversationID(conversationID)
+	taskControlHint := resolveTaskControlContinuationHint(runtime, conversationID, routeScopeKey)
 	records := listRecentRuntimeExecAttestations(conversationID, 4)
 	if len(records) == 0 {
 		if goal, ok := getExecutionGoalState(conversationID); ok {
-			return strings.TrimSpace("goal=" + fallbackValue(goal.Goal, "-") + "\n" +
+			base := strings.TrimSpace("task_id=" + fallbackValue(goal.TaskID, "-") + "\n" +
+				"goal=" + fallbackValue(goal.Goal, "-") + "\n" +
 				"goal_status=" + fallbackValue(goal.Status, "-") + "\n" +
+				"goal_agent=" + fallbackValue(goal.AgentID, "-") + "\n" +
+				"goal_remaining_steps=" + fallbackValue(strings.Join(limitExecutionList(goal.RemainingSteps, 3), " | "), "-") + "\n" +
+				"goal_next_action=" + fallbackValue(oneLine(goal.NextAction), "-") + "\n" +
 				"goal_last_result=" + fallbackValue(oneLine(goal.LastResult), "-"))
+			if hint := renderTaskControlHintSnapshot(taskControlHint); hint != "" {
+				return strings.TrimSpace(base + "\n" + hint)
+			}
+			return base
+		}
+		if hint := renderTaskControlHintSnapshot(taskControlHint); hint != "" {
+			return hint
 		}
 		return ""
 	}
 	var builder strings.Builder
 	if goal, ok := getExecutionGoalState(conversationID); ok {
+		builder.WriteString("task_id=")
+		builder.WriteString(fallbackValue(goal.TaskID, "-"))
+		builder.WriteByte('\n')
 		builder.WriteString("goal=")
 		builder.WriteString(fallbackValue(goal.Goal, "-"))
 		builder.WriteByte('\n')
 		builder.WriteString("goal_status=")
 		builder.WriteString(fallbackValue(goal.Status, "-"))
 		builder.WriteByte('\n')
+		builder.WriteString("goal_agent=")
+		builder.WriteString(fallbackValue(goal.AgentID, "-"))
+		builder.WriteByte('\n')
+		builder.WriteString("goal_remaining_steps=")
+		builder.WriteString(fallbackValue(strings.Join(limitExecutionList(goal.RemainingSteps, 3), " | "), "-"))
+		builder.WriteByte('\n')
+		builder.WriteString("goal_next_action=")
+		builder.WriteString(fallbackValue(oneLine(goal.NextAction), "-"))
+		builder.WriteByte('\n')
 		if strings.TrimSpace(goal.LastResult) != "" {
 			builder.WriteString("goal_last_result=")
 			builder.WriteString(oneLine(goal.LastResult))
 			builder.WriteByte('\n')
 		}
+	}
+	if hint := renderTaskControlHintSnapshot(taskControlHint); hint != "" {
+		builder.WriteString(hint)
+		builder.WriteByte('\n')
 	}
 	builder.WriteString("recent_exec_count=")
 	builder.WriteString(strconv.Itoa(len(records)))
@@ -3594,6 +4936,10 @@ func buildExecutionContinuationSnapshot(conversationID string, request string) s
 		builder.WriteString(oneLine(summarizeText(rec.Command, 120)))
 		builder.WriteString(" preview=")
 		builder.WriteString(oneLine(summarizeText(rec.OutputPreview, 120)))
+		if decisionCtx := renderRuntimeExecDecisionSnapshotForContinuation(rec); decisionCtx != "" {
+			builder.WriteByte(' ')
+			builder.WriteString(decisionCtx)
+		}
 		builder.WriteByte('\n')
 	}
 	if isContinuationLikeRequest(request) {
@@ -3601,6 +4947,209 @@ func buildExecutionContinuationSnapshot(conversationID string, request string) s
 		builder.WriteString("continuation_rule=如果用户只说“继续”，请基于最近失败点推进，不要重复最近已成功命令\n")
 	}
 	return strings.TrimSpace(builder.String())
+}
+
+func renderRuntimeExecDecisionSnapshotForContinuation(record runtimeExecAttestationRecord) string {
+	mode := normalizeRuntimeExecDecisionMode(record.RuntimeExecDecisionMode)
+	applySource := strings.TrimSpace(record.RuntimeExecDecisionApplySource)
+	lockSource := strings.TrimSpace(record.RuntimeExecDecisionLockSource)
+	source := strings.TrimSpace(record.RuntimeExecDecisionSource)
+	fallbackSource := strings.TrimSpace(record.RuntimeExecDecisionFallbackSource)
+
+	parts := make([]string, 0, 5)
+	if mode != "" {
+		parts = append(parts, "decision_mode="+oneLine(mode))
+	}
+	if applySource != "" {
+		parts = append(parts, "decision_apply_source="+oneLine(applySource))
+	}
+	if lockSource != "" {
+		parts = append(parts, "decision_lock_source="+oneLine(lockSource))
+	}
+	if source != "" && source != lockSource {
+		parts = append(parts, "decision_source="+oneLine(source))
+	}
+	if fallbackSource != "" {
+		parts = append(parts, "decision_fallback_source="+oneLine(fallbackSource))
+	}
+	return strings.TrimSpace(strings.Join(parts, " "))
+}
+
+func resolveTaskControlContinuationHint(runtime agentRuntime, conversationID string, routeScopeKey string) taskControlContinuationHint {
+	root := resolveTaskTrackingRoot(runtime, "")
+	if strings.TrimSpace(root) == "" {
+		return taskControlContinuationHint{}
+	}
+	state, ok, err := loadWorkspaceTaskTrackingState(root)
+	if err != nil || !ok {
+		return taskControlContinuationHint{}
+	}
+	snapshot := state.TaskTrackingSnapshot
+	if len(snapshot) == 0 {
+		return taskControlContinuationHint{}
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	routeScopeKey = normalizeTaskControlRouteScopeKey(routeScopeKey)
+	if routeScopeKey == "" {
+		routeScopeKey = inferRoutingScopeKeyFromScopedConversationID(conversationID)
+	}
+
+	lastOperation := strings.TrimSpace(strings.ToLower(readTaskTrackingString(snapshot, "last_task_control_operation")))
+	lastUpdatedAt := strings.TrimSpace(readTaskTrackingString(snapshot, "last_task_control_at"))
+	runtimeService := strings.TrimSpace(strings.ToLower(inferManagedServiceNameForAgent(runtime.agentID)))
+
+	routeHints := readTaskTrackingRouteHintMap(snapshot, "task_control_route_hints")
+	if routeScopeKey != "" && len(routeHints) > 0 {
+		if record, ok := routeHints[routeScopeKey]; ok {
+			service := strings.TrimSpace(strings.ToLower(record.Service))
+			if service == "" {
+				service = runtimeService
+			}
+			if service != "" && (runtimeService == "" || service == runtimeService) {
+				if healthURL := sanitizeManagedHealthURL(record.HealthURL); healthURL != "" {
+					operation := strings.TrimSpace(strings.ToLower(record.Operation))
+					if operation == "" {
+						operation = fallbackValue(lastOperation, "restart")
+					}
+					updatedAt := strings.TrimSpace(record.UpdatedAt)
+					if updatedAt == "" {
+						updatedAt = fallbackValue(lastUpdatedAt, state.LastTaskUpdatedAt)
+					}
+					return taskControlContinuationHint{
+						Service:   service,
+						URL:       healthURL,
+						Operation: fallbackValue(operation, "restart"),
+						UpdatedAt: updatedAt,
+						Source:    "workspace_state_route_scope",
+					}
+				}
+			}
+		}
+	}
+
+	service := strings.TrimSpace(strings.ToLower(readTaskTrackingString(snapshot, "health_service")))
+	healthURL := sanitizeManagedHealthURL(readTaskTrackingString(snapshot, "health_url"))
+	recordedConversationID := strings.TrimSpace(readTaskTrackingString(snapshot, "conversation_id"))
+	if conversationID != "" && recordedConversationID != "" && conversationID != recordedConversationID {
+		service = ""
+		healthURL = ""
+	}
+	if service != "" && healthURL != "" {
+		return taskControlContinuationHint{
+			Service:   service,
+			URL:       healthURL,
+			Operation: fallbackValue(lastOperation, "restart"),
+			UpdatedAt: fallbackValue(lastUpdatedAt, state.LastTaskUpdatedAt),
+			Source:    "workspace_state_latest",
+		}
+	}
+
+	serviceURLs := readTaskTrackingStringMap(snapshot, "service_health_urls")
+	if len(serviceURLs) == 0 {
+		return taskControlContinuationHint{}
+	}
+	if runtimeService != "" {
+		if value := sanitizeManagedHealthURL(serviceURLs[runtimeService]); value != "" {
+			return taskControlContinuationHint{
+				Service:   runtimeService,
+				URL:       value,
+				Operation: fallbackValue(lastOperation, "restart"),
+				UpdatedAt: fallbackValue(lastUpdatedAt, state.LastTaskUpdatedAt),
+				Source:    "workspace_state_service_map",
+			}
+		}
+	}
+	if len(serviceURLs) == 1 {
+		for key, value := range serviceURLs {
+			value = sanitizeManagedHealthURL(value)
+			if value == "" {
+				continue
+			}
+			return taskControlContinuationHint{
+				Service:   strings.TrimSpace(strings.ToLower(key)),
+				URL:       value,
+				Operation: fallbackValue(lastOperation, "restart"),
+				UpdatedAt: fallbackValue(lastUpdatedAt, state.LastTaskUpdatedAt),
+				Source:    "workspace_state_single_entry",
+			}
+		}
+	}
+	return taskControlContinuationHint{}
+}
+
+func renderTaskControlHintSnapshot(hint taskControlContinuationHint) string {
+	service := strings.TrimSpace(strings.ToLower(hint.Service))
+	url := sanitizeManagedHealthURL(hint.URL)
+	operation := strings.TrimSpace(strings.ToLower(hint.Operation))
+	updatedAt := strings.TrimSpace(hint.UpdatedAt)
+	if service == "" || url == "" {
+		return ""
+	}
+	if operation == "" {
+		operation = "restart"
+	}
+	if updatedAt == "" {
+		updatedAt = "-"
+	}
+	return strings.TrimSpace(
+		"task_control_hint_available=true\n" +
+			"task_control_hint_service=" + service + "\n" +
+			"task_control_hint_health_url=" + url + "\n" +
+			"task_control_hint_operation=" + operation + "\n" +
+			"task_control_hint_updated_at=" + updatedAt + "\n" +
+			"task_control_hint_source=" + fallbackValue(strings.TrimSpace(hint.Source), "workspace_state") + "\n" +
+			"task_control_hint_rule=执行 runtime.task.control ensure_running/restart 时优先复用该 health_url",
+	)
+}
+
+func buildExecutionResumeHint(conversationID string, request string) string {
+	normalized := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(request)), " "))
+	if !looksLikeTaskResumeRequest(normalized) {
+		return ""
+	}
+	goal, ok := getExecutionGoalState(conversationID)
+	if !ok {
+		return "[Resume Task Snapshot]\nresume_available=false"
+	}
+	requestedTaskID := extractTaskIDFromResumeRequest(normalized)
+	if requestedTaskID != "" && requestedTaskID != strings.ToLower(strings.TrimSpace(goal.TaskID)) {
+		return strings.TrimSpace("[Resume Task Snapshot]\nresume_available=true\nrequested_task_id=" + requestedTaskID +
+			"\nresolved_task_id=" + fallbackValue(strings.TrimSpace(goal.TaskID), "-") +
+			"\nresume_goal=" + fallbackValue(oneLine(goal.Goal), "-") +
+			"\nresume_status=" + fallbackValue(strings.TrimSpace(goal.Status), "-") +
+			"\nresume_note=requested_task_id_not_match_resolved_latest")
+	}
+	return strings.TrimSpace("[Resume Task Snapshot]\nresume_available=true\nresume_task_id=" + fallbackValue(strings.TrimSpace(goal.TaskID), "-") +
+		"\nresume_goal=" + fallbackValue(oneLine(goal.Goal), "-") +
+		"\nresume_status=" + fallbackValue(strings.TrimSpace(goal.Status), "-") +
+		"\nresume_remaining_steps=" + fallbackValue(strings.Join(limitExecutionList(goal.RemainingSteps, 3), " | "), "-") +
+		"\nresume_next_action=" + fallbackValue(oneLine(goal.NextAction), "-") +
+		"\nresume_last_result=" + fallbackValue(oneLine(goal.LastResult), "-"))
+}
+
+func looksLikeTaskResumeRequest(normalized string) bool {
+	if normalized == "" {
+		return false
+	}
+	return containsAnyPhrase(normalized,
+		"继续", "continue", "resume", "续跑", "恢复", "接着", "接续",
+	) && containsAnyPhrase(normalized,
+		"任务", "task", "task_id", "task-id", "task ",
+	)
+}
+
+func extractTaskIDFromResumeRequest(normalized string) string {
+	normalized = strings.TrimSpace(strings.ToLower(normalized))
+	if normalized == "" {
+		return ""
+	}
+	for _, token := range strings.Fields(normalized) {
+		token = strings.Trim(token, "`'\"，,。.!！?？:：;；)）]】")
+		if strings.HasPrefix(token, "task-") {
+			return token
+		}
+	}
+	return ""
 }
 
 func isContinuationLikeRequest(text string) bool {
@@ -3629,7 +5178,7 @@ func buildStagedRoutingSnapshot(decision service.Decision, runtime agentRuntime,
 	})
 	intent := result.Intent.Normalize()
 	route := result.Route.Normalize()
-	return strings.Join([]string{
+	lines := []string{
 		"intent.type=" + intent.Type,
 		"intent.value=" + fallbackValue(intent.Intent, "-"),
 		"intent.route=" + fallbackValue(intent.Route, "-"),
@@ -3645,7 +5194,141 @@ func buildStagedRoutingSnapshot(decision service.Decision, runtime agentRuntime,
 		"fallback.mode=" + fallbackValue(result.Fallback.Mode, "-"),
 		"fallback.reason=" + fallbackValue(result.Fallback.Reason, "-"),
 		"execution.can_execute=" + strconv.FormatBool(result.CanExecute),
-	}, "\n")
+	}
+	routeScopeKey := inferRoutingScopeKeyFromScopedConversationID(decision.ConversationID)
+	taskControlHint := resolveTaskControlContinuationHint(runtime, decision.ConversationID, routeScopeKey)
+	if strings.TrimSpace(taskControlHint.Service) != "" && strings.TrimSpace(taskControlHint.URL) != "" {
+		lines = append(lines,
+			"task_control.last_action_available=true",
+			"task_control.last_operation="+fallbackValue(strings.TrimSpace(strings.ToLower(taskControlHint.Operation)), "restart"),
+			"task_control.last_service="+strings.TrimSpace(strings.ToLower(taskControlHint.Service)),
+			"task_control.last_health_url="+sanitizeManagedHealthURL(taskControlHint.URL),
+			"task_control.last_updated_at="+fallbackValue(strings.TrimSpace(taskControlHint.UpdatedAt), "-"),
+			"task_control.route_rule=若用户请求重启/拉起 worker，优先输出 runtime.task.control 并复用 last_health_url",
+		)
+	} else {
+		lines = append(lines, "task_control.last_action_available=false")
+	}
+	selfHealSnapshot := resolveTaskControlSelfHealRoutingSnapshot(runtime)
+	lines = append(lines, renderTaskControlSelfHealRoutingSnapshot(selfHealSnapshot)...)
+	return strings.Join(lines, "\n")
+}
+
+func resolveTaskControlSelfHealRoutingSnapshot(runtime agentRuntime) taskControlSelfHealRoutingSnapshot {
+	root := resolveTaskTrackingRoot(runtime, "")
+	if strings.TrimSpace(root) == "" {
+		return taskControlSelfHealRoutingSnapshot{}
+	}
+	state, ok, err := loadWorkspaceTaskTrackingState(root)
+	if err != nil || !ok {
+		return taskControlSelfHealRoutingSnapshot{}
+	}
+	snapshot := state.TaskTrackingSnapshot
+	if len(snapshot) == 0 {
+		return taskControlSelfHealRoutingSnapshot{}
+	}
+	service := strings.TrimSpace(strings.ToLower(strings.TrimSuffix(readTaskTrackingString(snapshot, "last_task_control_self_heal_service"), ".service")))
+	if service == "" {
+		return taskControlSelfHealRoutingSnapshot{}
+	}
+	runtimeService := strings.TrimSpace(strings.ToLower(strings.TrimSuffix(inferManagedServiceNameForAgent(runtime.agentID), ".service")))
+	if runtimeService != "" && service != runtimeService {
+		return taskControlSelfHealRoutingSnapshot{}
+	}
+	stateValue := strings.TrimSpace(strings.ToLower(readTaskTrackingString(snapshot, "last_task_control_self_heal_state")))
+	if stateValue == "" {
+		stateValue = "unknown"
+	}
+	reason := normalizeTaskControlSelfHealReason(readTaskTrackingString(snapshot, "last_task_control_self_heal_reason"))
+	if reason == "" {
+		reason = "unknown"
+	}
+
+	alertLevels := readTaskTrackingStringMap(snapshot, "service_self_heal_alert_levels")
+	alertStates := readTaskTrackingStringMap(snapshot, "service_self_heal_alert_states")
+	alertReasons := readTaskTrackingStringMap(snapshot, "service_self_heal_alert_reasons")
+	alertNotifiedAt := readTaskTrackingStringMap(snapshot, "service_self_heal_alert_notified_at")
+
+	level := normalizeTaskControlSelfHealAlertLevel(alertLevels[service])
+	if level == "" {
+		level = normalizeTaskControlSelfHealAlertLevel(readTaskTrackingString(snapshot, "last_task_control_self_heal_alert_level"))
+	}
+	if level == "" {
+		level = "ok"
+	}
+	alertState := strings.TrimSpace(strings.ToLower(alertStates[service]))
+	if alertState == "" {
+		alertState = strings.TrimSpace(strings.ToLower(readTaskTrackingString(snapshot, "last_task_control_self_heal_alert_state")))
+	}
+	if alertState == "" {
+		alertState = "unknown"
+	}
+	alertReason := normalizeTaskControlSelfHealReason(alertReasons[service])
+	if alertReason == "" {
+		alertReason = normalizeTaskControlSelfHealReason(readTaskTrackingString(snapshot, "last_task_control_self_heal_alert_reason"))
+	}
+	if alertReason == "" {
+		alertReason = reason
+	}
+	if alertReason == "" {
+		alertReason = "unknown"
+	}
+	notifiedAt := strings.TrimSpace(alertNotifiedAt[service])
+	if notifiedAt == "" {
+		notifiedAt = strings.TrimSpace(readTaskTrackingString(snapshot, "last_task_control_self_heal_alert_at"))
+	}
+
+	return taskControlSelfHealRoutingSnapshot{
+		Service:         service,
+		State:           stateValue,
+		Reason:          reason,
+		LastAt:          strings.TrimSpace(readTaskTrackingString(snapshot, "last_task_control_self_heal_at")),
+		AlertLevel:      level,
+		AlertState:      alertState,
+		AlertReason:     alertReason,
+		AlertNotifiedAt: notifiedAt,
+	}
+}
+
+func renderTaskControlSelfHealRoutingSnapshot(snapshot taskControlSelfHealRoutingSnapshot) []string {
+	service := strings.TrimSpace(strings.ToLower(snapshot.Service))
+	if service == "" {
+		return []string{"task_control.self_heal_available=false"}
+	}
+	state := fallbackValue(strings.TrimSpace(strings.ToLower(snapshot.State)), "unknown")
+	reason := fallbackValue(normalizeTaskControlSelfHealReason(snapshot.Reason), "unknown")
+	level := normalizeTaskControlSelfHealAlertLevel(snapshot.AlertLevel)
+	if level == "" {
+		level = "ok"
+	}
+	alertState := fallbackValue(strings.TrimSpace(strings.ToLower(snapshot.AlertState)), "unknown")
+	alertReason := fallbackValue(normalizeTaskControlSelfHealReason(snapshot.AlertReason), reason)
+	if alertReason == "" {
+		alertReason = "unknown"
+	}
+	reasonLabel := strings.TrimSpace(mapTaskControlAutoRecoveryReasonLabel(reason))
+	if reasonLabel == "" {
+		reasonLabel = "未知原因"
+	}
+	alertReasonLabel := strings.TrimSpace(mapTaskControlAutoRecoveryReasonLabel(alertReason))
+	if alertReasonLabel == "" {
+		alertReasonLabel = reasonLabel
+	}
+	lines := []string{
+		"task_control.self_heal_available=true",
+		"task_control.self_heal_service=" + service,
+		"task_control.self_heal_state=" + state,
+		"task_control.self_heal_reason=" + reason,
+		"task_control.self_heal_reason_label=" + reasonLabel,
+		"task_control.self_heal_last_at=" + fallbackValue(strings.TrimSpace(snapshot.LastAt), "-"),
+		"task_control.self_heal_alert_level=" + level,
+		"task_control.self_heal_alert_state=" + alertState,
+		"task_control.self_heal_alert_reason=" + alertReason,
+		"task_control.self_heal_alert_reason_label=" + alertReasonLabel,
+		"task_control.self_heal_alert_notified_at=" + fallbackValue(strings.TrimSpace(snapshot.AlertNotifiedAt), "-"),
+		"task_control.self_heal_rule=若 alert_level 为 warning/critical，先按 self_heal_alert_reason 执行恢复步骤再汇报",
+	}
+	return lines
 }
 
 func loadAgentInventorySnapshot(runtime agentRuntime) agentInventorySnapshot {

@@ -98,9 +98,18 @@ func buildCodexCLIExecutor(profile Profile) ExecutorFunc {
 				resolvedThreadID = defaultBackendSessionID(request)
 			}
 
-			failure := strings.TrimSpace(stderr.String())
+			failure := parseCodexFailureMessage(stdout.String())
+			if failure == "" {
+				failure = strings.TrimSpace(stderr.String())
+			}
 			if failure == "" {
 				failure = err.Error()
+			}
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				lowerFailure := strings.ToLower(strings.TrimSpace(failure))
+				if lowerFailure == "" || strings.Contains(lowerFailure, "signal: killed") {
+					failure = ctxErr.Error()
+				}
 			}
 			output := readTrimmedFile(outputPath)
 			cachedTokens, promptTokens, completionTokens, totalTokens := parseCodexPromptUsage(stdout.String())
@@ -479,6 +488,51 @@ func parseCodexPromptUsage(raw string) (cachedTokens int, promptTokens int, comp
 		totalTokens = promptTokens + completionTokens
 	}
 	return cachedTokens, promptTokens, completionTokens, totalTokens
+}
+
+func parseCodexFailureMessage(raw string) string {
+	lines := strings.Split(raw, "\n")
+	message := ""
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var event struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+			Error   *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+		switch strings.TrimSpace(event.Type) {
+		case "turn.failed":
+			if event.Error != nil && strings.TrimSpace(event.Error.Message) != "" {
+				message = strings.TrimSpace(event.Error.Message)
+			}
+		case "error":
+			if strings.TrimSpace(event.Message) != "" {
+				message = strings.TrimSpace(event.Message)
+			}
+		}
+	}
+	return compactCodexFailureMessage(message)
+}
+
+func compactCodexFailureMessage(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	value = strings.Join(strings.Fields(value), " ")
+	const maxLen = 800
+	if len(value) > maxLen {
+		return strings.TrimSpace(value[:maxLen]) + "..."
+	}
+	return value
 }
 
 func nestedInt(payload map[string]any, path ...string) (int, bool) {

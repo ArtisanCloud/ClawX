@@ -134,3 +134,95 @@ func TestQueueRequeueTask(t *testing.T) {
 		t.Fatalf("expected retry increment to 1, got=%d", requeued.Retry)
 	}
 }
+
+func TestQueueMergePayload(t *testing.T) {
+	tmp := t.TempDir()
+	q := NewQueue(filepath.Join(tmp, "tasks.jsonl"))
+	task, err := q.Enqueue(RuntimeTask{
+		Source: "nl",
+		Intent: "payload-merge",
+		Payload: map[string]interface{}{
+			"keep":  "value",
+			"drop":  "x",
+			"count": 1,
+		},
+		Status: TaskQueued,
+	})
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	merged, ok, err := q.MergePayload(task.TaskID, map[string]interface{}{
+		"count":      2,
+		"last_error": "boom",
+		"drop":       nil,
+	})
+	if err != nil {
+		t.Fatalf("merge payload: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected merge payload success")
+	}
+	if merged.Payload["count"] != 2 {
+		t.Fatalf("expected count=2, got=%v", merged.Payload["count"])
+	}
+	if merged.Payload["last_error"] != "boom" {
+		t.Fatalf("expected last_error, got=%v", merged.Payload["last_error"])
+	}
+	if _, exists := merged.Payload["drop"]; exists {
+		t.Fatalf("expected drop key removed, payload=%+v", merged.Payload)
+	}
+}
+
+func TestQueueRetryTask(t *testing.T) {
+	tmp := t.TempDir()
+	q := NewQueue(filepath.Join(tmp, "tasks.jsonl"))
+	task, err := q.Enqueue(RuntimeTask{
+		Source:   "nl",
+		Intent:   "retry-task",
+		Status:   TaskFailed,
+		Retry:    0,
+		MaxRetry: 2,
+	})
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	retried, ok, err := q.RetryTask(task.TaskID)
+	if err != nil {
+		t.Fatalf("retry task: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected retry task success")
+	}
+	if retried.Status != TaskQueued {
+		t.Fatalf("expected queued after retry, got=%s", retried.Status)
+	}
+	if retried.Retry != 1 {
+		t.Fatalf("expected retry increment to 1, got=%d", retried.Retry)
+	}
+}
+
+func TestQueueCancelTask(t *testing.T) {
+	tmp := t.TempDir()
+	q := NewQueue(filepath.Join(tmp, "tasks.jsonl"))
+	task, err := q.Enqueue(RuntimeTask{
+		Source: "nl",
+		Intent: "cancel-task",
+		Status: TaskQueued,
+	})
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	canceled, ok, err := q.CancelTask(task.TaskID)
+	if err != nil {
+		t.Fatalf("cancel task: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected cancel task success")
+	}
+	if canceled.Status != TaskCanceled {
+		t.Fatalf("expected canceled status, got=%s", canceled.Status)
+	}
+}

@@ -17,18 +17,25 @@ import (
 )
 
 type runtimeExecAttestationRecord struct {
-	Timestamp      string `json:"timestamp"`
-	ExecID         string `json:"exec_id"`
-	ConversationID string `json:"conversation_id,omitempty"`
-	AgentID        string `json:"agent_id,omitempty"`
-	CWD            string `json:"cwd,omitempty"`
-	Command        string `json:"command"`
-	ExitCode       int    `json:"exit_code"`
-	DurationMS     int64  `json:"duration_ms"`
-	Success        bool   `json:"success"`
-	OutputDigest   string `json:"output_digest,omitempty"`
-	OutputPreview  string `json:"output_preview,omitempty"`
-	ErrorSummary   string `json:"error_summary,omitempty"`
+	Timestamp                         string `json:"timestamp"`
+	ExecID                            string `json:"exec_id"`
+	ConversationID                    string `json:"conversation_id,omitempty"`
+	AgentID                           string `json:"agent_id,omitempty"`
+	CWD                               string `json:"cwd,omitempty"`
+	Command                           string `json:"command"`
+	PlanReason                        string `json:"plan_reason,omitempty"`
+	StepReason                        string `json:"step_reason,omitempty"`
+	RuntimeExecDecisionMode           string `json:"runtime_exec_decision_mode,omitempty"`
+	RuntimeExecDecisionSource         string `json:"runtime_exec_decision_source,omitempty"`
+	RuntimeExecDecisionApplySource    string `json:"runtime_exec_decision_apply_source,omitempty"`
+	RuntimeExecDecisionLockSource     string `json:"runtime_exec_decision_lock_source,omitempty"`
+	RuntimeExecDecisionFallbackSource string `json:"runtime_exec_decision_fallback_source,omitempty"`
+	ExitCode                          int    `json:"exit_code"`
+	DurationMS                        int64  `json:"duration_ms"`
+	Success                           bool   `json:"success"`
+	OutputDigest                      string `json:"output_digest,omitempty"`
+	OutputPreview                     string `json:"output_preview,omitempty"`
+	ErrorSummary                      string `json:"error_summary,omitempty"`
 }
 
 var runtimeExecAttestationMu sync.Mutex
@@ -143,6 +150,33 @@ func listRecentRuntimeExecAttestations(conversationID string, limit int) []runti
 	// reverse to chronological order
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
 		out[i], out[j] = out[j], out[i]
+	}
+	return out
+}
+
+func listRuntimeExecAttestationsByIDs(execIDs []string) []runtimeExecAttestationRecord {
+	if len(execIDs) == 0 {
+		return nil
+	}
+	runtimeExecAttestationMu.Lock()
+	defer runtimeExecAttestationMu.Unlock()
+
+	out := make([]runtimeExecAttestationRecord, 0, len(execIDs))
+	seen := make(map[string]struct{}, len(execIDs))
+	for _, raw := range execIDs {
+		execID := strings.TrimSpace(raw)
+		if execID == "" {
+			continue
+		}
+		if _, ok := seen[execID]; ok {
+			continue
+		}
+		seen[execID] = struct{}{}
+		record, ok := runtimeExecAttestationIndex[execID]
+		if !ok {
+			continue
+		}
+		out = append(out, record)
 	}
 	return out
 }
